@@ -1,5 +1,6 @@
 #include <OpenMesh/Core/Mesh/TriMesh_ArrayKernelT.hh>
 #include <cstddef>
+#include <queue>
 #include <string>
 
 #include "GCore/Components/MeshOperand.h"
@@ -58,7 +59,7 @@ bool find_shortest_path(
         }
 
         // 遍历当前顶点的所有邻接顶点
-        for (MyMesh::VertexVertexIter vv_it = omesh.vv_iter(current);
+        for (MyMesh::VertexVertexIter vv_it = omesh.cvv_iter(current);
              vv_it.is_valid();
              ++vv_it) {
             MyMesh::VertexHandle neighbor = *vv_it;
