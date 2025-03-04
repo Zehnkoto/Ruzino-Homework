@@ -1,6 +1,7 @@
 #include <pxr/usd/usd/primRange.h>
 #include <pxr/usd/usdGeom/basisCurves.h>
 #include <pxr/usd/usdGeom/mesh.h>
+#include <pxr/usd/usdGeom/pointInstancer.h>
 #include <pxr/usd/usdGeom/points.h>
 #include <pxr/usd/usdGeom/primvarsAPI.h>
 #include <pxr/usd/usdShade/material.h>
@@ -8,6 +9,7 @@
 #include <pxr/usd/usdVol/openVDBAsset.h>
 
 #include "GCore/Components/CurveComponent.h"
+#include "GCore/Components/InstancerComponent.h"
 #include "GCore/Components/MaterialComponent.h"
 #include "GCore/Components/MeshOperand.h"
 #include "GCore/Components/PointsComponent.h"
@@ -51,12 +53,19 @@ NODE_EXECUTION_FUNCTION(write_usd)
 
     auto volume = geometry.get_component<VolumeComponent>();
 
+    auto instancer = geometry.get_component<InstancerComponent>();
+
     assert(!(points && mesh));
 
     pxr::UsdTimeCode time = global_payload.current_time;
 
     auto stage = global_payload.stage;
     auto sdf_path = global_payload.prim_path;
+
+    if (instancer) {
+        sdf_path =
+            global_payload.prim_path.AppendPath(pxr::SdfPath("Prototype"));
+    }
 
     if (mesh) {
         pxr::UsdGeomMesh usdgeom = pxr::UsdGeomMesh::Define(stage, sdf_path);
@@ -147,6 +156,35 @@ NODE_EXECUTION_FUNCTION(write_usd)
     else {
         params.set_error("No valid geometry component found");
         return false;
+    }
+
+    if (instancer) {
+        auto instancer_component =
+            pxr::UsdGeomPointInstancer::Define(stage, global_payload.prim_path);
+        instancer_component.CreatePrototypesRel().SetTargets({ sdf_path });
+
+        auto transforms = instancer->get_instances();
+
+        pxr::VtVec3fArray positions = pxr::VtVec3fArray(transforms.size());
+        pxr::VtQuathArray orientations = pxr::VtQuathArray(transforms.size());
+        pxr::VtVec3fArray scales = pxr::VtVec3fArray(transforms.size());
+
+        for (size_t i = 0; i < transforms.size(); ++i) {
+            pxr::GfVec3f translation;
+            pxr::GfQuath rotation;
+            pxr::GfVec3f scale;
+            translation = pxr::GfVec3f(transforms[i].ExtractTranslation());
+            rotation = pxr::GfQuath(transforms[i].ExtractRotationQuat());
+            // scale = pxr::GfVec3f(transforms[i].ExtractScale());
+            positions[i] = translation;
+            orientations[i] = rotation;
+            scales[i] = scale;
+        }
+        instancer_component.CreateProtoIndicesAttr().Set(
+            pxr::VtIntArray(instancer->get_proto_indices()));
+        instancer_component.CreatePositionsAttr().Set(positions);
+        instancer_component.CreateOrientationsAttr().Set(orientations);
+        // instancer_component.CreateScalesAttr().Set(scales);
     }
 
     // Material and Texture
