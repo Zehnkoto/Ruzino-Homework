@@ -6,18 +6,17 @@
 #ifndef MATERIALX_GRAPH_H
 #define MATERIALX_GRAPH_H
 
-#include <GUI/ImGuiFileDialog.h>
-#include <MaterialXCore/Document.h>
-#include <MaterialXFormat/File.h>
 #include <MaterialXFormat/Util.h>
+#include <MaterialXGraphEditor/RenderView.h>
+#include <MaterialXGraphEditor/UiNode.h>
+#include <imgui_node_editor.h>
 
-#include <nodes/ui/ui_imgui.hpp>
 #include <stack>
 
-#include "api.h"
-namespace mx = MaterialX;
+#include "GUI/ImGuiFileDialog.h"
 
-USTC_CG_NAMESPACE_OPEN_SCOPE
+namespace ed = ax::NodeEditor;
+namespace mx = MaterialX;
 
 class MenuItem {
    public:
@@ -76,6 +75,16 @@ class MenuItem {
     std::string group;
 };
 
+// A link connects two pins and includes a unique id and the ids of the two pins
+// it connects Based on the Link struct from ImGui Node Editor
+// blueprints-examples.cpp
+struct Link {
+    Link();
+
+    int _startAttr, _endAttr;
+    int _id;
+};
+
 class Graph {
    public:
     Graph(
@@ -116,9 +125,9 @@ class Graph {
 
     // Based on the comment node in the ImGui Node Editor
     // blueprints-example.cpp.
-    void buildGroupNode(Node* node);
+    void buildGroupNode(UiNodePtr node);
 
-    // Connect links via connected nodes in Node*
+    // Connect links via connected nodes in UiNodePtr
     void linkGraph();
 
     // Connect all links via the graph editor library
@@ -128,13 +137,13 @@ class Graph {
     int findLinkPosition(int id);
 
     // Check if link exists in the current link vector
-    bool linkExists(NodeLink newLink);
+    bool linkExists(Link newLink);
 
     // Add link to nodegraph and set up connections between UiNodes and
     // MaterialX Nodes to update shader
     // startPinId - where the link was initiated
     // endPinId - where the link was ended
-    void addLink(ed::SocketID startPinId, ed::SocketID endPinId);
+    void addLink(ed::PinId startPinId, ed::PinId endPinId);
 
     // Delete link from current link vector and remove any connections in
     // UiNode or MaterialX Nodes to update shader
@@ -145,7 +154,7 @@ class Graph {
     // Layout the x-position by assigning the node levels based on its distance
     // from the first node
     ImVec2
-    layoutPosition(Node* node, ImVec2 pos, bool initialLayout, int level);
+    layoutPosition(UiNodePtr node, ImVec2 pos, bool initialLayout, int level);
 
     // Extra layout pass for inputs and nodes that do not attach to an output
     // node
@@ -154,7 +163,7 @@ class Graph {
     void findYSpacing(float startPos);
     float totalHeight(int level);
     void setYSpacing(int level, float startingPos);
-    float findAvgY(const std::vector<Node*>& nodes);
+    float findAvgY(const std::vector<UiNodePtr>& nodes);
 
     // Return pin color based on the type of the value of that pin
     void setPinColor();
@@ -163,19 +172,19 @@ class Graph {
     // blueprints-example.cpp
     void drawPinIcon(const std::string& type, bool connected, int alpha);
 
-    UiPinPtr getPin(ed::SocketID id);
+    UiPinPtr getPin(ed::PinId id);
     void drawInputPin(UiPinPtr pin);
 
     // Return output pin needed to link the inputs and outputs
-    ed::SocketID getOutputPin(Node* node, Node* inputNode, UiPinPtr input);
+    ed::PinId getOutputPin(UiNodePtr node, UiNodePtr inputNode, UiPinPtr input);
 
-    void drawOutputPins(Node* node, const std::string& longestInputLabel);
+    void drawOutputPins(UiNodePtr node, const std::string& longestInputLabel);
 
     // Create pins for outputs/inputs added while inside the node graph
     void addNodeGraphPins();
 
     std::vector<int> createNodes(bool nodegraph);
-    int getNodeId(ed::SocketID pinId);
+    int getNodeId(ed::PinId pinId);
 
     // Find node location in graph nodes vector from node id
     int findNode(int nodeId);
@@ -190,19 +199,22 @@ class Graph {
         const std::string& name,
         const std::string& type);
 
-    void deleteNode(Node* node);
+    void deleteNode(UiNodePtr node);
 
     // Build the initial graph of a loaded document including shader, material
     // and nodegraph node
     void setUiNodeInfo(
-        Node* node,
+        UiNodePtr node,
         const std::string& type,
         const std::string& category);
 
     // Check if edge exists in edge vector
     bool edgeExists(UiEdge edge);
 
-    void createEdge(Node* upNode, Node* downNode, mx::InputPtr connectingInput);
+    void createEdge(
+        UiNodePtr upNode,
+        UiNodePtr downNode,
+        mx::InputPtr connectingInput);
 
     // Remove node edge based on connecting input
     void removeEdge(int downNode, int upNode, UiPinPtr pin);
@@ -213,16 +225,16 @@ class Graph {
     void savePosition();
 
     // Check if node has already been assigned a position
-    bool checkPosition(Node* node);
+    bool checkPosition(UiNodePtr node);
 
     // Add input pointer to node based on input pin
-    void addNodeInput(Node* node, mx::InputPtr& input);
+    void addNodeInput(UiNodePtr node, mx::InputPtr& input);
 
     void upNodeGraph();
 
     // Set the value of the selected node constants in the node property editor
     void setConstant(
-        Node* node,
+        UiNodePtr node,
         mx::InputPtr& input,
         const mx::UIProperties& uiProperties);
 
@@ -237,8 +249,8 @@ class Graph {
     // Set position of pasted nodes based on original node position
     void positionPasteBin(ImVec2 pos);
 
-    void copyNodeGraph(Node* origGraph, Node* copyGraph);
-    void copyUiNode(Node* node);
+    void copyNodeGraph(UiNodePtr origGraph, UiNodePtr copyGraph);
+    void copyUiNode(UiNodePtr node);
 
     void graphButtons();
 
@@ -261,7 +273,7 @@ class Graph {
 
     // Set the node to display in render view based on selected node or
     // nodegraph
-    void setRenderMaterial(Node* node);
+    void setRenderMaterial(UiNodePtr node);
 
     void clearGraph();
     void loadGraphFromFile(bool prompt);
@@ -291,35 +303,35 @@ class Graph {
     mx::ImageHandlerPtr _imageHandler;
 
     // containers of node information
-    std::vector<Node*> _graphNodes;
+    std::vector<UiNodePtr> _graphNodes;
     std::vector<UiPinPtr> _currPins;
-    std::vector<NodeLink> _currLinks;
-    std::vector<NodeLink> _newLinks;
+    std::vector<Link> _currLinks;
+    std::vector<Link> _newLinks;
     std::vector<UiEdge> _currEdge;
-    std::unordered_map<Node*, std::vector<UiPinPtr>> _downstreamInputs;
+    std::unordered_map<UiNodePtr, std::vector<UiPinPtr>> _downstreamInputs;
     std::unordered_map<std::string, ImColor> _pinColor;
 
     // current nodes and nodegraphs
-    Node* _currUiNode;
-    Node* _prevUiNode;
+    UiNodePtr _currUiNode;
+    UiNodePtr _prevUiNode;
     mx::GraphElementPtr _currGraphElem;
-    Node* _currRenderNode;
+    UiNodePtr _currRenderNode;
     std::vector<std::string> _currGraphName;
 
     // for adding new nodes
     std::vector<MenuItem> _nodesToAdd;
 
     // stacks to dive into and out of node graphs
-    std::stack<std::vector<Node*>> _graphStack;
+    std::stack<std::vector<UiNodePtr>> _graphStack;
     std::stack<std::vector<UiPinPtr>> _pinStack;
     // this stack keeps track of the graph total size
     std::stack<int> _sizeStack;
 
     // map to group and layout nodes
-    std::unordered_map<int, std::vector<Node*>> _levelMap;
+    std::unordered_map<int, std::vector<UiNodePtr>> _levelMap;
 
     // map for copied nodes
-    std::map<Node*, Node*> _copiedNodes;
+    std::map<UiNodePtr, UiNodePtr> _copiedNodes;
 
     bool _initial;
     bool _delete;
@@ -356,7 +368,5 @@ class Graph {
     // Options
     bool _saveNodePositions;
 };
-
-USTC_CG_NAMESPACE_CLOSE_SCOPE
 
 #endif
