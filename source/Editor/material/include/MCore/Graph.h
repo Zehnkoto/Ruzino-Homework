@@ -7,16 +7,24 @@
 #define MATERIALX_GRAPH_H
 
 #include <MaterialXFormat/Util.h>
-#include <MaterialXGraphEditor/RenderView.h>
-#include <MaterialXGraphEditor/UiNode.h>
+// #include <MaterialXGraphEditor/RenderView.h>
+// #include <MaterialXGraphEditor/UiNode.h>
 #include <imgui_node_editor.h>
 
 #include <stack>
 
 #include "GUI/ImGuiFileDialog.h"
+#include "MCore/api.h"
+#include "nodes/core/node.hpp"
 
+USTC_CG_NAMESPACE_OPEN_SCOPE
 namespace ed = ax::NodeEditor;
+
 namespace mx = MaterialX;
+
+using UiNodePtr = Node*;
+using UiPinPtr = NodeSocket*;
+using Link = NodeLink;
 
 class MenuItem {
    public:
@@ -75,15 +83,15 @@ class MenuItem {
     std::string group;
 };
 
-// A link connects two pins and includes a unique id and the ids of the two pins
-// it connects Based on the Link struct from ImGui Node Editor
-// blueprints-examples.cpp
-struct Link {
-    Link();
-
-    int _startAttr, _endAttr;
-    int _id;
-};
+//// A link connects two pins and includes a unique id and the ids of the two pins
+//// it connects Based on the Link struct from ImGui Node Editor
+//// blueprints-examples.cpp
+//struct Link {
+//    Link();
+//
+//    int _startAttr, _endAttr;
+//    int _id;
+//};
 
 class Graph {
    public:
@@ -98,10 +106,10 @@ class Graph {
     mx::DocumentPtr loadDocument(const mx::FilePath& filename);
     void drawGraph(ImVec2 mousePos);
 
-    RenderViewPtr getRenderer()
-    {
-        return _renderer;
-    }
+    // RenderViewPtr getRenderer()
+    //{
+    //     return _renderer;
+    // }
 
     void setFontScale(float val)
     {
@@ -287,7 +295,7 @@ class Graph {
     mx::StringVec _mtlxFilter;
     mx::StringVec _imageFilter;
 
-    RenderViewPtr _renderer;
+    // RenderViewPtr _renderer;
 
     // document and initializing information
     mx::FilePath _materialFilename;
@@ -368,5 +376,7 @@ class Graph {
     // Options
     bool _saveNodePositions;
 };
+
+USTC_CG_NAMESPACE_CLOSE_SCOPE
 
 #endif
