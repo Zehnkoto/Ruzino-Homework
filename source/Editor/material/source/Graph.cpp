@@ -2,17 +2,54 @@
 // Copyright Contributors to the MaterialX Project
 // SPDX-License-Identifier: Apache-2.0
 //
+#define IMGUI_DEFINE_MATH_OPERATORS
 
 #include <GUI/widget.h>
 #include <MCore/Graph.h>
 #include <MaterialXFormat/Util.h>
-#include <MaterialXRenderGlsl/External/Glad/glad.h>
 #include <imgui_node_editor_internal.h>
 #include <imgui_stdlib.h>
 
 #include <iostream>
+#include <nodes/core/node_link.hpp>
 namespace mx = MaterialX;
-namespace {
+
+USTC_CG_NAMESPACE_OPEN_SCOPE
+
+class MaterialXNodeTreeDescriptor : public NodeTreeDescriptor { };
+
+class MaterialXNodeTree : public NodeTree {
+   public:
+    explicit MaterialXNodeTree(
+        const std::shared_ptr<NodeTreeDescriptor>& descriptor)
+        : NodeTree(descriptor)
+    {
+    }
+
+    explicit MaterialXNodeTree(const NodeTree& other) : NodeTree(other)
+    {
+    }
+
+    // Build UiNode nodegraph upon loading a document
+    void buildUiBaseGraph(mx::DocumentPtr doc);
+
+    // Build UiNode node graph upon diving into a nodegraph node
+    void buildUiNodeGraph(const mx::NodeGraphPtr& nodeGraphs);
+
+    ~MaterialXNodeTree() override;
+    Node* find_node(NodeId id) const override;
+    Node* find_node(const char* identifier) const override;
+    Node* add_node(const char* str) override;
+    void delete_node(Node* nodeId, bool allow_repeat_delete) override;
+    void delete_node(NodeId nodeId, bool allow_repeat_delete) override;
+};
+
+std::shared_ptr<MaterialXNodeTree> createMaterialXNodeTree()
+{
+    std::shared_ptr<NodeTreeDescriptor> descriptor =
+        std::make_shared<MaterialXNodeTreeDescriptor>();
+    return std::make_shared<MaterialXNodeTree>(descriptor);
+}
 
 // Based on the dimensions of the dot_color3 node, computed by calling
 // ed::getNodeSize
@@ -105,18 +142,6 @@ std::string getUserNodeDefName(const std::string& val)
     return result;
 }
 
-}  // anonymous namespace
-
-//
-// Link methods
-//
-
-Link::Link() : _startAttr(-1), _endAttr(-1)
-{
-    static int nextId = 1;
-    _id = nextId++;
-}
-
 //
 // Graph methods
 //
@@ -133,7 +158,7 @@ Graph::Graph(
       _libraryFolders(libraryFolders),
       _initial(false),
       _delete(false),
-      _fileDialogSave(FileDialog::EnterNewFilename),
+      _fileDialogSave(IGFD::FileDialog::EnterNewFilename),
       _isNodeGraph(false),
       _graphTotalSize(0),
       _popup(false),
@@ -171,23 +196,23 @@ Graph::Graph(
     mx::FilePath captureFilename = "resources/Materials/Examples/example.png";
     std::string envRadianceFilename =
         "resources/Lights/san_giuseppe_bridge_split.hdr";
-    _renderer = std::make_shared<RenderView>(
-        _graphDoc,
-        _stdLib,
-        meshFilename,
-        envRadianceFilename,
-        _searchPath,
-        viewWidth,
-        viewHeight);
-    _renderer->initialize();
-    for (const std::string& ext :
-         _renderer->getImageHandler()->supportedExtensions()) {
-        _imageFilter.push_back("." + ext);
-    }
-    _renderer->updateMaterials(nullptr);
-    for (const std::string& incl : _renderer->getXincludeFiles()) {
-        _xincludeFiles.insert(incl);
-    }
+    //_renderer = std::make_shared<RenderView>(
+    //    _graphDoc,
+    //    _stdLib,
+    //    meshFilename,
+    //    envRadianceFilename,
+    //    _searchPath,
+    //    viewWidth,
+    //    viewHeight);
+    //_renderer->initialize();
+    // for (const std::string& ext :
+    //     _renderer->getImageHandler()->supportedExtensions()) {
+    //    _imageFilter.push_back("." + ext);
+    //}
+    //_renderer->updateMaterials(nullptr);
+    // for (const std::string& incl : _renderer->getXincludeFiles()) {
+    //    _xincludeFiles.insert(incl);
+    //}
 }
 
 mx::ElementPredicate Graph::getElementPredicate() const
@@ -300,7 +325,7 @@ void Graph::addExtraNodes()
     _nodesToAdd.emplace_back("ND_nodegraph", "", "nodegraph", "Node Graph");
 }
 
-ed::PinId Graph::getOutputPin(UiNodePtr node, UiNodePtr upNode, UiPinPtr input)
+SocketID Graph::getOutputPin(UiNodePtr node, UiNodePtr upNode, UiPinPtr input)
 {
     if (upNode->getNodeGraph() != nullptr) {
         // For nodegraph need to get the correct output pin according to the
@@ -323,7 +348,7 @@ ed::PinId Graph::getOutputPin(UiNodePtr node, UiNodePtr upNode, UiPinPtr input)
                 }
             }
         }
-        return ed::PinId();
+        return SocketID();
     }
     else {
         // For node need to get the correct output pin based on the output
@@ -348,7 +373,7 @@ ed::PinId Graph::getOutputPin(UiNodePtr node, UiNodePtr upNode, UiPinPtr input)
             }
             return (upNode->outputPins[pinIndex]->_pinId);
         }
-        return ed::PinId();
+        return SocketID();
     }
 }
 
@@ -375,7 +400,7 @@ void Graph::linkGraph()
                     link._endAttr = end;
 
                     // Get id number of output of node
-                    ed::PinId outputId =
+                    SocketID outputId =
                         getOutputPin(node, inputNode, inputs[i]);
                     int start = int(outputId.Get());
 
@@ -700,163 +725,6 @@ void Graph::setPinColor()
     _pinColor.emplace("vector4array", ImColor(100, 200, 100));
     _pinColor.emplace("geomnamearray", ImColor(150, 200, 100));
     _pinColor.emplace("stringarray", ImColor(120, 180, 100));
-}
-
-void Graph::setRenderMaterial(UiNodePtr node)
-{
-    // For now only surface shaders and materials are considered renderable.
-    // This can be adjusted as desired to include being able to use outputs,
-    // and / a sub-graph in the nodegraph.
-    const mx::StringSet RENDERABLE_TYPES = { mx::MATERIAL_TYPE_STRING,
-                                             mx::SURFACE_SHADER_TYPE_STRING };
-
-    // Set render node right away is node is renderable
-    if (node->getNode() && RENDERABLE_TYPES.count(node->getNode()->getType())) {
-        // Only set new render node if different material has been selected
-        if (_currRenderNode != node) {
-            _currRenderNode = node;
-            _frameCount = ImGui::GetFrameCount();
-            _renderer->setMaterialCompilation(true);
-        }
-    }
-
-    // Traverse downstream looking for the first renderable element.
-    else {
-        mx::NodePtr mtlxNode = node->getNode();
-        mx::NodeGraphPtr mtlxNodeGraph = node->getNodeGraph();
-        mx::OutputPtr mtlxOutput = node->getOutput();
-        if (mtlxOutput) {
-            mx::ElementPtr parent = mtlxOutput->getParent();
-            if (parent->isA<mx::NodeGraph>())
-                mtlxNodeGraph = parent->asA<mx::NodeGraph>();
-            else if (parent->isA<mx::Node>())
-                mtlxNode = parent->asA<mx::Node>();
-        }
-        mx::StringSet testPaths;
-        if (mtlxNode) {
-            mx::ElementPtr parent = mtlxNode->getParent();
-            if (parent->isA<mx::NodeGraph>()) {
-                // There is no logic to support traversing from inside a
-                // functional graph to it's instance and hence downstream so
-                // skip this from consideration. The closest approach would be
-                // to "flatten" all definitions to compound graphs.
-                mx::NodeGraphPtr parentGraph = parent->asA<mx::NodeGraph>();
-                if (parentGraph->getNodeDef()) {
-                    return;
-                }
-            }
-            testPaths.insert(mtlxNode->getNamePath());
-        }
-        else if (mtlxNodeGraph) {
-            testPaths.insert(mtlxNodeGraph->getNamePath());
-        }
-
-        mx::NodePtr foundNode = nullptr;
-        while (!testPaths.empty() && !foundNode) {
-            mx::StringSet nextPaths;
-            for (const std::string& testPath : testPaths) {
-                mx::ElementPtr testElem = _graphDoc->getDescendant(testPath);
-                mx::NodePtr testNode = testElem->asA<mx::Node>();
-                std::vector<mx::PortElementPtr> downstreamPorts;
-                if (testNode) {
-                    downstreamPorts = testNode->getDownstreamPorts();
-                }
-                else {
-                    mx::NodeGraphPtr testGraph = testElem->asA<mx::NodeGraph>();
-                    if (testGraph) {
-                        downstreamPorts = testGraph->getDownstreamPorts();
-                    }
-                }
-
-                // Test all downstream ports. If the port's node is renderable
-                // then stop searching.
-                for (mx::PortElementPtr downstreamPort : downstreamPorts) {
-                    mx::ElementPtr parent = downstreamPort->getParent();
-                    if (parent) {
-                        mx::NodePtr downstreamNode = parent->asA<mx::Node>();
-                        if (downstreamNode) {
-                            mx::NodeDefPtr nodeDef =
-                                downstreamNode->getNodeDef();
-                            if (nodeDef) {
-                                if (RENDERABLE_TYPES.count(
-                                        nodeDef->getType())) {
-                                    foundNode = downstreamNode;
-                                    break;
-                                }
-                            }
-                        }
-                        if (!foundNode) {
-                            nextPaths.insert(parent->getNamePath());
-                        }
-                    }
-                }
-                if (foundNode) {
-                    break;
-                }
-            }
-
-            // Set up next set of nodes to search downstream
-            testPaths = nextPaths;
-        }
-
-        // Update rendering. If found use that node, otherwise
-        // use the current fallback of using the first renderable node.
-        if (foundNode) {
-            for (auto uiNode : _graphNodes) {
-                if (uiNode->getNode() == foundNode) {
-                    if (_currRenderNode != uiNode) {
-                        _currRenderNode = uiNode;
-                        _frameCount = ImGui::GetFrameCount();
-                        _renderer->setMaterialCompilation(true);
-                    }
-                    break;
-                }
-            }
-        }
-        else {
-            _currRenderNode = nullptr;
-            _frameCount = ImGui::GetFrameCount();
-            _renderer->setMaterialCompilation(true);
-        }
-    }
-}
-
-void Graph::updateMaterials(
-    mx::InputPtr input /* = nullptr */,
-    mx::ValuePtr value /* = nullptr */)
-{
-    std::string renderablePath;
-    if (_currRenderNode) {
-        if (_currRenderNode->getNode()) {
-            renderablePath = _currRenderNode->getNode()->getNamePath();
-        }
-        else if (_currRenderNode->getOutput()) {
-            renderablePath = _currRenderNode->getOutput()->getNamePath();
-        }
-    }
-
-    if (renderablePath.empty()) {
-        _renderer->updateMaterials(nullptr);
-    }
-    else {
-        if (!input) {
-            mx::ElementPtr elem = nullptr;
-            {
-                elem = _graphDoc->getDescendant(renderablePath);
-            }
-            mx::TypedElementPtr typedElem =
-                elem ? elem->asA<mx::TypedElement>() : nullptr;
-            _renderer->updateMaterials(typedElem);
-        }
-        else {
-            std::string name = input->getNamePath();
-
-            // Note that if there is a topogical change due to
-            // this value change or a transparency change, then
-            // this is not currently caught here.
-            _renderer->getMaterials()[0]->modifyUniform(name, value);
-        }
-    }
 }
 
 void Graph::setConstant(
@@ -1274,7 +1142,7 @@ void Graph::createNodeUIList(mx::DocumentPtr doc)
     addExtraNodes();
 }
 
-void Graph::buildUiBaseGraph(mx::DocumentPtr doc)
+void MaterialXNodeTree::buildUiBaseGraph(mx::DocumentPtr doc)
 {
     std::vector<mx::NodeGraphPtr> nodeGraphs = doc->getNodeGraphs();
     std::vector<mx::InputPtr> inputNodes = doc->getActiveInputs();
@@ -1283,10 +1151,11 @@ void Graph::buildUiBaseGraph(mx::DocumentPtr doc)
 
     mx::ElementPredicate includeElement = getElementPredicate();
 
+
+    this->clear();
     _graphNodes.clear();
     _currLinks.clear();
     _currEdge.clear();
-    _newLinks.clear();
     _currPins.clear();
     _graphTotalSize = 1;
 
@@ -1397,13 +1266,12 @@ void Graph::buildUiBaseGraph(mx::DocumentPtr doc)
     }
 }
 
-void Graph::buildUiNodeGraph(const mx::NodeGraphPtr& nodeGraphs)
+void MaterialXNodeTree::buildUiNodeGraph(const mx::NodeGraphPtr& nodeGraphs)
 {
     // Clear all values so that ids can start with 0 or 1
     _graphNodes.clear();
     _currLinks.clear();
     _currEdge.clear();
-    _newLinks.clear();
     _currPins.clear();
     _graphTotalSize = 1;
     if (nodeGraphs) {
@@ -1804,7 +1672,7 @@ void Graph::copyInputs()
                             }
                             else {
                                 if (upNode->getNodeGraph()) {
-                                    ed::PinId outputId = getOutputPin(
+                                    SocketID outputId = getOutputPin(
                                         copyNode,
                                         upNode,
                                         copyNode->inputPins[count]);
@@ -2000,7 +1868,7 @@ void Graph::addNode(
     }
 }
 
-int Graph::getNodeId(ed::PinId pinId)
+int Graph::getNodeId(SocketID pinId)
 {
     for (UiPinPtr pin : _currPins) {
         if (pin->_pinId == pinId) {
@@ -2010,7 +1878,7 @@ int Graph::getNodeId(ed::PinId pinId)
     return -1;
 }
 
-UiPinPtr Graph::getPin(ed::PinId pinId)
+UiPinPtr Graph::getPin(SocketID pinId)
 {
     for (UiPinPtr pin : _currPins) {
         if (pin->_pinId == pinId) {
@@ -2487,7 +2355,7 @@ void Graph::setDefaults(mx::InputPtr input)
     }
 }
 
-void Graph::addLink(ed::PinId startPinId, ed::PinId endPinId)
+void Graph::addLink(SocketID startPinId, SocketID endPinId)
 {
     // Prefer to assume left to right - start is an output, end is an input;
     // swap if inaccurate
@@ -2500,8 +2368,8 @@ void Graph::addLink(ed::PinId startPinId, ed::PinId endPinId)
 
     int end_attr = int(endPinId.Get());
     int start_attr = int(startPinId.Get());
-    ed::PinId outputPinId = startPinId;
-    ed::PinId inputPinId = endPinId;
+    SocketID outputPinId = startPinId;
+    SocketID inputPinId = endPinId;
     UiPinPtr outputPin = getPin(outputPinId);
     UiPinPtr inputPin = getPin(inputPinId);
 
@@ -2837,7 +2705,7 @@ void Graph::deleteLinkInfo(int startAttr, int endAttr)
     }
 }
 
-void Graph::deleteLink(ed::LinkId deletedLinkId)
+void Graph::deleteLink(LinkId deletedLinkId)
 {
     // If you agree that link can be deleted, accept deletion.
     if (ed::AcceptDeletedItem()) {
@@ -3028,7 +2896,6 @@ void Graph::clearGraph()
     _graphNodes.clear();
     _currLinks.clear();
     _currEdge.clear();
-    _newLinks.clear();
     _currPins.clear();
     _graphDoc = mx::createDocument();
     _graphDoc->setDataLibrary(_stdLib);
@@ -3820,8 +3687,8 @@ void Graph::searchNodePopup(bool cursor)
 
 bool Graph::isPinHovered()
 {
-    ed::PinId currentPin = ed::GetHoveredPin();
-    ed::PinId nullPin = 0;
+    SocketID currentPin = ed::GetHoveredPin();
+    SocketID nullPin = 0;
     return currentPin != nullPin;
 }
 
@@ -3972,7 +3839,7 @@ void Graph::drawGraph(ImVec2 mousePos)
         // Gather selected nodes / links - from ImGui Node Editor
         // blueprints-example.cpp
         std::vector<ed::NodeId> selectedNodes;
-        std::vector<ed::LinkId> selectedLinks;
+        std::vector<LinkId> selectedLinks;
         selectedNodes.resize(ed::GetSelectedObjectCount());
         selectedLinks.resize(ed::GetSelectedObjectCount());
 
@@ -4165,7 +4032,7 @@ void Graph::drawGraph(ImVec2 mousePos)
 
         // Add new link
         if (ed::BeginCreate()) {
-            ed::PinId startPinId, endPinId, filterPinId;
+            SocketID startPinId, endPinId, filterPinId;
             if (ed::QueryNewLink(&startPinId, &endPinId)) {
                 if (!readOnly()) {
                     addLink(startPinId, endPinId);
@@ -4187,7 +4054,7 @@ void Graph::drawGraph(ImVec2 mousePos)
 
         // Delete link
         if (ed::BeginDelete()) {
-            ed::LinkId deletedLinkId;
+            LinkId deletedLinkId;
             while (ed::QueryDeletedLink(&deletedLinkId)) {
                 if (!readOnly()) {
                     deleteLink(deletedLinkId);
@@ -4417,3 +4284,165 @@ void Graph::saveDocument(mx::FilePath filePath)
     writeOptions.elementPredicate = getElementPredicate();
     mx::writeToXmlFile(writeDoc, filePath, &writeOptions);
 }
+
+void Graph::setRenderMaterial(UiNodePtr node)
+{
+    //// For now only surface shaders and materials are considered renderable.
+    //// This can be adjusted as desired to include being able to use outputs,
+    //// and / a sub-graph in the nodegraph.
+    // const mx::StringSet RENDERABLE_TYPES = { mx::MATERIAL_TYPE_STRING,
+    //                                          mx::SURFACE_SHADER_TYPE_STRING
+    //                                          };
+
+    //// Set render node right away is node is renderable
+    // if (node->getNode() &&
+    // RENDERABLE_TYPES.count(node->getNode()->getType())) {
+    //     // Only set new render node if different material has been selected
+    //     if (_currRenderNode != node) {
+    //         _currRenderNode = node;
+    //         _frameCount = ImGui::GetFrameCount();
+    //         _renderer->setMaterialCompilation(true);
+    //     }
+    // }
+
+    //// Traverse downstream looking for the first renderable element.
+    // else {
+    //     mx::NodePtr mtlxNode = node->getNode();
+    //     mx::NodeGraphPtr mtlxNodeGraph = node->getNodeGraph();
+    //     mx::OutputPtr mtlxOutput = node->getOutput();
+    //     if (mtlxOutput) {
+    //         mx::ElementPtr parent = mtlxOutput->getParent();
+    //         if (parent->isA<mx::NodeGraph>())
+    //             mtlxNodeGraph = parent->asA<mx::NodeGraph>();
+    //         else if (parent->isA<mx::Node>())
+    //             mtlxNode = parent->asA<mx::Node>();
+    //     }
+    //     mx::StringSet testPaths;
+    //     if (mtlxNode) {
+    //         mx::ElementPtr parent = mtlxNode->getParent();
+    //         if (parent->isA<mx::NodeGraph>()) {
+    //             // There is no logic to support traversing from inside a
+    //             // functional graph to it's instance and hence downstream so
+    //             // skip this from consideration. The closest approach would
+    //             be
+    //             // to "flatten" all definitions to compound graphs.
+    //             mx::NodeGraphPtr parentGraph = parent->asA<mx::NodeGraph>();
+    //             if (parentGraph->getNodeDef()) {
+    //                 return;
+    //             }
+    //         }
+    //         testPaths.insert(mtlxNode->getNamePath());
+    //     }
+    //     else if (mtlxNodeGraph) {
+    //         testPaths.insert(mtlxNodeGraph->getNamePath());
+    //     }
+
+    //    mx::NodePtr foundNode = nullptr;
+    //    while (!testPaths.empty() && !foundNode) {
+    //        mx::StringSet nextPaths;
+    //        for (const std::string& testPath : testPaths) {
+    //            mx::ElementPtr testElem = _graphDoc->getDescendant(testPath);
+    //            mx::NodePtr testNode = testElem->asA<mx::Node>();
+    //            std::vector<mx::PortElementPtr> downstreamPorts;
+    //            if (testNode) {
+    //                downstreamPorts = testNode->getDownstreamPorts();
+    //            }
+    //            else {
+    //                mx::NodeGraphPtr testGraph =
+    //                testElem->asA<mx::NodeGraph>(); if (testGraph) {
+    //                    downstreamPorts = testGraph->getDownstreamPorts();
+    //                }
+    //            }
+
+    //            // Test all downstream ports. If the port's node is renderable
+    //            // then stop searching.
+    //            for (mx::PortElementPtr downstreamPort : downstreamPorts) {
+    //                mx::ElementPtr parent = downstreamPort->getParent();
+    //                if (parent) {
+    //                    mx::NodePtr downstreamNode = parent->asA<mx::Node>();
+    //                    if (downstreamNode) {
+    //                        mx::NodeDefPtr nodeDef =
+    //                            downstreamNode->getNodeDef();
+    //                        if (nodeDef) {
+    //                            if (RENDERABLE_TYPES.count(
+    //                                    nodeDef->getType())) {
+    //                                foundNode = downstreamNode;
+    //                                break;
+    //                            }
+    //                        }
+    //                    }
+    //                    if (!foundNode) {
+    //                        nextPaths.insert(parent->getNamePath());
+    //                    }
+    //                }
+    //            }
+    //            if (foundNode) {
+    //                break;
+    //            }
+    //        }
+
+    //        // Set up next set of nodes to search downstream
+    //        testPaths = nextPaths;
+    //    }
+
+    //// Update rendering. If found use that node, otherwise
+    //// use the current fallback of using the first renderable node.
+    // if (foundNode) {
+    //     for (auto uiNode : _graphNodes) {
+    //         if (uiNode->getNode() == foundNode) {
+    //             if (_currRenderNode != uiNode) {
+    //                 _currRenderNode = uiNode;
+    //                 _frameCount = ImGui::GetFrameCount();
+    //                 _renderer->setMaterialCompilation(true);
+    //             }
+    //             break;
+    //         }
+    //     }
+    // }
+    // else {
+    //     _currRenderNode = nullptr;
+    //     _frameCount = ImGui::GetFrameCount();
+    //     _renderer->setMaterialCompilation(true);
+    // }
+    //}
+}
+
+void Graph::updateMaterials(
+    mx::InputPtr input /* = nullptr */,
+    mx::ValuePtr value /* = nullptr */)
+{
+    // std::string renderablePath;
+    // if (_currRenderNode) {
+    //     if (_currRenderNode->getNode()) {
+    //         renderablePath = _currRenderNode->getNode()->getNamePath();
+    //     }
+    //     else if (_currRenderNode->getOutput()) {
+    //         renderablePath = _currRenderNode->getOutput()->getNamePath();
+    //     }
+    // }
+
+    // if (renderablePath.empty()) {
+    //     _renderer->updateMaterials(nullptr);
+    // }
+    // else {
+    //     if (!input) {
+    //         mx::ElementPtr elem = nullptr;
+    //         {
+    //             elem = _graphDoc->getDescendant(renderablePath);
+    //         }
+    //         mx::TypedElementPtr typedElem =
+    //             elem ? elem->asA<mx::TypedElement>() : nullptr;
+    //         _renderer->updateMaterials(typedElem);
+    //     }
+    //     else {
+    //         std::string name = input->getNamePath();
+
+    //        // Note that if there is a topogical change due to
+    //        // this value change or a transparency change, then
+    //        // this is not currently caught here.
+    //        _renderer->getMaterials()[0]->modifyUniform(name, value);
+    //    }
+    //}
+}
+
+USTC_CG_NAMESPACE_CLOSE_SCOPE

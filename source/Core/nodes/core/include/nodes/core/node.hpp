@@ -130,6 +130,11 @@ struct NODES_CORE_API Node {
     bool pre_init_node(const char* idname);
     Node* paired_node = nullptr;
 
+    NodeTree* getNodeGraph() const
+    {
+        return tree_;
+    }
+
    private:
     void remove_outdated_socket(NodeSocket* socket, PinKind kind);
 

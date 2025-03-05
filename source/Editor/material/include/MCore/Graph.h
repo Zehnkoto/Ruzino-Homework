@@ -5,10 +5,11 @@
 
 #ifndef MATERIALX_GRAPH_H
 #define MATERIALX_GRAPH_H
-
+#include <MaterialXCore/Document.h>
 #include <MaterialXFormat/Util.h>
-// #include <MaterialXGraphEditor/RenderView.h>
-// #include <MaterialXGraphEditor/UiNode.h>
+#include <MaterialXRender/Image.h>
+#include <MaterialXRender/ImageHandler.h>
+#include <MaterialXRender/Util.h>
 #include <imgui_node_editor.h>
 
 #include <stack>
@@ -16,6 +17,7 @@
 #include "GUI/ImGuiFileDialog.h"
 #include "MCore/api.h"
 #include "nodes/core/node.hpp"
+#include "nodes/ui/node_editor_widget_base.hpp"
 
 USTC_CG_NAMESPACE_OPEN_SCOPE
 namespace ed = ax::NodeEditor;
@@ -25,6 +27,7 @@ namespace mx = MaterialX;
 using UiNodePtr = Node*;
 using UiPinPtr = NodeSocket*;
 using Link = NodeLink;
+using UiEdge = NodeLink;
 
 class MenuItem {
    public:
@@ -83,17 +86,17 @@ class MenuItem {
     std::string group;
 };
 
-//// A link connects two pins and includes a unique id and the ids of the two pins
-//// it connects Based on the Link struct from ImGui Node Editor
-//// blueprints-examples.cpp
-//struct Link {
-//    Link();
+//// A link connects two pins and includes a unique id and the ids of the two
+/// pins / it connects Based on the Link struct from ImGui Node Editor /
+/// blueprints-examples.cpp
+// struct Link {
+//     Link();
 //
-//    int _startAttr, _endAttr;
-//    int _id;
-//};
+//     int _startAttr, _endAttr;
+//     int _id;
+// };
 
-class Graph {
+class Graph : public NodeEditorWidgetBase {
    public:
     Graph(
         const std::string& materialFilename,
@@ -125,11 +128,7 @@ class Graph {
     // Generate node UI from nodedefs
     void createNodeUIList(mx::DocumentPtr doc);
 
-    // Build UiNode nodegraph upon loading a document
-    void buildUiBaseGraph(mx::DocumentPtr doc);
 
-    // Build UiNode node graph upon diving into a nodegraph node
-    void buildUiNodeGraph(const mx::NodeGraphPtr& nodeGraphs);
 
     // Based on the comment node in the ImGui Node Editor
     // blueprints-example.cpp.
@@ -151,11 +150,11 @@ class Graph {
     // MaterialX Nodes to update shader
     // startPinId - where the link was initiated
     // endPinId - where the link was ended
-    void addLink(ed::PinId startPinId, ed::PinId endPinId);
+    void addLink(SocketID startPinId, SocketID endPinId);
 
     // Delete link from current link vector and remove any connections in
     // UiNode or MaterialX Nodes to update shader
-    void deleteLink(ed::LinkId deletedLinkId);
+    void deleteLink(LinkId deletedLinkId);
 
     void deleteLinkInfo(int startAtrr, int endAttr);
 
@@ -180,11 +179,11 @@ class Graph {
     // blueprints-example.cpp
     void drawPinIcon(const std::string& type, bool connected, int alpha);
 
-    UiPinPtr getPin(ed::PinId id);
+    UiPinPtr getPin(SocketID id);
     void drawInputPin(UiPinPtr pin);
 
     // Return output pin needed to link the inputs and outputs
-    ed::PinId getOutputPin(UiNodePtr node, UiNodePtr inputNode, UiPinPtr input);
+    SocketID getOutputPin(UiNodePtr node, UiNodePtr inputNode, UiPinPtr input);
 
     void drawOutputPins(UiNodePtr node, const std::string& longestInputLabel);
 
@@ -192,7 +191,7 @@ class Graph {
     void addNodeGraphPins();
 
     std::vector<int> createNodes(bool nodegraph);
-    int getNodeId(ed::PinId pinId);
+    int getNodeId(SocketID pinId);
 
     // Find node location in graph nodes vector from node id
     int findNode(int nodeId);
@@ -314,7 +313,6 @@ class Graph {
     std::vector<UiNodePtr> _graphNodes;
     std::vector<UiPinPtr> _currPins;
     std::vector<Link> _currLinks;
-    std::vector<Link> _newLinks;
     std::vector<UiEdge> _currEdge;
     std::unordered_map<UiNodePtr, std::vector<UiPinPtr>> _downstreamInputs;
     std::unordered_map<std::string, ImColor> _pinColor;

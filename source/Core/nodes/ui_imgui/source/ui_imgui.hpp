@@ -14,6 +14,7 @@
 #include "nodes/core/socket.hpp"
 #include "nodes/system/node_system.hpp"
 #include "nodes/ui/imgui.hpp"
+#include "nodes/ui/node_editor_widget_base.hpp"
 
 USTC_CG_NAMESPACE_OPEN_SCOPE
 namespace ed = ax::NodeEditor;
@@ -28,7 +29,7 @@ struct NodeIdLess {
     }
 };
 
-class NodeWidget : public IWidget {
+class NodeWidget : public NodeEditorWidgetBase {
    public:
     explicit NodeWidget(const NodeWidgetSettings& desc);
 
@@ -51,7 +52,6 @@ class NodeWidget : public IWidget {
 
     std::unique_ptr<NodeSystemStorage> storage_;
 
-    NodeTree* tree_;
     bool createNewNode = false;
     NodeSocket* newNodeLinkPin = nullptr;
     NodeSocket* newLinkPin = nullptr;
@@ -65,7 +65,6 @@ class NodeWidget : public IWidget {
     bool location_remembered = false;
     std::shared_ptr<NodeSystem> system_;
     bool create_new_node_search_cursor;
-    static const int m_PinIconSize = 20;
 
     std::string widget_name;
 
@@ -85,10 +84,6 @@ class NodeWidget : public IWidget {
     ImGuiWindowFlags GetWindowFlag() override;
 
     ImVector<nvrhi::TextureHandle> m_Textures;
-
-    void DrawPinIcon(const NodeSocket& pin, bool connected, int alpha);
-
-    static ImColor GetIconColor(SocketType type);
 
     void ShowInputOrOutput(
         const NodeSocket& socket,

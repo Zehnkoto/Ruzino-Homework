@@ -96,7 +96,7 @@ class NODES_CORE_API NodeTree {
 
     NodeTree& operator=(const NodeTree& other);
 
-    ~NodeTree();
+    virtual ~NodeTree();
 
     std::shared_ptr<NodeTree> get_inverse_tree()
     {
@@ -124,8 +124,8 @@ class NODES_CORE_API NodeTree {
 
     void clear();
 
-    Node* find_node(NodeId id) const;
-    Node* find_node(const char* identifier) const;
+    virtual Node* find_node(NodeId id) const;
+    virtual Node* find_node(const char* identifier) const;
 
     NodeSocket* find_pin(SocketID id) const;
 
@@ -133,7 +133,7 @@ class NODES_CORE_API NodeTree {
 
     bool is_pin_linked(SocketID id) const;
 
-    Node* add_node(const char* str);
+    virtual Node* add_node(const char* str);
 
     void add_base_id(unsigned max_used_id);
     NodeTree& merge(const NodeTree& other);
@@ -172,8 +172,8 @@ class NODES_CORE_API NodeTree {
         bool refresh_topology = true,
         bool remove_from_group = true);
 
-    void delete_node(Node* nodeId, bool allow_repeat_delete = false);
-    void delete_node(NodeId nodeId, bool allow_repeat_delete = false);
+    virtual void delete_node(Node* nodeId, bool allow_repeat_delete = false);
+    virtual void delete_node(NodeId nodeId, bool allow_repeat_delete = false);
 
     bool can_create_link(NodeSocket* node_socket, NodeSocket* node_socket1);
     static bool can_create_direct_link(

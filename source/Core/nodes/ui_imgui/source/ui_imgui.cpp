@@ -307,25 +307,7 @@ bool NodeWidget::BuildUI()
             builder.End();
         }
 
-        for (std::unique_ptr<NodeLink>& link : tree_->links) {
-            auto type = link->from_sock->type_info;
-            if (!type)
-                type = link->to_sock->type_info;
-
-            ImColor color = GetIconColor(type);
-
-            auto linkId = link->ID;
-            auto startPin = link->StartPinID;
-            auto endPin = link->EndPinID;
-
-            // If there is an invisible node after the link, use the first as
-            // the id for the ui link
-            if (link->nextLink) {
-                endPin = link->nextLink->to_sock->ID;
-            }
-
-            ed::Link(linkId, startPin, endPin, color, 2.0f);
-        }
+        connectLinks();
 
         if (!createNewNode) {
             if (ed::BeginCreate(ImColor(255, 255, 255), 2.0f)) {
@@ -946,47 +928,6 @@ ImGuiWindowFlags NodeWidget::GetWindowFlag()
     return ImGuiWindowFlags_NoScrollbar;
 }
 
-void NodeWidget::DrawPinIcon(const NodeSocket& pin, bool connected, int alpha)
-{
-    IconType iconType;
-
-    ImColor color = GetIconColor(pin.type_info);
-
-    if (!pin.type_info) {
-        if (pin.directly_linked_sockets.size() > 0) {
-            color = GetIconColor(pin.directly_linked_sockets[0]->type_info);
-        }
-    }
-
-    color.Value.w = alpha / 255.0f;
-    iconType = IconType::Circle;
-
-    Widgets::Icon(
-        ImVec2(
-            static_cast<float>(m_PinIconSize),
-            static_cast<float>(m_PinIconSize)),
-        iconType,
-        connected,
-        color,
-        ImColor(32, 32, 32, alpha));
-}
-
-ImColor NodeWidget::GetIconColor(SocketType type)
-{
-    auto hashColorComponent = [](const std::string& prefix,
-                                 const std::string& typeName) {
-        return static_cast<int>(
-            entt::hashed_string{ (prefix + typeName).c_str() }.value());
-    };
-
-    const std::string typeName = get_type_name(type);
-    auto hashValue_r = hashColorComponent("r", typeName);
-    auto hashValue_g = hashColorComponent("g", typeName);
-    auto hashValue_b = hashColorComponent("b", typeName);
-
-    return ImColor(
-        hashValue_r % 192 + 63, hashValue_g % 192 + 63, hashValue_b % 192 + 63);
-}
 NodeWidgetSettings::NodeWidgetSettings()
 {
 }
