@@ -127,31 +127,29 @@ void MaterialXNodeTree::buildUiBaseGraph(mx::DocumentPtr doc)
         setUiNodeInfo(currNode, node->getType(), node->getCategory());
     }
 
-    //// Create UiNodes for the nodegraph
-    // for (mx::NodeGraphPtr nodeGraph : nodeGraphs) {
-    //     if (!includeElement(nodeGraph))
-    //         continue;
-    //     std::string name = nodeGraph->getName();
-    //     auto currNode = std::make_shared<UiNode>(name, _graphTotalSize);
-    //     currNode->setNodeGraph(nodeGraph);
-    //     setUiNodeInfo(currNode, "", "nodegraph");
-    // }
-    // for (mx::InputPtr input : inputNodes) {
-    //     if (!includeElement(input))
-    //         continue;
-    //     auto currNode =
-    //         std::make_shared<UiNode>(input->getName(), _graphTotalSize);
-    //     currNode->setInput(input);
-    //     setUiNodeInfo(currNode, input->getType(), input->getCategory());
-    // }
-    // for (mx::OutputPtr output : outputNodes) {
-    //     if (!includeElement(output))
-    //         continue;
-    //     auto currNode =
-    //         std::make_shared<UiNode>(output->getName(), _graphTotalSize);
-    //     currNode->setOutput(output);
-    //     setUiNodeInfo(currNode, output->getType(), output->getCategory());
-    // }
+    // Create UiNodes for the nodegraph
+    for (mx::NodeGraphPtr nodeGraph : nodeGraphs) {
+        if (!includeElement(nodeGraph))
+            continue;
+        std::string name = nodeGraph->getName();
+        auto currNode = add_node(name.c_str());
+        currNode->storage = nodeGraph;
+        setUiNodeInfo(currNode, nodeGraph->getType(), nodeGraph->getCategory());
+    }
+    for (mx::InputPtr input : inputNodes) {
+        if (!includeElement(input))
+            continue;
+        auto currNode = add_node(input->getName().c_str());
+        currNode->storage = input;
+        setUiNodeInfo(currNode, input->getType(), input->getCategory());
+    }
+    for (mx::OutputPtr output : outputNodes) {
+        if (!includeElement(output))
+            continue;
+        auto currNode = add_node(output->getName().c_str());
+        currNode->storage = output;
+        setUiNodeInfo(currNode, output->getType(), output->getCategory());
+    }
 
     //// Create edges for nodegraphs
     // for (mx::NodeGraphPtr graph : nodeGraphs) {
@@ -538,91 +536,6 @@ void MaterialXNodeTree::setUiNodeInfo(
     }
 
     node->refresh_node();
-
-    // else {
-    //    if (node->getNode()) {
-    //        mx::NodeDefPtr nodeDef =
-    //            node->getNode()->getNodeDef(node->getNode()->getName());
-    //        if (nodeDef) {
-    //            for (mx::InputPtr input : nodeDef->getActiveInputs()) {
-    //                if (node->getNode()->getInput(input->getName())) {
-    //                    input = node->getNode()->getInput(input->getName());
-    //                }
-    //                UiPinPtr inPin = std::make_shared<UiPin>(
-    //                    _graphTotalSize,
-    //                    &*input->getName().begin(),
-    //                    input->getType(),
-    //                    node,
-    //                    ax::NodeEditor::PinKind::Input,
-    //                    input,
-    //                    nullptr);
-    //                node->inputPins.push_back(inPin);
-    //                sockets.push_back(inPin);
-    //                ++_graphTotalSize;
-    //            }
-
-    //            for (mx::OutputPtr output : nodeDef->getActiveOutputs()) {
-    //                if (node->getNode()->getOutput(output->getName())) {
-    //                    output =
-    //                    node->getNode()->getOutput(output->getName());
-    //                }
-    //                UiPinPtr outPin = std::make_shared<UiPin>(
-    //                    _graphTotalSize,
-    //                    &*output->getName().begin(),
-    //                    output->getType(),
-    //                    node,
-    //                    ax::NodeEditor::PinKind::Output,
-    //                    nullptr,
-    //                    nullptr);
-    //                node->outputPins.push_back(outPin);
-    //                sockets.push_back(outPin);
-    //                ++_graphTotalSize;
-    //            }
-    //        }
-    //    }
-    //    else if (node->getInput()) {
-    //        UiPinPtr inPin = std::make_shared<UiPin>(
-    //            _graphTotalSize,
-    //            &*("Value"),
-    //            node->getInput()->getType(),
-    //            node,
-    //            ax::NodeEditor::PinKind::Input,
-    //            node->getInput(),
-    //            nullptr);
-    //        node->inputPins.push_back(inPin);
-    //        sockets.push_back(inPin);
-    //        ++_graphTotalSize;
-    //    }
-    //    else if (node->getOutput()) {
-    //        UiPinPtr inPin = std::make_shared<UiPin>(
-    //            _graphTotalSize,
-    //            &*("input"),
-    //            node->getOutput()->getType(),
-    //            node,
-    //            ax::NodeEditor::PinKind::Input,
-    //            nullptr,
-    //            node->getOutput());
-    //        node->inputPins.push_back(inPin);
-    //        sockets.push_back(inPin);
-    //        ++_graphTotalSize;
-    //    }
-
-    //    if (node->getInput() || node->getOutput()) {
-    //        UiPinPtr outPin = std::make_shared<UiPin>(
-    //            _graphTotalSize,
-    //            &*("output"),
-    //            type,
-    //            node,
-    //            ax::NodeEditor::PinKind::Output,
-    //            nullptr,
-    //            nullptr);
-    //        ++_graphTotalSize;
-    //        node->outputPins.push_back(outPin);
-    //        sockets.push_back(outPin);
-    //    }
-    //}
-
-    // nodes.push_back(std::move(node));
 }
 
 int MaterialXNodeTree::findNode(int nodeId)

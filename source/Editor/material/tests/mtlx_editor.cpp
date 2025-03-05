@@ -12,4 +12,6 @@ int main()
         "resources/Materials/Examples/StandardSurface/"
         "standard_surface_marble_solid.mtlx",
         std::make_shared<MaterialXNodeTreeDescriptor>());
+
+    std::cout << tree.nodes.size() << std::endl;
 }
