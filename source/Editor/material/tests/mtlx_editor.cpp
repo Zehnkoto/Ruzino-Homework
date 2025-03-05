@@ -5,9 +5,11 @@
 
 using namespace USTC_CG;
 
-TEST(MaterialXNodeTree, Constructor)
+int main()
 {
     MaterialXNodeTreeDescriptor descriptor;
     MaterialXNodeTree tree(
-        "test.mtlx", std::make_shared<MaterialXNodeTreeDescriptor>());
+        "resources/Materials/Examples/StandardSurface/"
+        "standard_surface_marble_solid.mtlx",
+        std::make_shared<MaterialXNodeTreeDescriptor>());
 }

@@ -147,8 +147,7 @@ NodeTreeDescriptor& NodeTreeDescriptor::add_socket_group_syncronization(
     return *this;
 }
 
-const NodeTypeInfo* NodeTreeDescriptor::get_node_type(
-    const std::string& name) const
+NodeTypeInfo* NodeTreeDescriptor::get_node_type(const std::string& name)
 {
     auto it = node_registry.find(name);
     if (it != node_registry.end()) {

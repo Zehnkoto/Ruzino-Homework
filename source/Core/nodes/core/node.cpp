@@ -546,10 +546,10 @@ bool Node::pre_init_node(const char* idname)
     return true;
 }
 
-const NodeTypeInfo* Node::nodeTypeFind(const char* idname)
+NodeTypeInfo* Node::nodeTypeFind(const char* idname)
 {
     if (idname[0]) {
-        const NodeTypeInfo* nt = tree_->descriptor_->get_node_type(idname);
+        NodeTypeInfo* nt = tree_->descriptor_->get_node_type(idname);
 
         if (nt)
             return nt;

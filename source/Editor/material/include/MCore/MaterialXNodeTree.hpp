@@ -6,7 +6,23 @@
 namespace mx = MaterialX;
 
 USTC_CG_NAMESPACE_OPEN_SCOPE
-class MCORE_API MaterialXNodeTreeDescriptor : public NodeTreeDescriptor { };
+class MCORE_API MaterialXNodeTreeDescriptor : public NodeTreeDescriptor {
+   public:
+    NodeTypeInfo* get_node_type(const std::string& name) override
+    {
+        auto it = _nodeTypes.find(name);
+        if (it != _nodeTypes.end()) {
+            return it->second.get();
+        }
+        else {
+            _nodeTypes[name] = std::make_unique<NodeTypeInfo>(name.c_str());
+            return _nodeTypes[name].get();
+        }
+    }
+
+   private:
+    mutable std::map<std::string, std::unique_ptr<NodeTypeInfo>> _nodeTypes;
+};
 
 class MCORE_API MaterialXNodeTree : public NodeTree {
    public:
@@ -16,6 +32,7 @@ class MCORE_API MaterialXNodeTree : public NodeTree {
         : _materialFilename(materialFilename),
           NodeTree(descriptor)
     {
+        _searchPath = mx::getDefaultDataSearchPath();
         loadStandardLibraries();
         _graphDoc = loadDocument(materialFilename);
 

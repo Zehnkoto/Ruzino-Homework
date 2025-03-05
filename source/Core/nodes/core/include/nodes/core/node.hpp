@@ -43,7 +43,7 @@ struct NODES_CORE_API Node {
 
     unsigned Size[2];
 
-    const NodeTypeInfo* typeinfo;  // Only holds the copy of the type_info
+    NodeTypeInfo* typeinfo;  // Only holds the copy of the type_info
 
     bool REQUIRED = false;
     bool MISSING_INPUT = false;
@@ -142,7 +142,7 @@ struct NODES_CORE_API Node {
         const std::vector<NodeSocket*>& olds,
         PinKind pin_kind);
 
-    const NodeTypeInfo* nodeTypeFind(const char* idname);
+    NodeTypeInfo* nodeTypeFind(const char* idname);
 
     bool valid_ = false;
 

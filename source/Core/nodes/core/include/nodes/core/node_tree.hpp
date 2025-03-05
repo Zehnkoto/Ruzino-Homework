@@ -25,7 +25,7 @@ USTC_CG_NAMESPACE_OPEN_SCOPE
 class NODES_CORE_API NodeTreeDescriptor {
    public:
     NodeTreeDescriptor();
-    ~NodeTreeDescriptor();
+    virtual ~NodeTreeDescriptor();
 
     NodeTreeDescriptor& register_node(const NodeTypeInfo& node_type);
     template<typename FROM, typename TO>
@@ -34,7 +34,7 @@ class NODES_CORE_API NodeTreeDescriptor {
     NodeTreeDescriptor& register_conversion_name(
         const std::string& conversion_name);
 
-    const NodeTypeInfo* get_node_type(const std::string& name) const;
+    virtual NodeTypeInfo* get_node_type(const std::string& name) ;
 
     static std::string conversion_node_name(SocketType from, SocketType to);
     bool can_convert(SocketType from, SocketType to) const;
