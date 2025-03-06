@@ -33,6 +33,8 @@ class MCORE_API MaterialXNodeTree : public NodeTree {
           NodeTree(descriptor)
     {
         _searchPath = mx::getDefaultDataSearchPath();
+        _libraryFolders = { "libraries" };
+
         loadStandardLibraries();
         _graphDoc = loadDocument(materialFilename);
 

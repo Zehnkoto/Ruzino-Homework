@@ -151,33 +151,38 @@ void MaterialXNodeTree::buildUiBaseGraph(mx::DocumentPtr doc)
         setUiNodeInfo(currNode, output->getType(), output->getCategory());
     }
 
-    //// Create edges for nodegraphs
-    // for (mx::NodeGraphPtr graph : nodeGraphs) {
-    //     for (mx::InputPtr input : graph->getActiveInputs()) {
-    //         int downNum = -1;
-    //         int upNum = -1;
-    //         mx::string nodeGraphName = input->getNodeGraphString();
-    //         mx::NodePtr connectedNode = input->getConnectedNode();
-    //         if (!nodeGraphName.empty()) {
-    //             downNum = findNode(graph->getName(), "nodegraph");
-    //             upNum = findNode(nodeGraphName, "nodegraph");
-    //         }
-    //         else if (connectedNode) {
-    //             downNum = findNode(graph->getName(), "nodegraph");
-    //             upNum = findNode(connectedNode->getName(), "node");
-    //         }
+    for (auto& node : nodes) {
+        std::cout << node->typeinfo->id_name
+                  << ", id name: " << node->typeinfo->id_name << std::endl;
+    }
 
-    //        if (upNum > -1) {
-    //            UiEdge newEdge = UiEdge(nodes[upNum], nodes[downNum], input);
-    //            if (!edgeExists(newEdge)) {
-    //                nodes[downNum]->edges.push_back(newEdge);
-    //                nodes[downNum]->setInputNodeNum(1);
-    //                nodes[upNum]->setOutputConnection(nodes[downNum]);
-    //                _currEdge.push_back(newEdge);
-    //            }
-    //        }
-    //    }
-    //}
+    // Create edges for nodegraphs
+    for (mx::NodeGraphPtr graph : nodeGraphs) {
+        for (mx::InputPtr input : graph->getActiveInputs()) {
+            int downNum = -1;
+            int upNum = -1;
+            mx::string nodeGraphName = input->getNodeGraphString();
+            mx::NodePtr connectedNode = input->getConnectedNode();
+            if (!nodeGraphName.empty()) {
+                downNum = findNode(graph->getName(), "nodegraph");
+                upNum = findNode(nodeGraphName, "nodegraph");
+            }
+            else if (connectedNode) {
+                downNum = findNode(graph->getName(), "nodegraph");
+                upNum = findNode(connectedNode->getName(), "node");
+            }
+
+            if (upNum > -1) {
+                UiEdge newEdge = UiEdge(nodes[upNum], nodes[downNum], input);
+                if (!edgeExists(newEdge)) {
+                    nodes[downNum]->edges.push_back(newEdge);
+                    nodes[downNum]->setInputNodeNum(1);
+                    nodes[upNum]->setOutputConnection(nodes[downNum]);
+                    _currEdge.push_back(newEdge);
+                }
+            }
+        }
+    }
 
     //// Create edges for surface and material nodes
     // for (mx::NodePtr node : docNodes) {
@@ -554,25 +559,25 @@ int MaterialXNodeTree::findNode(
     const std::string& name,
     const std::string& type)
 {
-    // int count = 0;
-    // for (size_t i = 0; i < nodes.size(); i++) {
-    //     if (nodes[i]->getName() == name) {
-    //         if (type == "node" && nodes[i]->getNode() != nullptr) {
-    //             return count;
-    //         }
-    //         else if (type == "input" && nodes[i]->getInput() != nullptr) {
-    //             return count;
-    //         }
-    //         else if (type == "output" && nodes[i]->getOutput() != nullptr) {
-    //             return count;
-    //         }
-    //         else if (
-    //             type == "nodegraph" && nodes[i]->getNodeGraph() != nullptr) {
-    //             return count;
-    //         }
-    //     }
-    //     count++;
-    // }
+    int count = 0;
+    for (size_t i = 0; i < nodes.size(); i++) {
+        if (nodes[i]->getName() == name) {
+            if (type == "node" && nodes[i]->getNode() != nullptr) {
+                return count;
+            }
+            else if (type == "input" && nodes[i]->getInput() != nullptr) {
+                return count;
+            }
+            else if (type == "output" && nodes[i]->getOutput() != nullptr) {
+                return count;
+            }
+            else if (
+                type == "nodegraph" && nodes[i]->getNodeGraph() != nullptr) {
+                return count;
+            }
+        }
+        count++;
+    }
     return -1;
 }
 
