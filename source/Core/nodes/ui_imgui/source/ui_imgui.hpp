@@ -35,14 +35,22 @@ class NodeWidget : public NodeEditorWidgetBase {
 
     ~NodeWidget() override;
     std::vector<Node*> create_node_menu(bool cursor);
-    bool BuildUI() override;
 
    protected:
+    void initialize() override;
+
     std::string GetWindowUniqueName() override;
 
     const char* GetWindowName() override;
 
     void SetNodeSystemDirty(bool dirty) override;
+
+    void execute_tree(Node* node) override
+    {
+        if (tree_->GetDirty()) {
+            system_->execute(true, node);
+        }
+    }
 
     void ShowLeftPane(float paneWidth);
 
@@ -50,36 +58,18 @@ class NodeWidget : public NodeEditorWidgetBase {
     const float m_TouchTime = 1.0f;
     std::map<NodeId, float, NodeIdLess> m_NodeTouchTime;
 
-    std::unique_ptr<NodeSystemStorage> storage_;
-
-    bool createNewNode = false;
-    NodeSocket* newNodeLinkPin = nullptr;
-    NodeSocket* newLinkPin = nullptr;
-
-    NodeId contextNodeId = 0;
-    LinkId contextLinkId = 0;
-    SocketID contextPinId = 0;
-
-    nvrhi::TextureHandle m_HeaderBackground = nullptr;
     ImVec2 newNodePostion;
     bool location_remembered = false;
     std::shared_ptr<NodeSystem> system_;
-    bool create_new_node_search_cursor;
 
     std::string widget_name;
-
-    ed::EditorContext* m_Editor = nullptr;
 
     float leftPaneWidth = 400.0f;
     float rightPaneWidth = 800.0f;
 
-    bool first_draw = true;
+    bool draw_socket_controllers(NodeSocket* input) override;
 
-    bool draw_socket_controllers(NodeSocket* input);
-
-    static nvrhi::TextureHandle LoadTexture(
-        const unsigned char* data,
-        size_t buffer_size);
+    void create_new_node(ImVec2 openPopupPosition) override;
 
     ImGuiWindowFlags GetWindowFlag() override;
 

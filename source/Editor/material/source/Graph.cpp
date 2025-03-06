@@ -2576,6 +2576,64 @@ void MaterialXNodeTreeWidget::shaderPopup()
     // }
 }
 
+void MaterialXNodeTreeWidget::initialize()
+{
+    ed::Config config;
+
+    config.UserPointer = this;
+
+    config.SaveSettings = [](const char* data,
+                             size_t size,
+                             ax::NodeEditor::SaveReasonFlags reason,
+                             void* userPointer) -> bool {
+        if (static_cast<bool>(
+                reason & (NodeEditor::SaveReasonFlags::Navigation))) {
+            return true;
+        }
+        auto ptr = static_cast<MaterialXNodeTreeWidget*>(userPointer);
+        auto storage = ptr->storage_.get();
+
+        auto ui_json = std::string(data + 1, size - 2);
+
+        ptr->tree_->set_ui_settings(ui_json);
+
+        std::string node_serialize = ptr->tree_->serialize();
+
+        storage->save(node_serialize);
+        return true;
+    };
+
+    config.LoadSettings = [](void* userPointer) {
+        auto ptr = static_cast<MaterialXNodeTreeWidget*>(userPointer);
+        auto storage = ptr->storage_.get();
+
+        std::string data = storage->load();
+
+        return data;
+    };
+
+    m_Editor = ed::CreateEditor(&config);
+}
+
+std::string MaterialXNodeTreeWidget::GetWindowUniqueName()
+{
+    return "MaterialXNodeTreeWidget";
+}
+
+bool MaterialXNodeTreeWidget::draw_socket_controllers(NodeSocket* input)
+{
+    ImGui::TextUnformatted(input->ui_name);
+    ImGui::Spring(0);
+
+    return false;
+}
+
+MaterialXNodeTreeWidget::MaterialXNodeTreeWidget(const NodeWidgetSettings& desc)
+    : NodeEditorWidgetBase(desc)
+{
+    MaterialXNodeTreeWidget::initialize();
+}
+
 void MaterialXNodeTreeWidget::drawGraph()
 {
     // if (_searchNodeId > 0) {

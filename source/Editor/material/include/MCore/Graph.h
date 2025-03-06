@@ -97,7 +97,7 @@ class MenuItem {
 // };
 
 class MCORE_API MaterialXNodeTreeWidget : public NodeEditorWidgetBase {
-   public:
+protected:
     // Graph(
     //     const std::string& materialFilename,
     //     const std::string& meshFilename,
@@ -106,10 +106,14 @@ class MCORE_API MaterialXNodeTreeWidget : public NodeEditorWidgetBase {
     //     int viewWidth,
     //     int viewHeight);
 
-    MaterialXNodeTreeWidget(const NodeWidgetSettings& desc)
-        : NodeEditorWidgetBase(desc)
-    {
-    }
+    void initialize() override;
+
+    std::string GetWindowUniqueName() override;
+
+    bool draw_socket_controllers(NodeSocket* input) override;
+
+public:
+    MaterialXNodeTreeWidget(const NodeWidgetSettings& desc);
     void drawGraph();
 
     // RenderViewPtr getRenderer()
@@ -250,11 +254,11 @@ class MCORE_API MaterialXNodeTreeWidget : public NodeEditorWidgetBase {
     void showHelp() const;
 
    public:
-    bool BuildUI() override
-    {
-        drawGraph();
-        return true;
-    }
+    // bool BuildUI() override
+    //{
+    //     drawGraph();
+    //     return true;
+    // }
 
    private:
     mx::StringVec _mtlxFilter;
