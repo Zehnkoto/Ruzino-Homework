@@ -1,18 +1,34 @@
-#include <gtest/gtest.h>
 
-#include "MCore/Graph.h"
-#include "MCore/MaterialXNodeTree.hpp"
-
+#include "GUI/window.h"
+#include "Logger/Logger.h"
+#include "gtest/gtest.h"
+#include "imgui.h"
+#include "nodes/core/node_tree.hpp"
+#include "nodes/system/node_system.hpp"
+#include "nodes/ui/imgui.hpp"
 using namespace USTC_CG;
 
 int main()
 {
-    MaterialXNodeTreeDescriptor descriptor;
-    MaterialXNodeTree tree(
-        "resources/Materials/Examples/StandardSurface/"
-        "standard_surface_marble_solid.mtlx",
-        std::make_shared<MaterialXNodeTreeDescriptor>());
+    std::shared_ptr<NodeSystem> system_;
+    log::SetMinSeverity(Severity::Info);
+    log::EnableOutputToConsole(true);
 
-    std::cout << tree.nodes.size() << std::endl;
-    std::cout << tree.links.size() << std::endl;
+    system_ = create_dynamic_loading_system();
+
+    auto loaded = system_->load_configuration("test_nodes.json");
+
+    system_->init();
+
+    Window window;
+
+    FileBasedNodeWidgetSettings widget_desc;
+    widget_desc.system = system_;
+    system_->set_node_tree_executor(create_node_tree_executor({}));
+    widget_desc.json_path = "testtest.json";
+    std::unique_ptr<IWidget> node_widget =
+        std::move(create_node_imgui_widget(widget_desc));
+
+    window.register_widget(std::move(node_widget));
+    window.run();
 }
