@@ -1,8 +1,33 @@
+//
+// Copyright Contributors to the MaterialX Project
+// SPDX-License-Identifier: Apache-2.0
+//
+#define IMGUI_DEFINE_MATH_OPERATORS
+
 #include "MCore/MaterialXNodeTree.hpp"
 
 #include "foo_socket_types.inl"
 
 USTC_CG_NAMESPACE_OPEN_SCOPE
+
+// Based on showLabel from ImGui Node Editor blueprints-example.cpp
+auto showLabel = [](const char* label, ImColor color) {
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() - ImGui::GetTextLineHeight());
+    auto size = ImGui::CalcTextSize(label);
+
+    auto padding = ImGui::GetStyle().FramePadding;
+    auto spacing = ImGui::GetStyle().ItemSpacing;
+
+    ImGui::SetCursorPos(ImGui::GetCursorPos() + ImVec2(spacing.x, -spacing.y));
+
+    auto rectMin = ImGui::GetCursorScreenPos() - padding;
+    auto rectMax = ImGui::GetCursorScreenPos() + size + padding;
+
+    auto drawList = ImGui::GetWindowDrawList();
+    drawList->AddRectFilled(rectMin, rectMax, color, size.y * 0.15f);
+    ImGui::TextUnformatted(label);
+};
+
 void MaterialXNodeTree::saveDocument(mx::FilePath filePath)
 {
     if (filePath.getExtension() != mx::MTLX_EXTENSION) {
@@ -852,96 +877,18 @@ SocketID MaterialXNodeTree::getOutputPin(
     }
 }
 
-void MaterialXNodeTree::addLink(SocketID startPinId, SocketID endPinId)
+NodeLink* MaterialXNodeTree::add_link(
+    SocketID startPinId,
+    SocketID endPinId,
+    bool refresh_topology)
 {
-    // Prefer to assume left to right - start is an output, end is an input;
-    //// swap if inaccurate
-    if (UiPinPtr inputPin = getPin(endPinId);
-        inputPin && inputPin->_kind != ed::PinKind::Input) {
-        auto tmp = startPinId;
-        startPinId = endPinId;
-        endPinId = tmp;
-    }
-
-    int end_attr = int(endPinId.Get());
-    int start_attr = int(startPinId.Get());
-    SocketID outputPinId = startPinId;
-    SocketID inputPinId = endPinId;
-    UiPinPtr outputPin = getPin(outputPinId);
-    UiPinPtr inputPin = getPin(inputPinId);
-
-    if (!inputPin || !outputPin) {
-        ed::RejectNewItem();
-        return;
-    }
-
-    // Perform type check bool typesMatch = (outputPin->_type ==
-    // inputPin->_type);
-    if (!typesMatch) {
-        ed::RejectNewItem();
-        showLabel(
-            "Invalid connection due to mismatched types",
-            ImColor(50, 50, 50, 255));
-        return;
-    }
-
-    // Perform kind check
-    bool kindsMatch = (outputPin->_kind == inputPin->_kind);
-    if (kindsMatch) {
-        ed::RejectNewItem();
-        showLabel(
-            "Invalid connection due to same input/output kind",
-            ImColor(50, 50, 50, 255));
-        return;
-    }
-
-    int upNode = getNodeId(outputPinId);
-    int downNode = getNodeId(inputPinId);
-    UiNodePtr uiDownNode = nodes[downNode];
-    UiNodePtr uiUpNode = nodes[upNode];
-    if (!uiDownNode || !uiUpNode) {
-        ed::RejectNewItem();
-        return;
-    }
-
-    // Make sure there is an implementation for node
-    const mx::ShaderGenerator& shadergen =
-        _renderer->getGenContext().getShaderGenerator();
-
-    // Prevent direct connecting from input to        output
-    if (uiDownNode->getInput() && uiUpNode->getOutput()) {
-        ed::RejectNewItem();
-        showLabel(
-            "Direct connections between inputs and outputs is invalid",
-            ImColor(50, 50, 50, 255));
-        return;
-    }
-
-    // Find the implementation for this nodedef if not an input or output uinode
-    if (uiDownNode->getInput() && _isNodeGraph) {
-        ed::RejectNewItem();
-        showLabel(
-            "Cannot connect to inputs inside of graph",
-            ImColor(50, 50, 50, 255));
-        return;
-    }
-    else if (getMaterialXNode(uiUpNode)) {
-        mx::ShaderNodeImplPtr impl = shadergen.getImplementation(
-            *nodes[upNode]->getNode()->getNodeDef(),
-            _renderer->getGenContext());
-        if (!impl) {
-            ed::RejectNewItem();
-            showLabel(
-                "Invalid Connection: Node does not have an                 "
-                "implementation",
-                ImColor(50, 50, 50, 255));
-            return;
-        }
-    }
+    auto link = NodeTree::add_link(startPinId, endPinId, refresh_topology);
+    auto from_sock = link->from_sock;
+    auto to_sock = link->to_sock;
 
     if (ed::AcceptNewItem()) {
         // If the accepting node already has a link, remove it
-        if (inputPin->_connected) {
+        if (to_sock->_connected) {
             for (auto iter = links.begin(); iter != links.end(); ++iter) {
                 if (iter->_endAttr == end_attr) {
                     // Found existing link - remove it; adapted from
@@ -953,19 +900,6 @@ void MaterialXNodeTree::addLink(SocketID startPinId, SocketID endPinId)
                 }
             }
         }
-
-        // Since we accepted new link, lets add one to our list of links.
-        Link link;
-        link._startAttr = start_attr;
-        link._endAttr = end_attr;
-        links.push_back(link);
-        _frameCount = ImGui::GetFrameCount();
-        _renderer->setMaterialCompilation(true);
-
-        inputPin->addConnection(outputPin);
-        outputPin->addConnection(inputPin);
-        outputPin->setConnected(true);
-        inputPin->setConnected(true);
 
         if (getMaterialXNode(uiDownNode) || getMaterialXNodeGraph(uiDownNode)) {
             mx::InputPtr connectingInput = nullptr;
@@ -1098,6 +1032,10 @@ void MaterialXNodeTree::addLink(SocketID startPinId, SocketID endPinId)
             }
         }
     }
+
+    // Deal with special materialX logic.
+
+    return link;
 }
 
 void MaterialXNodeTree::removeEdge(int downNode, int upNode, UiPinPtr pin)
@@ -1227,34 +1165,34 @@ void MaterialXNodeTree::deleteNode(UiNodePtr node)
     //    _currGraphElem->removeChild(node->getName());
     //    nodes.erase(nodes.begin() + nodeNum);
 }
-
-bool MaterialXNodeTree::edgeExists(UiEdge newEdge)
-{
-    // if (_currEdge.size() > 0) {
-    //     for (UiEdge edge : _currEdge) {
-    //         if (edge.getDown()->getId() == newEdge.getDown()->getId()) {
-    //             if (edge.getUp()->getId() == newEdge.getUp()->getId()) {
-    //                 if (edge.getInput() == newEdge.getInput()) {
-    //                     return true;
-    //                 }
-    //             }
-    //         }
-    //         else if (edge.getUp()->getId() == newEdge.getDown()->getId())
-    //         {
-    //             if (edge.getDown()->getId() == newEdge.getUp()->getId())
-    //             {
-    //                 if (edge.getInput() == newEdge.getInput()) {
-    //                     return true;
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
-    // else {
-    //     return false;
-    // }
-    return false;
-}
+//
+// bool MaterialXNodeTree::edgeExists(UiEdge newEdge)
+//{
+// if (_currEdge.size() > 0) {
+//     for (UiEdge edge : _currEdge) {
+//         if (edge.getDown()->getId() == newEdge.getDown()->getId()) {
+//             if (edge.getUp()->getId() == newEdge.getUp()->getId()) {
+//                 if (edge.getInput() == newEdge.getInput()) {
+//                     return true;
+//                 }
+//             }
+//         }
+//         else if (edge.getUp()->getId() == newEdge.getDown()->getId())
+//         {
+//             if (edge.getDown()->getId() == newEdge.getUp()->getId())
+//             {
+//                 if (edge.getInput() == newEdge.getInput()) {
+//                     return true;
+//                 }
+//             }
+//         }
+//     }
+// }
+// else {
+//     return false;
+// }
+//    return false;
+//}
 
 void MaterialXNodeTree::addNodeGraphPins()
 {

@@ -26,8 +26,6 @@ namespace mx = MaterialX;
 
 using UiNodePtr = Node*;
 using UiPinPtr = NodeSocket*;
-using Link = NodeLink;
-using UiEdge = NodeLink;
 
 class MenuItem {
    public:

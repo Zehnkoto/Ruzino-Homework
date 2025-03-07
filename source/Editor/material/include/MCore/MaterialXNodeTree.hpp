@@ -74,7 +74,10 @@ class MCORE_API MaterialXNodeTree : public NodeTree {
 
     SocketID getOutputPin(UiNodePtr node, UiNodePtr upNode, UiPinPtr input);
 
-    void addLink(SocketID startPinId, SocketID endPinId);
+    NodeLink* add_link(
+        SocketID startPinId,
+        SocketID endPinId,
+        bool refresh_topology) override;
 
     void removeEdge(int downNode, int upNode, UiPinPtr pin);
 
@@ -82,7 +85,7 @@ class MCORE_API MaterialXNodeTree : public NodeTree {
 
     void deleteNode(UiNodePtr node);
 
-    bool edgeExists(UiEdge newEdge);
+    // bool edgeExists(UiEdge newEdge);
 
     void addNodeGraphPins();
 
