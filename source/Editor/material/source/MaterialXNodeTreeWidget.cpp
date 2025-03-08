@@ -4,13 +4,10 @@
 //
 #define IMGUI_DEFINE_MATH_OPERATORS
 
-#include <GUI/widget.h>
-#include <MCore/Graph.h>
+#include <MCore/MaterialXNodeTreeWidget.h>
 #include <MaterialXFormat/Util.h>
 #include <blueprints/imgui_node_editor_internal.h>
-#include <imgui_stdlib.h>
 
-#include <iostream>
 #include <nodes/core/node_link.hpp>
 
 #include "MCore/MaterialXNodeTree.hpp"
@@ -198,7 +195,7 @@ void MaterialXNodeTreeWidget::linkGraph()
     // Start with bottom of graph
     // for (UiNodePtr node : _graphNodes) {
     //     std::vector<UiPinPtr> inputs = node->inputPins;
-    //     if (node->getInput() == nullptr) {
+    //     if (getMaterialXInput(node) == nullptr) {
     //         for (size_t i = 0; i < inputs.size(); i++) {
     //             // Get upstream node for all inputs
     //             std::string inputName = inputs[i]->identifier;
@@ -434,7 +431,8 @@ ImVec2 MaterialXNodeTreeWidget::layoutPosition(
     //        // Check number of inputs that are connected to node
     //        if (layoutNode->getInputConnect() > 0) {
     //            // Not top of node graph so stop recursion
-    //            if (pins.size() != 0 && layoutNode->getInput() == nullptr) {
+    //            if (pins.size() != 0 && getMaterialXInput(layoutNode) ==
+    //            nullptr) {
     //                for (size_t i = 0; i < pins.size(); i++) {
     //                    // Get upstream node for all inputs
     //                    newPos = startingPos;
@@ -489,7 +487,7 @@ void MaterialXNodeTreeWidget::layoutInputs()
 
     //    for (UiNodePtr uiNode : _graphNodes) {
     //        if (uiNode->getOutputConnections().size() == 0 &&
-    //            (uiNode->getInput() != nullptr)) {
+    //            (getMaterialXInput(uiNode) != nullptr)) {
     //            ed::SetNodePosition(uiNode->ID, ImVec2(startingPos));
     //            startingPos.y += ed::GetNodeSize(uiNode->ID).y;
     //            startingPos.y += 23;
@@ -870,7 +868,7 @@ void MaterialXNodeTreeWidget::createEdge(
     UiNodePtr downNode,
     mx::InputPtr connectingInput)
 {
-    // if (downNode->getOutput()) {
+    // if (getMaterialXOutput(downNode)) {
     //     // Create edges for the output nodes
     //     UiEdge newEdge = UiEdge(upNode, downNode, nullptr);
     //     if (!edgeExists(newEdge)) {
@@ -905,16 +903,16 @@ void MaterialXNodeTreeWidget::copyUiNode(UiNodePtr node)
                mxNode->setName(newName);
                copyNode->setNode(mxNode);
            }
-           else if (node->getInput()) {
+           else if (getMaterialXInput(node)) {
                mx::InputPtr mxInput;
                mxInput = _currGraphElem->addInput(newName);
-               mxInput->copyContentFrom(node->getInput());
+               mxInput->copyContentFrom(getMaterialXInput(node));
                copyNode->setInput(mxInput);
            }
-           else if (node->getOutput()) {
+           else if (getMaterialXOutput(node)) {
                mx::OutputPtr mxOutput;
                mxOutput = _currGraphElem->addOutput(newName);
-               mxOutput->copyContentFrom(node->getOutput());
+               mxOutput->copyContentFrom(getMaterialXOutput(node));
                mxOutput->setName(newName);
                copyNode->setOutput(mxOutput);
            }
@@ -982,14 +980,14 @@ void MaterialXNodeTreeWidget::copyInputs()
     //                    if (getMaterialXNode(copyNode) &&
     //                        getMaterialXNode(copyNode)->getType() ==
     //                            mx::SURFACE_SHADER_TYPE_STRING) {
-    //                        if (upNode->getOutput()) {
+    //                        if (getMaterialXOutput(upNode)) {
     //                            copyNode->inputPins[count]
     //                                ->_input->setConnectedOutput(
-    //                                    upNode->getOutput());
+    //                                    getMaterialXOutput(upNode));
     //                        }
-    //                        else if (upNode->getInput()) {
+    //                        else if (getMaterialXInput(upNode)) {
     //                            copyNode->inputPins[count]
-    //                                ->_input->setConnectedInterfaceName(
+    //                                ->_input->setInterfaceName(
     //                                    upNode->getName());
     //                        }
     //                        else {
@@ -1019,9 +1017,9 @@ void MaterialXNodeTreeWidget::copyInputs()
     //                        }
     //                    }
     //                    else {
-    //                        if (upNode->getInput()) {
+    //                        if (getMaterialXInput(upNode)) {
     //                            copyNode->inputPins[count]
-    //                                ->_input->setConnectedInterfaceName(
+    //                                ->_input->setInterfaceName(
     //                                    upNode->getName());
     //                        }
     //                        else {
@@ -1033,9 +1031,9 @@ void MaterialXNodeTreeWidget::copyInputs()
 
     //                    copyNode->inputPins[count]->setConnected(true);
     //                }
-    //                else if (copyNode->getOutput() != nullptr) {
+    //                else if (getMaterialXOutput(copyNode) != nullptr) {
     //                    mx::InputPtr connectingInput = nullptr;
-    //                    copyNode->getOutput()->setConnectedNode(
+    //                    getMaterialXOutput(copyNode)->setConnectedNode(
     //                        getMaterialXNode(upNode));
     //                }
 
@@ -1046,7 +1044,7 @@ void MaterialXNodeTreeWidget::copyInputs()
     //            else if (getMaterialXPinInput(pin)) {
     //                if (getMaterialXPinInput(pin)->getInterfaceInput()) {
     //                    copyNode->inputPins[count]
-    //                        ->_input->setConnectedInterfaceName(
+    //                        ->_input->setInterfaceName(
     //                            mx::EMPTY_STRING);
     //                }
     //                copyNode->inputPins[count]->setConnected(false);
@@ -1320,7 +1318,7 @@ std::vector<int> MaterialXNodeTreeWidget::createNodes(bool nodegraph)
     //                }
     //            }
     //        }
-    //        else if (node->getInput() != nullptr) {
+    //        else if (getMaterialXInput(node) != nullptr) {
     //            std::string longestInputLabel = node->getName();
 
     //            ed::BeginNode(node->ID);
@@ -1345,7 +1343,7 @@ std::vector<int> MaterialXNodeTreeWidget::createNodes(bool nodegraph)
     //            ImGui::Text("%s", node->getName().c_str());
     //            ImGui::SetWindowFontScale(_fontScale);
 
-    //            outputType = node->getInput()->getType();
+    //            outputType = getMaterialXInput(node)->getType();
     //            for (UiPinPtr pin : node->inputPins) {
     //                UiNodePtr upUiNode =
     //                    node->getConnectedNode(node->getName());
@@ -1395,7 +1393,7 @@ std::vector<int> MaterialXNodeTreeWidget::createNodes(bool nodegraph)
     //            }
     //            drawOutputPins(node, longestInputLabel);
     //        }
-    //        else if (node->getOutput() != nullptr) {
+    //        else if (getMaterialXOutput(node) != nullptr) {
     //            std::string longestInputLabel = node->getName();
 
     //            ed::BeginNode(node->ID);
@@ -1420,7 +1418,7 @@ std::vector<int> MaterialXNodeTreeWidget::createNodes(bool nodegraph)
     //            ImGui::Text("%s", node->getName().c_str());
     //            ImGui::SetWindowFontScale(_fontScale);
 
-    //            outputType = node->getOutput()->getType();
+    //            outputType = getMaterialXOutput(node)->getType();
 
     //            for (UiPinPtr pin : node->inputPins) {
     //                UiNodePtr upUiNode = node->getConnectedNode("");
@@ -1522,17 +1520,6 @@ std::vector<int> MaterialXNodeTreeWidget::createNodes(bool nodegraph)
     return {};
 }
 
-void MaterialXNodeTreeWidget::addNodeInput(UiNodePtr node, mx::InputPtr& input)
-{
-    // if (getMaterialXNode(node)) {
-    //     if (!getMaterialXNode(node)->getInput(input->getName())) {
-    //         input =
-    //             getMaterialXNode(node)->addInput(input->getName(),
-    //             input->getType());
-    //         input->setConnectedNode(nullptr);
-    //     }
-    // }
-}
 void MaterialXNodeTreeWidget::setDefaults(mx::InputPtr input)
 {
     if (input->getType() == "float") {
@@ -1598,7 +1585,7 @@ void MaterialXNodeTreeWidget::deleteLinkInfo(int startAttr, int endAttr)
     //                // Remove interface value in order to set the default of
     //                the
     //                // input
-    //                getMaterialXPinInput(pin)->setConnectedInterfaceName(mx::EMPTY_STRING);
+    //                getMaterialXPinInput(pin)->setInterfaceName(mx::EMPTY_STRING);
     //                setDefaults(getMaterialXPinInput(pin));
     //                setDefaults(_graphNodes[upNode]->getInput());
     //            }
@@ -1629,7 +1616,7 @@ void MaterialXNodeTreeWidget::deleteLinkInfo(int startAttr, int endAttr)
     //                _graphNodes[downNode]
     //                    ->getNodeGraph()
     //                    ->getInput(pin->identifier)
-    //                    ->setConnectedInterfaceName(mx::EMPTY_STRING);
+    //                    ->setInterfaceName(mx::EMPTY_STRING);
     //                setDefaults(_graphNodes[upNode]->getInput());
     //            }
     //            for (UiPinPtr connect : pin->_connections) {
@@ -1954,7 +1941,8 @@ void MaterialXNodeTreeWidget::propertyEditor()
     //            std::vector<UiNodePtr> downstreamNodes =
     //                _currUiNode->getOutputConnections();
     //            for (UiNodePtr uiNode : downstreamNodes) {
-    //                if (!uiNode->getInput() && getMaterialXNode(uiNode)) {
+    //                if (!getMaterialXInput(uiNode) &&
+    //                getMaterialXNode(uiNode)) {
     //                    for (mx::InputPtr input :
     //                         getMaterialXNode(uiNode)->getActiveInputs()) {
     //                        if (input->getConnectedNode() ==
@@ -1971,47 +1959,47 @@ void MaterialXNodeTreeWidget::propertyEditor()
     //            getMaterialXNode(_currUiNode)->setName(name);
     //        }
     //    }
-    //    else if (_currUiNode->getInput()) {
+    //    else if (getMaterialXInput(_currUiNode)) {
     //        if (temp != original) {
     //            std::string name =
-    //                _currUiNode->getInput()->getParent()->createValidChildName(
+    //                getMaterialXInput(_currUiNode)->getParent()->createValidChildName(
     //                    temp);
     //            std::vector<UiNodePtr> downstreamNodes =
     //                _currUiNode->getOutputConnections();
     //            for (UiNodePtr uiNode : downstreamNodes) {
-    //                if (uiNode->getInput() == nullptr) {
+    //                if (getMaterialXInput(uiNode) == nullptr) {
     //                    if (getMaterialXNode(uiNode)) {
     //                        for (mx::InputPtr input :
     //                             getMaterialXNode(uiNode)->getActiveInputs())
     //                             {
     //                            if (input->getInterfaceInput() ==
-    //                                _currUiNode->getInput()) {
-    //                                _currUiNode->getInput()->setName(name);
+    //                                getMaterialXInput(_currUiNode)) {
+    //                                getMaterialXInput(_currUiNode)->setName(name);
     //                                mx::ValuePtr val =
-    //                                    _currUiNode->getInput()->getValue();
-    //                                input->setConnectedInterfaceName(name);
+    //                                    getMaterialXInput(_currUiNode)->getValue();
+    //                                input->setInterfaceName(name);
     //                                mx::InputPtr pt =
     //                                    input->getInterfaceInput();
     //                            }
     //                        }
     //                    }
     //                    else {
-    //                        uiNode->getOutput()->setConnectedNode(
+    //                        getMaterialXOutput(uiNode)->setConnectedNode(
     //                            getMaterialXNode(_currUiNode));
     //                    }
     //                }
     //            }
 
-    //            _currUiNode->getInput()->setName(name);
+    //            getMaterialXInput(_currUiNode)->setName(name);
     //            _currUiNode->setName(name);
     //        }
     //    }
-    //    else if (_currUiNode->getOutput()) {
+    //    else if (getMaterialXOutput(_currUiNode)) {
     //        if (temp != original) {
     //            std::string name =
-    //                _currUiNode->getOutput()->getParent()->createValidChildName(
+    //                getMaterialXOutput(_currUiNode)->getParent()->createValidChildName(
     //                    temp);
-    //            _currUiNode->getOutput()->setName(name);
+    //            getMaterialXOutput(_currUiNode)->setName(name);
     //            _currUiNode->setName(name);
     //        }
     //    }
@@ -2027,7 +2015,7 @@ void MaterialXNodeTreeWidget::propertyEditor()
     //            _currUiNode->setName(name);
 
     //            for (UiNodePtr node : _graphNodes) {
-    //                if (!node->getInput()) {
+    //                if (!getMaterialXInput(node)) {
     //                    std::vector<UiPinPtr> inputs = node->inputPins;
     //                    for (size_t i = 0; i < inputs.size(); i++) {
     //                        const std::string& inputName =
@@ -2172,7 +2160,7 @@ void MaterialXNodeTreeWidget::propertyEditor()
     //        }
     //    }
 
-    //    else if (_currUiNode->getInput() != nullptr) {
+    //    else if (getMaterialXInput(_currUiNode) != nullptr) {
     //        ImGui::Text("%s", _currUiNode->getCategory().c_str());
     //        std::vector<UiPinPtr> inputs = _currUiNode->inputPins;
 
@@ -2223,9 +2211,9 @@ void MaterialXNodeTreeWidget::propertyEditor()
     //            }
     //        }
     //    }
-    //    else if (_currUiNode->getOutput() != nullptr) {
+    //    else if (getMaterialXOutput(_currUiNode) != nullptr) {
     //        ImGui::Text("%s",
-    //        _currUiNode->getOutput()->getCategory().c_str());
+    //        getMaterialXOutput(_currUiNode)->getCategory().c_str());
     //    }
     //    else if (getMaterialXNodeGraph(_currUiNode) != nullptr) {
     //        std::vector<UiPinPtr> inputs = _currUiNode->inputPins;
@@ -2704,7 +2692,7 @@ void MaterialXNodeTreeWidget::drawGraph()
     //                }
     //                else if (
     //                    getMaterialXNodeGraph(_currUiNode) ||
-    //                    _currUiNode->getOutput()) {
+    //                    getMaterialXOutput(_currUiNode)) {
     //                    setRenderMaterial(_currUiNode);
     //                }
     //                _prevUiNode = _currUiNode;
@@ -3063,6 +3051,16 @@ void MaterialXNodeTreeWidget::savePosition()
     //         }
     //     }
     // }
+}
+
+void MaterialXNodeTreeWidget::execute_tree(Node* node)
+{
+    auto mtlx_tree = static_cast<MaterialXNodeTree*>(tree_);
+
+    if (mtlx_tree->GetDirty()) {
+        mtlx_tree->saveDocument("test.mtlx");
+        mtlx_tree->SetDirty(false);
+    }
 }
 
 USTC_CG_NAMESPACE_CLOSE_SCOPE

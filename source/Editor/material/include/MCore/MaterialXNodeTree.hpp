@@ -1,6 +1,6 @@
 #pragma once
 
-#include <MCore/Graph.h>
+#include <MCore/MaterialXNodeTreeWidget.h>
 #include <MaterialXFormat/Util.h>
 
 namespace mx = MaterialX;
@@ -77,11 +77,14 @@ class MCORE_API MaterialXNodeTree : public NodeTree {
     NodeLink* add_link(
         SocketID startPinId,
         SocketID endPinId,
-        bool refresh_topology) override;
+        bool refresh_topology = true) override;
 
     void removeEdge(int downNode, int upNode, UiPinPtr pin);
 
-    void deleteLink(LinkId deletedLinkId);
+    void delete_link(
+        LinkId linkId,
+        bool refresh_topology,
+        bool remove_from_group) override;
 
     void deleteNode(UiNodePtr node);
 
@@ -97,15 +100,13 @@ class MCORE_API MaterialXNodeTree : public NodeTree {
     Node* add_node(const char* str) override;
     void delete_node(Node* nodeId, bool allow_repeat_delete) override;
     void delete_node(NodeId nodeId, bool allow_repeat_delete) override;
-    void delete_link(
-        LinkId linkId,
-        bool refresh_topology,
-        bool remove_from_group) override;
-    void delete_link(
-        NodeLink* link,
-        bool refresh_topology,
-        bool remove_from_group) override;
+
     mx::DocumentPtr get_mtlx_stdlib();
+
+    // MaterialX Edition
+
+    // Add input pointer to node based on input pin
+    void addNodeInput(UiNodePtr node, mx::InputPtr& input);
 
     // document and initializing information
     mx::FilePath _materialFilename;

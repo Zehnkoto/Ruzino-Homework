@@ -1,8 +1,8 @@
 
 #include "GUI/window.h"
 #include "Logger/Logger.h"
-#include "MCore/Graph.h"
 #include "MCore/MaterialXNodeTree.hpp"
+#include "MCore/MaterialXNodeTreeWidget.h"
 #include "gtest/gtest.h"
 #include "imgui.h"
 #include "nodes/core/node_tree.hpp"

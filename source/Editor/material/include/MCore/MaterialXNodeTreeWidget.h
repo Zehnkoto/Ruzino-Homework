@@ -26,6 +26,8 @@ namespace mx = MaterialX;
 
 using UiNodePtr = Node*;
 using UiPinPtr = NodeSocket*;
+using UiEdge = NodeLink;
+using Link = NodeLink;
 
 class MenuItem {
    public:
@@ -126,7 +128,7 @@ class MCORE_API MaterialXNodeTreeWidget : public NodeEditorWidgetBase {
 
     using UiNode = Node;
 
-    ~MaterialXNodeTreeWidget(){};
+    ~MaterialXNodeTreeWidget() { };
 
    private:
     // Generate node UI from nodedefs
@@ -191,15 +193,11 @@ class MCORE_API MaterialXNodeTreeWidget : public NodeEditorWidgetBase {
         UiNodePtr downNode,
         mx::InputPtr connectingInput);
 
-
     // Set position attributes for nodes which changed position
     void savePosition();
 
     // Check if node has already been assigned a position
     bool checkPosition(UiNodePtr node);
-
-    // Add input pointer to node based on input pin
-    void addNodeInput(UiNodePtr node, mx::InputPtr& input);
 
     void upNodeGraph();
 
@@ -232,13 +230,14 @@ class MCORE_API MaterialXNodeTreeWidget : public NodeEditorWidgetBase {
     // Compiling shaders message
     void shaderPopup();
 
-
     void clearGraph();
     void loadGraphFromFile(bool prompt);
     void saveGraphToFile();
     void loadGeometry();
 
     void showHelp() const;
+
+    void execute_tree(Node* node) override;
 
    public:
     // bool BuildUI() override
@@ -321,6 +320,7 @@ class MCORE_API MaterialXNodeTreeWidget : public NodeEditorWidgetBase {
     // Options
     bool _saveNodePositions;
 };
+
 
 USTC_CG_NAMESPACE_CLOSE_SCOPE
 
