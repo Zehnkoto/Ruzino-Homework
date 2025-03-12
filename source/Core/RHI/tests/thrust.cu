@@ -1,8 +1,8 @@
-#include "RHI/internal/cuda_extension.hpp"
-
 #include <gtest/gtest.h>
 #include <thrust/device_vector.h>
 #include <thrust/host_vector.h>
+
+#include "RHI/internal/cuda_extension.hpp"
 
 using namespace USTC_CG::cuda;
 
@@ -35,4 +35,10 @@ TEST(create_buffer, cuda_buffer)
         std::cout << h_vec[i] << " ";
     }
     std::cout << std::endl;
+}
+
+int main()
+{
+    testing::InitGoogleTest();
+    return RUN_ALL_TESTS();
 }

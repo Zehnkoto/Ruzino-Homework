@@ -43,7 +43,7 @@ function(GEN_NODES_JSON TARGET_NAME)
     string(REPLACE ";" " " CONVERSIONS_FILES_STR "${ABS_CONVERSIONS_FILES}")
 
     # Construct the command to call the Python script
-    set(COMMAND_ARGS ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/source/Plugins/util_scripts/nodes_json.py)
+    set(COMMAND_ARGS ${Python3_EXECUTABLE} ${USTC_CG_ROOT_DIR}/source/Plugins/util_scripts/nodes_json.py)
 
     if(NODES_DIRS_STR)
         list(APPEND COMMAND_ARGS --nodes-dir ${NODES_DIRS_STR})
@@ -78,7 +78,7 @@ function(GEN_NODES_JSON TARGET_NAME)
 endfunction()
 
 function(add_nodes)
-    cmake_parse_arguments(ARG "" "TARGET_NAME" "SRC_DIRS;SRC_FILES;CONVERSION_DIRS;CONVERSION_FILES;DEP_LIBS;COMPILE_DEFS;COMPILE_OPTIONS;EXTRA_INCLUDE_DIRS" ${ARGN})
+    cmake_parse_arguments(ARG "" "TARGET_NAME;JSON_DIR" "SRC_DIRS;SRC_FILES;CONVERSION_DIRS;CONVERSION_FILES;DEP_LIBS;COMPILE_DEFS;COMPILE_OPTIONS;EXTRA_INCLUDE_DIRS" ${ARGN})
 
     if(NOT ARG_TARGET_NAME)
         message(FATAL_ERROR "add_nodes: TARGET_NAME not specified")
@@ -124,7 +124,7 @@ function(add_nodes)
         NODES_FILES ${ARG_SRC_FILES}
         CONVERSIONS_DIRS ${ARG_CONVERSION_DIRS}
         CONVERSIONS_FILES ${ARG_CONVERSION_FILES}
-        OUTPUT_JSON ${OUT_BINARY_DIR}/${ARG_TARGET_NAME}.json
+        OUTPUT_JSON ${OUT_BINARY_DIR}/${ARG_JSON_DIR}/${ARG_TARGET_NAME}.json
     )
 
     add_library(${ARG_TARGET_NAME} INTERFACE)

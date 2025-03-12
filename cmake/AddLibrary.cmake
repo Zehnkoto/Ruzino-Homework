@@ -49,7 +49,6 @@ function(UCG_ADD_TEST)
     cmake_parse_arguments(UCG_TEST "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
     string(REGEX REPLACE "(.*/)([a-zA-Z0-9_ ]+)(\.cpp|\.cu)" "\\2" test_name ${UCG_TEST_SRC})
-    message("---- Adding the test ${test_name}_test.")
 
     add_executable(${test_name}_test ${UCG_TEST_SRC})
 
@@ -169,7 +168,6 @@ function(USTC_CG_ADD_LIB LIB_NAME)
     if(USTC_CG_ADD_LIB_WITH_CUDA)
         if(USTC_CG_WITH_CUDA)
             Set_CUDA_Properties(${name})
-            message("Setting CUDA properties for ${name}")
         endif()
     endif()
 
@@ -195,7 +193,6 @@ function(USTC_CG_ADD_LIB LIB_NAME)
             target_compile_definitions(${name}_py PRIVATE Py_DEBUG)
         endif()
 
-        message("Python3_LIBRARY_DIRS: ${Python3_LIBRARY_DIRS}")
         target_link_directories(${name}_py PRIVATE ${Python3_LIBRARY_DIRS})
 
         set_target_properties(${name}_py PROPERTIES ${OUTPUT_DIR})
@@ -256,7 +253,6 @@ function(USTC_CG_ADD_LIB LIB_NAME)
     # Copy USD resource directories and files
     foreach(resource_dir ${USTC_CG_ADD_LIB_USD_RESOURCE_DIRS})
         get_filename_component(absolute_resource_dir ${resource_dir} ABSOLUTE)
-        message("Copying USD resource directory ${absolute_resource_dir} to ${USTC_CG_ADD_LIB_RESOURCE_COPY_TARGET}")
         add_custom_command(
             TARGET ${name} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_directory

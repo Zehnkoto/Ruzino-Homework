@@ -1,5 +1,3 @@
-message("slang downloaded files at ${SLANG_ROOT_DIR}, trying to find ${Slang_FIND_COMPONENTS}")
-
 include(FindPackageHandleStandardArgs)
 
 # Define search paths based on user input and environment variables
@@ -36,7 +34,6 @@ if(";${Slang_FIND_COMPONENTS};slang;" MATCHES ";${_comp};")
     mark_as_advanced(SLANG_${_comp}_LIBRARY)
 endif()
 endforeach()
-message("Slang libraries found: ${SLANG_LIBRARIES}")
 
 find_package_handle_standard_args(SLANG REQUIRED_VARS SLANG_INCLUDE_DIRS SLANG_LIBRARIES)
 
@@ -46,7 +43,6 @@ find_package_handle_standard_args(SLANG REQUIRED_VARS SLANG_INCLUDE_DIRS SLANG_L
 
 if(NOT CMAKE_VERSION VERSION_LESS 3.0 AND SLANG_FOUND)
 add_library(SLANG::slang SHARED IMPORTED)
-message("SLANG_INCLUDE_DIRS: ${SLANG_INCLUDE_DIRS}")
 set_target_properties(SLANG::slang PROPERTIES
           INTERFACE_INCLUDE_DIRECTORIES  ${SLANG_INCLUDE_DIRS}
           IMPORTED_IMPLIB  ${SLANG_LIBRARIES}

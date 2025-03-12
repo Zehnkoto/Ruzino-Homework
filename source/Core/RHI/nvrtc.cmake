@@ -1,7 +1,5 @@
 set(CUDA_NVRTC_ENABLED 1)
 set(OptiX_INCLUDE ${CMAKE_CURRENT_LIST_DIR}/include/RHI/internal/optix)
-message("Optix include at ${OptiX_INCLUDE}")
-message("system include $ENV{INCLUDE}") 
 # Merge $ENV{INCLUDE} with current include directories
 string(REPLACE "\\" "/" ENV_INCLUDE_LIST "$ENV{INCLUDE}")
 string(REPLACE ";" "\", \\\n  \"" ENV_INCLUDE_LIST "${ENV_INCLUDE_LIST}")

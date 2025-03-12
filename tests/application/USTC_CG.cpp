@@ -62,6 +62,18 @@ int main()
 
             auto loaded = system->load_configuration("geometry_nodes.json");
             loaded = system->load_configuration("basic_nodes.json");
+
+            // iterate over path Plugin (not recursively), get all the json and
+            // load them
+
+            auto plugin_path = std::filesystem::path("./Plugins");
+
+            for (auto& p : std::filesystem::directory_iterator(plugin_path)) {
+                if (p.path().extension() == ".json") {
+                    system->load_configuration(p.path().string());
+                }
+            }
+
             system->init();
             system->set_node_tree_executor(create_node_tree_executor({}));
 

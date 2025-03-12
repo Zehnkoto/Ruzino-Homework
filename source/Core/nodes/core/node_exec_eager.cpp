@@ -372,20 +372,6 @@ EagerNodeTreeExecutor::~EagerNodeTreeExecutor()
 {
     storage.clear();
 }
-//
-// ExeParams EagerNodeTreeExecutorGeom::prepare_params(NodeTree* tree, Node*
-// node)
-//{
-//    auto result = EagerNodeTreeExecutor::prepare_params(tree, node);
-//    result.global_param = *global_param;
-//
-//    return result;
-//}
-//
-// void EagerNodeTreeExecutorGeom::set_global_param(GeomNodeGlobalParams* param)
-//{
-//    this->global_param = param;
-//}
 
 void EagerNodeTreeExecutor::prepare_tree(NodeTree* tree, Node* required_node)
 {

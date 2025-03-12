@@ -10,6 +10,10 @@ project(
 )
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Set the relative path to the project root
+file(RELATIVE_PATH RELATIVE_TO_PROJROOT ${CMAKE_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
+set(USTC_CG_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR} CACHE STRING "Root directory of the project")
+
 include(cmake/AddLibrary.cmake)
 include(cmake/AddNodes.cmake)
 
@@ -25,10 +29,6 @@ set_target_properties(gtest_main PROPERTIES ${OUTPUT_DIR})
 
 option(USTC_CG_WITH_CUDA OFF)
 option(USTC_CG_WITH_TORCH OFF)
-
-# Set the relative path to the project root
-file(RELATIVE_PATH RELATIVE_TO_PROJROOT ${CMAKE_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
-message ("Relative path is ${RELATIVE}")
 
 if(USTC_CG_WITH_CUDA)
     set(CMAKE_CUDA_ARCHITECTURES 86)
