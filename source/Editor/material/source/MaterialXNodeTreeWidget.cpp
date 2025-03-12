@@ -310,123 +310,123 @@ ImVec2 MaterialXNodeTreeWidget::layoutPosition(
     bool initialLayout,
     int level)
 {
-    if (checkPosition(layoutNode) && !_autoLayout) {
-        for (UiNodePtr node : _graphNodes) {
-            // Since nodegraph nodes do not have MaterialX info they are placed
-            // based on their connected node
-            if (getMaterialXNodeGraph(node) != nullptr) {
-                std::vector<UiNodePtr> outputCon = node->getOutputConnections();
-                if (outputCon.size() > 0) {
-                    ImVec2 outputPos = ed::GetNodePosition(outputCon[0]->ID);
-                    ed::SetNodePosition(
-                        node->ID, ImVec2(outputPos.x - 400, outputPos.y));
-                }
-            }
-            else {
-                // Don't set position of group nodes
-                if (node->getMessage().empty()) {
-                    mx::ElementPtr elem = node->getElement();
-                    if (elem &&
-                        elem->hasAttribute(mx::Element::XPOS_ATTRIBUTE)) {
-                        float x = std::stof(
-                            elem->getAttribute(mx::Element::XPOS_ATTRIBUTE));
-                        if (elem->hasAttribute(mx::Element::YPOS_ATTRIBUTE)) {
-                            float y = std::stof(elem->getAttribute(
-                                mx::Element::YPOS_ATTRIBUTE));
-                            x *= DEFAULT_NODE_SIZE.x;
-                            y *= DEFAULT_NODE_SIZE.y;
-                            ed::SetNodePosition(node->ID, ImVec2(x, y));
-                        }
-                    }
-                }
-            }
-        }
-        return ImVec2(0.f, 0.f);
-    }
-    else {
-        ImVec2 currPos = startingPos;
-        ImVec2 newPos = currPos;
-        if (layoutNode->_level != -1) {
-            if (layoutNode->_level < level) {
-                // Remove the old instance of the node from the map
-                int levelNum = 0;
-                int removeNum = -1;
-                for (UiNodePtr levelNode : _levelMap[layoutNode->_level]) {
-                    if (levelNode->getName() == layoutNode->getName()) {
-                        removeNum = levelNum;
-                    }
-                    levelNum++;
-                }
-                if (removeNum > -1) {
-                    _levelMap[layoutNode->_level].erase(
-                        _levelMap[layoutNode->_level].begin() + removeNum);
-                }
+    //if (checkPosition(layoutNode) && !_autoLayout) {
+    //    for (UiNodePtr node : _graphNodes) {
+    //        // Since nodegraph nodes do not have MaterialX info they are placed
+    //        // based on their connected node
+    //        if (getMaterialXNodeGraph(node) != nullptr) {
+    //            std::vector<UiNodePtr> outputCon = node->getOutputConnections();
+    //            if (outputCon.size() > 0) {
+    //                ImVec2 outputPos = ed::GetNodePosition(outputCon[0]->ID);
+    //                ed::SetNodePosition(
+    //                    node->ID, ImVec2(outputPos.x - 400, outputPos.y));
+    //            }
+    //        }
+    //        else {
+    //            // Don't set position of group nodes
+    //            if (node->getMessage().empty()) {
+    //                mx::ElementPtr elem = node->getElement();
+    //                if (elem &&
+    //                    elem->hasAttribute(mx::Element::XPOS_ATTRIBUTE)) {
+    //                    float x = std::stof(
+    //                        elem->getAttribute(mx::Element::XPOS_ATTRIBUTE));
+    //                    if (elem->hasAttribute(mx::Element::YPOS_ATTRIBUTE)) {
+    //                        float y = std::stof(elem->getAttribute(
+    //                            mx::Element::YPOS_ATTRIBUTE));
+    //                        x *= DEFAULT_NODE_SIZE.x;
+    //                        y *= DEFAULT_NODE_SIZE.y;
+    //                        ed::SetNodePosition(node->ID, ImVec2(x, y));
+    //                    }
+    //                }
+    //            }
+    //        }
+    //    }
+    //    return ImVec2(0.f, 0.f);
+    //}
+    //else {
+    //    ImVec2 currPos = startingPos;
+    //    ImVec2 newPos = currPos;
+    //    if (layoutNode->_level != -1) {
+    //        if (layoutNode->_level < level) {
+    //            // Remove the old instance of the node from the map
+    //            int levelNum = 0;
+    //            int removeNum = -1;
+    //            for (UiNodePtr levelNode : _levelMap[layoutNode->_level]) {
+    //                if (levelNode->getName() == layoutNode->getName()) {
+    //                    removeNum = levelNum;
+    //                }
+    //                levelNum++;
+    //            }
+    //            if (removeNum > -1) {
+    //                _levelMap[layoutNode->_level].erase(
+    //                    _levelMap[layoutNode->_level].begin() + removeNum);
+    //            }
 
-                layoutNode->_level = level;
-            }
-        }
-        else {
-            layoutNode->_level = level;
-        }
+    //            layoutNode->_level = level;
+    //        }
+    //    }
+    //    else {
+    //        layoutNode->_level = level;
+    //    }
 
-        auto it = _levelMap.find(layoutNode->_level);
-        if (it != _levelMap.end()) {
-            // Key already exists so add to it
-            bool nodeFound = false;
-            for (UiNodePtr node : it->second) {
-                if (node && node->getName() == layoutNode->getName()) {
-                    nodeFound = true;
-                    break;
-                }
-            }
-            if (!nodeFound) {
-                _levelMap[layoutNode->_level].push_back(layoutNode);
-            }
-        }
-        else {
-            // Insert new vector into key
-            std::vector<UiNodePtr> newValue = { layoutNode };
-            _levelMap.insert({ layoutNode->_level, newValue });
-        }
-        std::vector<UiPinPtr> pins = layoutNode->get_inputs();
-        if (initialLayout) {
-            // Check number of inputs that are connected to node
-            if (!layoutNode->getInputConnections().empty()) {
-                // Not top of node graph so stop recursion
-                if (pins.size() != 0 &&
-                    getMaterialXInput(layoutNode) == nullptr) {
-                    for (size_t i = 0; i < pins.size(); i++) {
-                        // Get upstream node for all inputs
-                        newPos = startingPos;
-                        UiNodePtr nextNode =
-                            layoutNode->getConnectedNode(pins[i]->identifier);
-                        if (nextNode) {
-                            startingPos.x =
-                                (1200.f - ((layoutNode->_level) * 250)) *
-                                _fontScale;
-                            ed::SetNodePosition(layoutNode->ID, startingPos);
+    //    auto it = _levelMap.find(layoutNode->_level);
+    //    if (it != _levelMap.end()) {
+    //        // Key already exists so add to it
+    //        bool nodeFound = false;
+    //        for (UiNodePtr node : it->second) {
+    //            if (node && node->getName() == layoutNode->getName()) {
+    //                nodeFound = true;
+    //                break;
+    //            }
+    //        }
+    //        if (!nodeFound) {
+    //            _levelMap[layoutNode->_level].push_back(layoutNode);
+    //        }
+    //    }
+    //    else {
+    //        // Insert new vector into key
+    //        std::vector<UiNodePtr> newValue = { layoutNode };
+    //        _levelMap.insert({ layoutNode->_level, newValue });
+    //    }
+    //    std::vector<UiPinPtr> pins = layoutNode->get_inputs();
+    //    if (initialLayout) {
+    //        // Check number of inputs that are connected to node
+    //        if (!layoutNode->getInputConnections().empty()) {
+    //            // Not top of node graph so stop recursion
+    //            if (pins.size() != 0 &&
+    //                getMaterialXInput(layoutNode) == nullptr) {
+    //                for (size_t i = 0; i < pins.size(); i++) {
+    //                    // Get upstream node for all inputs
+    //                    newPos = startingPos;
+    //                    UiNodePtr nextNode =
+    //                        layoutNode->getConnectedNode(pins[i]->identifier);
+    //                    if (nextNode) {
+    //                        startingPos.x =
+    //                            (1200.f - ((layoutNode->_level) * 250)) *
+    //                            _fontScale;
+    //                        ed::SetNodePosition(layoutNode->ID, startingPos);
 
-                            // Call layout position on upstream node with newPos
-                            // to the left of current node
-                            layoutPosition(
-                                nextNode,
-                                ImVec2(newPos.x, startingPos.y),
-                                initialLayout,
-                                layoutNode->_level + 1);
-                        }
-                    }
-                }
-            }
-            else {
-                startingPos.x =
-                    (1200.f - ((layoutNode->_level) * 250)) * _fontScale;
+    //                        // Call layout position on upstream node with newPos
+    //                        // to the left of current node
+    //                        layoutPosition(
+    //                            nextNode,
+    //                            ImVec2(newPos.x, startingPos.y),
+    //                            initialLayout,
+    //                            layoutNode->_level + 1);
+    //                    }
+    //                }
+    //            }
+    //        }
+    //        else {
+    //            startingPos.x =
+    //                (1200.f - ((layoutNode->_level) * 250)) * _fontScale;
 
-                // Set current node position
-                ed::SetNodePosition(layoutNode->ID, ImVec2(startingPos));
-            }
-        }
-        return ImVec2(0.f, 0.f);
-    }
+    //            // Set current node position
+    //            ed::SetNodePosition(layoutNode->ID, ImVec2(startingPos));
+    //        }
+    //    }
+    //    return ImVec2(0.f, 0.f);
+    //}
     return {};
 }
 

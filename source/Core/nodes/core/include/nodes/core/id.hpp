@@ -95,7 +95,7 @@ struct NodeId final : detail::SafePointerType<NodeId> {
     using SafePointerType::SafePointerType;
 };
 
-struct LinkId final : detail::SafePointerType<LinkId> {
+struct NODES_CORE_API LinkId final : detail::SafePointerType<LinkId> {
     using SafePointerType::SafePointerType;
 };
 

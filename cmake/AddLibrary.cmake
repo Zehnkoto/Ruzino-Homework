@@ -1,5 +1,4 @@
 set(OUT_BINARY_DIR ${CMAKE_SOURCE_DIR}/Binaries/${CMAKE_BUILD_TYPE})
-message("Build binaries to ${OUT_BINARY_DIR}")
 set(OUTPUT_DIR
   RUNTIME_OUTPUT_DIRECTORY_DEBUG "${OUT_BINARY_DIR}"
   RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO "${OUT_BINARY_DIR}"
@@ -11,7 +10,17 @@ set(OUTPUT_DIR
   LIBRARY_OUTPUT_DIRECTORY "${OUT_BINARY_DIR}"
 )
 
+if(USTC_CG_WITH_CUDA)
+    set(CMAKE_CUDA_ARCHITECTURES 86)
+endif()
+
 function(Set_CUDA_Properties lib_name)
+    # Set the cuda compiler to be nvcc 12.6
+    find_package(CUDAToolkit REQUIRED)
+    find_package(CCCL REQUIRED)
+    add_compile_definitions(USTC_CG_WITH_CUDA=1)
+    set(CMAKE_CUDA_STANDARD 20)
+
     set_target_properties(${lib_name}
         PROPERTIES
         CUDA_RESOLVE_DEVICE_SYMBOLS ON
@@ -174,8 +183,6 @@ function(USTC_CG_ADD_LIB LIB_NAME)
         PRIVATE ${USTC_CG_ADD_LIB_PRIVATE_LIBS}
     )
 
-    message("output dir is ${OUTPUT_DIR}")
-    message("target name is ${name}")
     set_target_properties(${name} PROPERTIES ${OUTPUT_DIR})
 
     if(USTC_CG_ADD_LIB_PYTHON_WRAP_SRC)
@@ -191,7 +198,6 @@ function(USTC_CG_ADD_LIB LIB_NAME)
         message("Python3_LIBRARY_DIRS: ${Python3_LIBRARY_DIRS}")
         target_link_directories(${name}_py PRIVATE ${Python3_LIBRARY_DIRS})
 
-        message("Output directory: ${OUTPUT_DIR}")
         set_target_properties(${name}_py PROPERTIES ${OUTPUT_DIR})
 
         # 仅当Python_EXECUTABLE为空时才设置Python_EXECUTABLE

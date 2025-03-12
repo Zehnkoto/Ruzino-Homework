@@ -26,15 +26,13 @@ set_target_properties(gtest_main PROPERTIES ${OUTPUT_DIR})
 option(USTC_CG_WITH_CUDA OFF)
 option(USTC_CG_WITH_TORCH OFF)
 
+# Set the relative path to the project root
+file(RELATIVE_PATH RELATIVE_TO_PROJROOT ${CMAKE_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
+message ("Relative path is ${RELATIVE}")
+
 if(USTC_CG_WITH_CUDA)
-  # Set the cuda compiler to be nvcc 12.6
-  message(STATUS "CUDA is enabled")
-  set(CMAKE_CUDA_ARCHITECTURES 86)
-  enable_language(CUDA)
-  find_package(CUDAToolkit REQUIRED)
-  find_package(CCCL REQUIRED)
-  add_compile_definitions(USTC_CG_WITH_CUDA=1)
-  set(CMAKE_CUDA_STANDARD 20)
+    set(CMAKE_CUDA_ARCHITECTURES 86)
+    enable_language(CUDA)
 else()
   add_compile_definitions(USTC_CG_WITH_CUDA=0)
 endif()

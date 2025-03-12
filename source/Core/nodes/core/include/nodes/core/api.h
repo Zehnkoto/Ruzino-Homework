@@ -1,7 +1,9 @@
 
 #pragma once
 
+#ifndef USTC_CG_NAMESPACE_OPEN_SCOPE
 #define USTC_CG_NAMESPACE_OPEN_SCOPE namespace USTC_CG{
+#endif
 #define USTC_CG_NAMESPACE_CLOSE_SCOPE }
 
 #if defined(_MSC_VER)

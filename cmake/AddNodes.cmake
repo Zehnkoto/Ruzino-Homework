@@ -6,8 +6,6 @@ function(GEN_NODES_JSON TARGET_NAME)
     set(multiValueArgs NODES_DIRS NODES_FILES CONVERSIONS_DIRS CONVERSIONS_FILES)
     cmake_parse_arguments(GEN_NODES_JSON "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
-    message("GEN_NODES_JSON at ${GEN_NODES_JSON_OUTPUT_JSON}")
-
     # Convert each directory path to absolute if it is not already
     foreach(dir IN LISTS GEN_NODES_JSON_NODES_DIRS)
         if(NOT IS_ABSOLUTE "${dir}")
@@ -64,8 +62,6 @@ function(GEN_NODES_JSON TARGET_NAME)
     endif()
 
     list(APPEND COMMAND_ARGS --output ${GEN_NODES_JSON_OUTPUT_JSON})
-
-    message("COMMAND_ARGS: ${COMMAND_ARGS}")
 
     add_custom_command(
         OUTPUT ${GEN_NODES_JSON_OUTPUT_JSON}
