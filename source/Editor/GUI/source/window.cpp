@@ -325,7 +325,7 @@ Window::Window()
     IGFD::FileDialogConfig config;
     config.path = "../../Assets";
     instance->OpenDialog(
-        "SelectFile", "Select File", "{ .usd, .usda, .usdz }", config);
+        "SelectFile", "Select File", "{ .usd, .usda, .usdz, .usdc }", config);
 
     manager->AddRenderPassToBack(imguiRenderPass.get());
 }
