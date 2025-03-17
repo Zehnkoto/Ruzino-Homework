@@ -19,19 +19,28 @@ def scan_cpp_files(directories, files, pattern, suffix="", prefix=""):
                         matches = compiled_pattern.findall(content)
                         if matches:
                             # add the suffix
-                            matches = list(map(lambda x: x+suffix, matches))
+                            if len(suffix) > 0:
+                                matches = list(map(lambda x: x+suffix, matches))
                             file_name_without_suffix = os.path.splitext(file)[0]
-                            nodes[prefix+file_name_without_suffix] = matches
-
+                            if len(prefix) > 0:
+                                nodes[prefix+file_name_without_suffix] = matches
+                            else:
+                                nodes[file_name_without_suffix] = matches
+                                
     for file in files:
         if file.endswith(".cpp"):
             with open(file, "r", encoding="utf-8") as f:
                 content = f.read()
                 matches = compiled_pattern.findall(content)
                 if matches:
-                    matches = list(map(lambda x: x + suffix, matches))
+                    if len(suffix) > 0:
+                        matches = list(map(lambda x: x + suffix, matches))
                     file_name_without_suffix = os.path.splitext(os.path.basename(file))[0]
-                    nodes[prefix+file_name_without_suffix] = matches
+                    if len(prefix) > 0:
+                        nodes[prefix+file_name_without_suffix] = matches
+                    else:
+                        nodes[file_name_without_suffix] = matches
+                        
 
     return nodes
 
