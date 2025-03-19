@@ -9,6 +9,11 @@
 // SceneTypes
 #include "../nodes/shaders/shaders/Scene/SceneTypes.slang"
 #include "internal/memory/DeviceMemoryPool.hpp"
+
+struct MaterialData {
+    unsigned data[32];
+};
+
 USTC_CG_NAMESPACE_OPEN_SCOPE
 
 class HD_USTC_CG_API Hd_USTC_CG_RenderInstanceCollection {
@@ -27,6 +32,7 @@ class HD_USTC_CG_API Hd_USTC_CG_RenderInstanceCollection {
     DeviceMemoryPool<GeometryInstanceData> instance_pool;
     DeviceMemoryPool<nvrhi::rt::InstanceDesc> rt_instance_pool;
     DeviceMemoryPool<MeshDesc> mesh_pool;
+    DeviceMemoryPool<MaterialData> material_pool;
     DeviceMemoryPool<nvrhi::DrawIndirectArguments> draw_indirect_pool;
 
     struct BindlessData {

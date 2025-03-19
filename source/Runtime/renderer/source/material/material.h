@@ -9,6 +9,7 @@
 #include "pxr/imaging/hdMtlx/hdMtlx.h"
 #include "pxr/imaging/hio/image.h"
 #include "renderParam.h"
+#include "renderer/program_vars.hpp"
 
 namespace pxr {
 class Hio_OpenEXRImage;
@@ -33,9 +34,29 @@ class HD_USTC_CG_API Hd_USTC_CG_Material : public HdMaterial {
 
     void Finalize(HdRenderParam* renderParam) override;
 
+    std::vector<TextureHandle> GetTextures() const
+    {
+        std::vector<TextureHandle> textures;
+        for (const auto& tex : textureResources) {
+            textures.push_back(tex.second.texture);
+        }
+        return textures;
+    }
+
+    unsigned GetMaterialLocation() const
+    {
+        return material_data_handle->index();
+    }
+
+    std::shared_ptr<ProgramVars> GetShader(
+        const ShaderFactory& factory,
+        ResourceAllocator& allocator);
+
    private:
     HdMaterialNetwork2 surfaceNetwork;
     MaterialX::ShaderPtr shader;
+    ProgramHandle program = nullptr;
+
     std::unordered_map<std::string, std::string> texturePaths;
 
     struct TextureResource {
@@ -62,13 +83,15 @@ class HD_USTC_CG_API Hd_USTC_CG_Material : public HdMaterial {
         SdfPath surfTerminalPath,
         HdMaterialNode2 const* surfTerminal,
         HdMtlxTexturePrimvarData& hdMtlxData);
+
     HdMaterialNetwork2Interface FetchMaterialNetwork(
         HdSceneDelegate* sceneDelegate,
         HdMaterialNetwork2& hdNetwork,
         SdfPath& materialPath,
-
         SdfPath& surfTerminalPath,
         HdMaterialNode2 const*& surfTerminal);
+
+    DeviceMemoryPool<MaterialData>::MemoryHandle material_data_handle;
 
     static MaterialX::GenContextPtr shader_gen_context_;
     static MaterialX::DocumentPtr libraries;

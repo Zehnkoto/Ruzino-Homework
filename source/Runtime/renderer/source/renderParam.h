@@ -22,18 +22,20 @@
 // language governing permissions and limitations under the Apache License.
 //
 #pragma once
+#include "api.h"
 
 #include "DescriptorTableManager.h"
 #include "RHI/rhi.hpp"
-#include "api.h"
 #include "pxr/imaging/hd/renderDelegate.h"
 #include "pxr/imaging/hd/renderThread.h"
 #include "pxr/pxr.h"
 #include "renderTLAS.h"
 
 namespace USTC_CG {
+class Hd_USTC_CG_Material;
 class NodeSystem;
 class LensSystem;
+using MaterialMap = pxr::TfHashMap<SdfPath, Hd_USTC_CG_Material *, TfHash>;
 }  // namespace USTC_CG
 
 namespace USTC_CG {
@@ -55,25 +57,31 @@ class Hd_USTC_CG_RenderParam final : public HdRenderParam {
     Hd_USTC_CG_RenderParam(
         HdRenderThread *renderThread,
         std::atomic<int> *sceneVersion,
-        NodeSystem *node_system)
+        NodeSystem *node_system,
+        MaterialMap *m)
         : _renderThread(renderThread),
+          material_map(m),
           _sceneVersion(sceneVersion),
           node_system(node_system)
+
     {
         InstanceCollection =
             std::make_unique<Hd_USTC_CG_RenderInstanceCollection>();
     }
+
     ~Hd_USTC_CG_RenderParam()
     {
     }
 
     HdRenderThread *_renderThread = nullptr;
 
+    MaterialMap *material_map;
+
     NodeSystem *node_system;
     std::unique_ptr<Hd_USTC_CG_RenderInstanceCollection> InstanceCollection;
 
     nvrhi::TextureHandle presented_texture;
-    LensSystem *lens_system;
+    LensSystem *lens_system = nullptr;
 
    private:
     /// A handle to the global render thread.

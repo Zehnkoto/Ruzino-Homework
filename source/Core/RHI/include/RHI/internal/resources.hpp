@@ -84,6 +84,12 @@ struct RHI_API ProgramDesc {
     ProgramDesc& set_shader_type(nvrhi::ShaderType shaderType);
     ProgramDesc& set_entry_name(const std::string& entry_name);
 
+    ProgramDesc& set_source_code(const std::string& source_code)
+    {
+        this->source_code = source_code;
+        return *this;
+    }
+
     nvrhi::ShaderType shaderType;
     bool nvapi_support = false;
 
@@ -153,6 +159,7 @@ struct RHI_API Program : nvrhi::RefCounter<IProgram> {
     Slang::ComPtr<ISlangSharedLibrary> library;
     std::string error_string;
     ProgramDesc desc;
+    Slang::ComPtr<slang::IComponentType> linkedProgram;
 };
 
 constexpr uint32_t c_FalcorMaterialInstanceSize = 128;

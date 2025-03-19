@@ -74,6 +74,11 @@ struct ShadowPayload {
     float3 shadow_mask;
 };
 
+struct CallableData
+{
+    float4 color;
+};
+
 // Closest hit shader
 [shader("closesthit")]
 void ClosestHit(
@@ -130,6 +135,14 @@ void ClosestHit(
 
     TraceRay(SceneBVH, RAY_FLAG_NONE, 0xFF, 1, 1, 1, shadow_ray_desc, shadowPayload);
     result = shadowPayload.shadow_mask;
+
+    var material_id = instanceDescBuffer[instance_id].materialID;
+
+    // Call the callable shader to get color based on material_id
+    CallableData callData;
+    callData.color = float4(0, 0, 0, 1);
+    CallShader(material_id, callData);
+    result *= callData.color.rgb;
 
     Eval[id] = float4(result, 1);
     // * float4(hitObjects[id].rays.throughput.toFloat3(), 1.0);

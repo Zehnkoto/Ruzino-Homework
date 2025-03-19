@@ -115,6 +115,14 @@ NODE_EXECUTION_FUNCTION(material_eval_sample_pdf)
     context.announce_hitgroup("ShadowHit", "", "", 1);
     context.announce_miss("Miss");
     context.announce_miss("ShadowMiss", 1);
+
+    for (auto material : global_payload.get_materials()) {
+        context.announce_callable(
+            "getColor",
+            material.second->GetMaterialLocation(),
+            material.second->GetShader(shader_factory, resource_allocator));
+    }
+
     context.finish_announcing_shader_names();
 
     // 2. Prepare the shader

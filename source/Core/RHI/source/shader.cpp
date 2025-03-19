@@ -248,7 +248,7 @@ ShaderReflectionInfo ShaderFactory::shader_reflect(
                          SLANG_PARAMETER_CATEGORY_SUB_ELEMENT_REGISTER_SPACE);
 
         auto bindingRangeCount = typeLayout->getBindingRangeCount();
-        assert(bindingRangeCount == 1); 
+        assert(bindingRangeCount == 1);
         slang::BindingType type = typeLayout->getBindingRangeType(0);
 
         nvrhi::BindingLayoutItem item;
@@ -300,7 +300,7 @@ nvrhi::ShaderHandle ShaderFactory::compile_shader(
     ShaderReflectionInfo& reflection_info,
     std::string& error_string,
     const std::vector<ShaderMacro>& macro_defines,
-    const std::string& source_code)
+    const std::string& source_code) const
 {
     ProgramDesc program_desc;
     program_desc.set_entry_name(entryName);
@@ -450,7 +450,8 @@ void ShaderFactory::SlangCompile(
     Slang::ComPtr<ISlangBlob>& ppResultBlob,
     Slang::ComPtr<ISlangSharedLibrary>& ppSharedLirary,
     std::string& error_string,
-    SlangCompileTarget target) const
+    SlangCompileTarget target,
+    Slang::ComPtr<slang::IComponentType>* linkedProgram) const
 {
     auto stage = ConvertShaderTypeToSlangStage(shaderType);
 
@@ -558,22 +559,29 @@ void ShaderFactory::SlangCompile(
     p_compile_session->createCompositeComponentType(
         components.data(), components.size(), program.writeRef());
 
-    Slang::ComPtr<slang::IComponentType> linkedProgram;
-    result = program->link(linkedProgram.writeRef());
+    Slang::ComPtr<slang::IComponentType> localLinkedProgram;
+    if (!linkedProgram) {
+        linkedProgram = std::addressof(localLinkedProgram);
+    }
+
+    result = program->link(linkedProgram->writeRef());
 
     CHECK_REPORTED_ERROR();
 
-    shader_reflection = shader_reflect(linkedProgram.get(), shaderType);
+    shader_reflection = shader_reflect(linkedProgram->get(), shaderType);
 
     if (target == SLANG_SHADER_HOST_CALLABLE) {
-        result = linkedProgram->getEntryPointHostCallable(
-            0, 0, ppSharedLirary.writeRef(), diagnostics.writeRef());
+        result =
+            (*linkedProgram)
+                ->getEntryPointHostCallable(
+                    0, 0, ppSharedLirary.writeRef(), diagnostics.writeRef());
         CHECK_REPORTED_ERROR();
         assert(result == SLANG_OK);
     }
     else {
-        result = linkedProgram->getTargetCode(
-            0, ppResultBlob.writeRef(), diagnostics.writeRef());
+        result = (*linkedProgram)
+                     ->getTargetCode(
+                         0, ppResultBlob.writeRef(), diagnostics.writeRef());
 
         CHECK_REPORTED_ERROR();
         assert(result == SLANG_OK);
@@ -602,7 +610,8 @@ ProgramHandle ShaderFactory::createProgram(const ProgramDesc& desc) const
         ret->blob,
         ret->library,
         ret->error_string,
-        target);
+        target,
+        std::addressof(ret->linkedProgram));
 
     return ret;
 }

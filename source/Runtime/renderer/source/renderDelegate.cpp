@@ -143,7 +143,7 @@ void Hd_USTC_CG_RenderDelegate::_Initialize()
     node_system->set_global_params(global_payload);
 
     _renderParam = std::make_shared<Hd_USTC_CG_RenderParam>(
-        &_renderThread, &_sceneVersion, node_system.get());
+        &_renderThread, &_sceneVersion, node_system.get(), &materials);
 
     _renderer = std::make_shared<Hd_USTC_CG_Renderer>(_renderParam.get());
 
@@ -280,6 +280,7 @@ HdSprim* Hd_USTC_CG_RenderDelegate::CreateSprim(
     else if (typeId == HdPrimTypeTokens->material) {
         auto material = new Hd_USTC_CG_Material(sprimId);
         materials[sprimId] = material;
+
         return material;
     }
     else if (
@@ -344,7 +345,11 @@ void Hd_USTC_CG_RenderDelegate::DestroySprim(HdSprim* sPrim)
         std::remove(lights.begin(), lights.end(), sPrim), lights.end());
     cameras.erase(
         std::remove(cameras.begin(), cameras.end(), sPrim), cameras.end());
-    materials.erase(sPrim->GetId());
+
+    auto material = dynamic_cast<Hd_USTC_CG_Material*>(sPrim);
+    if (material) {
+        materials.erase(material->GetId());
+    }
     delete sPrim;
 }
 

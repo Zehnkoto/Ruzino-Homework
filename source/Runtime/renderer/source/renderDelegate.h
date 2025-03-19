@@ -53,6 +53,8 @@ TF_DECLARE_PUBLIC_TOKENS(
     Hd_USTC_CG_RenderSettingsTokens,
     Hd_USTC_CG_RENDER_SETTINGS_TOKENS);
 
+using MaterialMap = pxr::TfHashMap<SdfPath, Hd_USTC_CG_Material*, TfHash>;
+
 class HD_USTC_CG_API Hd_USTC_CG_RenderDelegate final : public HdRenderDelegate {
    public:
     /// Render delegate constructor.
@@ -101,7 +103,7 @@ class HD_USTC_CG_API Hd_USTC_CG_RenderDelegate final : public HdRenderDelegate {
     void SetRenderSetting(const TfToken& key, const VtValue& value) override;
     bool Stop(bool blocking) override;
 
-private:
+   private:
     static const TfTokenVector SUPPORTED_RPRIM_TYPES;
     static const TfTokenVector SUPPORTED_SPRIM_TYPES;
     static const TfTokenVector SUPPORTED_BPRIM_TYPES;
@@ -114,7 +116,7 @@ private:
     std::shared_ptr<Hd_USTC_CG_Renderer> _renderer;
     pxr::VtArray<Hd_USTC_CG_Light*> lights;
     pxr::VtArray<Hd_USTC_CG_Camera*> cameras;
-    pxr::TfHashMap<SdfPath, Hd_USTC_CG_Material*, TfHash> materials;
+    MaterialMap materials;
     pxr::VtArray<Hd_USTC_CG_Mesh*> meshes;
     nvrhi::IDevice* nvrhi_device;
     std::unique_ptr<RenderGlobalPayload> _globalPayload;
@@ -123,6 +125,8 @@ private:
     static std::mutex _mutexResourceRegistry;
     static std::atomic_int _counterResourceRegistry;
     static HdResourceRegistrySharedPtr _resourceRegistry;
+
+    // Unique Material ID. The IDs are
 
     Hd_USTC_CG_RenderDelegate(const Hd_USTC_CG_RenderDelegate&) = delete;
     Hd_USTC_CG_RenderDelegate& operator=(const Hd_USTC_CG_RenderDelegate&) =

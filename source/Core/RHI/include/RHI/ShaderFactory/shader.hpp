@@ -33,7 +33,7 @@ class RHI_API ShaderFactory {
         ShaderReflectionInfo& reflection_info,
         std::string& error_string,
         const std::vector<ShaderMacro>& macro_defines = {},
-        const std::string& source_code = {});
+        const std::string& source_code = {}) const;
 
     ProgramHandle compile_cpu_executable(
         const std::string& entryName,
@@ -63,7 +63,10 @@ class RHI_API ShaderFactory {
         Slang::ComPtr<ISlangBlob>& ppResultBlob,
         Slang::ComPtr<ISlangSharedLibrary>& ppSharedLirary,
         std::string& error_string,
-        SlangCompileTarget target) const;
+        SlangCompileTarget target,
+        Slang::ComPtr<slang::IComponentType>* linkedProgram = nullptr
+
+    ) const;
 
     static void populate_vk_options(
         std::vector<slang::CompilerOptionEntry>& vk_compiler_options);

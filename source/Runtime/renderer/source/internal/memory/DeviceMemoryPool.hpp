@@ -35,7 +35,8 @@ class DeviceMemoryPool {
         ~MemoryHandleData();
 
         nvrhi::BindingSetItem get_descriptor(
-            nvrhi::ResourceType type = nvrhi::ResourceType::StructuredBuffer_UAV) const;
+            nvrhi::ResourceType type =
+                nvrhi::ResourceType::StructuredBuffer_UAV) const;
 
         nvrhi::IBuffer* get_device_buffer() const;
         void read_data(void* data);
@@ -85,7 +86,7 @@ class DeviceMemoryPool {
 
     bool compress();
     void reserve(size_t size);
-    MemoryHandle allocate(size_t count);
+    MemoryHandle allocate(size_t count = 1);
 
     nvrhi::IBuffer* get_device_buffer() const;
     size_t max_memory_offset() const;
@@ -151,7 +152,8 @@ void DeviceMemoryPool<T>::MemoryHandleData::write_data(const void* data)
 
     pool->commandList->close();
 
-    RHI::get_device()->executeCommandList(pool->commandList, nvrhi::CommandQueue::Copy);
+    RHI::get_device()->executeCommandList(
+        pool->commandList, nvrhi::CommandQueue::Copy);
 }
 
 template<typename T>
@@ -168,7 +170,8 @@ void DeviceMemoryPool<T>::MemoryHandleData::write_data(
 
     pool->commandList->close();
 
-    RHI::get_device()->executeCommandList(pool->commandList, nvrhi::CommandQueue::Copy);
+    RHI::get_device()->executeCommandList(
+        pool->commandList, nvrhi::CommandQueue::Copy);
 }
 
 template<typename T>
@@ -208,13 +211,16 @@ void DeviceMemoryPool<T>::MemoryHandleData::read_data(void* data)
     auto staging = RHI::get_device()->createBuffer(desc);
 
     pool->commandList->open();
-    pool->commandList->copyBuffer(staging, 0, pool->device_buffer, offset, size);
+    pool->commandList->copyBuffer(
+        staging, 0, pool->device_buffer, offset, size);
     pool->commandList->close();
-    RHI::get_device()->executeCommandList(pool->commandList, nvrhi::CommandQueue::Copy);
+    RHI::get_device()->executeCommandList(
+        pool->commandList, nvrhi::CommandQueue::Copy);
     // RHI::get_device()->waitForIdle();
     // RHI::get_device()->runGarbageCollection();
 
-    auto mapped_data = RHI::get_device()->mapBuffer(staging, nvrhi::CpuAccessMode::Read);
+    auto mapped_data =
+        RHI::get_device()->mapBuffer(staging, nvrhi::CpuAccessMode::Read);
     memcpy(data, mapped_data, size);
     RHI::get_device()->unmapBuffer(staging);
 }
@@ -230,7 +236,8 @@ void DeviceMemoryPool<T>::Initialize()
 
     // Initialize device buffer and valid mask
     nvrhi::BufferDesc bufferDesc = buffer_desc<T>();
-    bufferDesc.debugName = "DeviceObjectPoolBuffer " + std::string(typeid(T).name());
+    bufferDesc.debugName =
+        "DeviceObjectPoolBuffer " + std::string(typeid(T).name());
     device_buffer = device->createBuffer(bufferDesc);
 }
 
@@ -262,7 +269,8 @@ DeviceMemoryPool<T>::~DeviceMemoryPool()
 }
 
 template<typename T>
-typename DeviceMemoryPool<T>::MemoryHandle DeviceMemoryPool<T>::allocate(size_t count)
+typename DeviceMemoryPool<T>::MemoryHandle DeviceMemoryPool<T>::allocate(
+    size_t count)
 {
     MemoryHandle handle = MemoryHandleData::create();
 
@@ -272,7 +280,8 @@ typename DeviceMemoryPool<T>::MemoryHandle DeviceMemoryPool<T>::allocate(size_t 
 
     std::lock_guard lock(buffer_write_mutex_);
 
-    for (auto free_handle = h_free_list.begin(); free_handle != h_free_list.end();
+    for (auto free_handle = h_free_list.begin();
+         free_handle != h_free_list.end();
          ++free_handle) {
         if (std::get<1>(*free_handle) >= size) {
             handle->offset = std::get<0>(*free_handle);
@@ -395,7 +404,8 @@ std::string DeviceMemoryPool<T>::info(bool free_list) const
         ss << "[Free list]: " << std::endl;
         for (int i = 0; i < h_free_list.size(); ++i) {
             ss << "  " << i << ": " << h_free_list[i].first / sizeof(T) << " - "
-               << (h_free_list[i].first + h_free_list[i].second) / sizeof(T) << std::endl;
+               << (h_free_list[i].first + h_free_list[i].second) / sizeof(T)
+               << std::endl;
         }
     }
     return ss.str();
@@ -408,7 +418,9 @@ bool DeviceMemoryPool<T>::sanitize()
     std::sort(
         handles_allocated.begin(),
         handles_allocated.end(),
-        [](MemoryHandleData* a, MemoryHandleData* b) { return a->offset < b->offset; });
+        [](MemoryHandleData* a, MemoryHandleData* b) {
+            return a->offset < b->offset;
+        });
 
     for (auto handle : handles_allocated) {
         if (handle->offset != current_offset) {
@@ -459,7 +471,8 @@ void DeviceMemoryPool<T>::relocate_buffer()
             new_device_buffer, 0, device_buffer, 0, max_count * sizeof(T));
 
         commandList->close();
-        RHI::get_device()->executeCommandList(commandList, nvrhi::CommandQueue::Copy);
+        RHI::get_device()->executeCommandList(
+            commandList, nvrhi::CommandQueue::Copy);
         // RHI::get_device()->waitForIdle();
         // RHI::get_device()->runGarbageCollection();
 

@@ -1,6 +1,6 @@
 #pragma once
-#include "api.h"
 #include "RHI/ResourceManager/resource_allocator.hpp"
+#include "api.h"
 
 USTC_CG_NAMESPACE_OPEN_SCOPE
 class HD_USTC_CG_API ProgramVars {
@@ -19,9 +19,15 @@ class HD_USTC_CG_API ProgramVars {
 
     nvrhi::IResource*& operator[](const std::string& name);
 
+    nvrhi::IResource*& get_resource(const std::string& name)
+    {
+        return operator[](name);
+    }
+
     void set_descriptor_table(
         const std::string& name,
-        nvrhi::IDescriptorTable* table, BindingLayoutHandle layout_handle);
+        nvrhi::IDescriptorTable* table,
+        BindingLayoutHandle layout_handle);
     // This is for setting extra settings
     void set_binding(
         const std::string& name,

@@ -29,69 +29,24 @@
 
 USTC_CG_NAMESPACE_OPEN_SCOPE
 
-class BinglessContext : public MaterialX::HwResourceBindingContext {
+class BindlessContext : public MaterialX::HwResourceBindingContext {
    public:
-    ~BinglessContext() override;
+    ~BindlessContext() override;
     void initialize() override;
-    void emitDirectives(mx::GenContext& context, mx::ShaderStage& stage)
-        override;
+    void emitDirectives(
+        MaterialX::GenContext& context,
+        MaterialX::ShaderStage& stage) override;
     void emitResourceBindings(
-        mx::GenContext& context,
-        const mx::VariableBlock& uniforms,
-        mx::ShaderStage& stage) override;
+        MaterialX::GenContext& context,
+        const MaterialX::VariableBlock& uniforms,
+        MaterialX::ShaderStage& stage) override;
     void emitStructuredResourceBindings(
-        mx::GenContext& context,
-        const mx::VariableBlock& uniforms,
-        mx::ShaderStage& stage,
+        MaterialX::GenContext& context,
+        const MaterialX::VariableBlock& uniforms,
+        MaterialX::ShaderStage& stage,
         const std::string& structInstanceName,
         const std::string& arraySuffix) override;
 };
-
-BinglessContext::~BinglessContext()
-{
-}
-
-void BinglessContext::initialize()
-{
-}
-
-void BinglessContext::emitDirectives(
-    mx::GenContext& context,
-    mx::ShaderStage& stage)
-{
-}
-
-void BinglessContext::emitResourceBindings(
-    mx::GenContext& context,
-    const mx::VariableBlock& uniforms,
-    mx::ShaderStage& stage)
-{
-    std::string blockName = uniforms.getName();
-
-    context.getShaderGenerator().emitLine("struct " + blockName, stage, false);
-    context.getShaderGenerator().emitScopeBegin(stage);
-
-    std::cout << "Uniform block: " << blockName << std::endl;
-
-    for (const auto& uniform : uniforms.getVariableOrder()) {
-        std::string uniformName = uniform->getName();
-        std::string uniformType = uniform->getType()->getName();
-        std::string uniformValue = uniform->getValueString();
-
-        std::cout << "Uniform: " << uniformName << " " << uniformType << " "
-                  << uniformValue << std::endl;
-    }
-    context.getShaderGenerator().emitScopeEnd(stage, true);
-}
-
-void BinglessContext::emitStructuredResourceBindings(
-    mx::GenContext& context,
-    const mx::VariableBlock& uniforms,
-    mx::ShaderStage& stage,
-    const std::string& structInstanceName,
-    const std::string& arraySuffix)
-{
-}
 
 namespace mx = MaterialX;
 
@@ -112,9 +67,9 @@ Hd_USTC_CG_Material::Hd_USTC_CG_Material(SdfPath const& id) : HdMaterial(id)
             { "usd/hd_USTC_CG/resources/libraries" }, searchPath, libraries);
         shader_gen_context_->registerSourceCodeSearchPath(searchPath);
 
-        //shader_gen_context_->pushUserData(
-        //    mx::HW::USER_DATA_BINDING_CONTEXT,
-        //    std::make_shared<BinglessContext>());
+        // shader_gen_context_->pushUserData(
+        //     mx::HW::USER_DATA_BINDING_CONTEXT,
+        //     std::make_shared<BindlessContext>());
     });
 }
 
@@ -312,6 +267,10 @@ void Hd_USTC_CG_Material::Sync(
     HdRenderParam* renderParam,
     HdDirtyBits* dirtyBits)
 {
+    auto param = static_cast<Hd_USTC_CG_RenderParam*>(renderParam);
+
+    material_data_handle = param->InstanceCollection->material_pool.allocate(1);
+
     HdMaterialNetwork2 hdNetwork;
     SdfPath materialPath;
 
@@ -332,7 +291,7 @@ void Hd_USTC_CG_Material::Sync(
 
         CollectTextures(netInterface, hdMtlxData);
         LoadTextures();
-        BuildGPUTextures(static_cast<Hd_USTC_CG_RenderParam*>(renderParam));
+        BuildGPUTextures(param);
     }
     *dirtyBits = HdChangeTracker::Clean;
 }
@@ -345,6 +304,43 @@ HdDirtyBits Hd_USTC_CG_Material::GetInitialDirtyBitsMask() const
 void Hd_USTC_CG_Material::Finalize(HdRenderParam* renderParam)
 {
     HdMaterial::Finalize(renderParam);
+}
+
+// HLSL callable shader
+static std::string slang_source_code = R"(
+// Simple callable shader that returns a red color
+
+ConstantBuffer<float> cb : register(b0);
+
+struct CallableData
+{
+    float4 color;
+};
+
+[shader("callable")]
+void getColor(inout CallableData data)
+{
+        float4 color = float4(1.0f, 0.0f, 0.0f, 1.0f);
+    // Set the payload
+        data.color = color;
+
+    return;
+}
+
+)";
+
+std::shared_ptr<ProgramVars> Hd_USTC_CG_Material::GetShader(
+    const ShaderFactory& factory,
+    ResourceAllocator& allocator)
+{
+    if (!program) {
+        ProgramDesc desc;
+        desc.set_source_code(slang_source_code).set_entry_name("getColor");
+
+        program = factory.createProgram(desc);
+    }
+
+    return std::make_shared<ProgramVars>(allocator, program);
 }
 
 USTC_CG_NAMESPACE_CLOSE_SCOPE

@@ -31,6 +31,7 @@
 #include "../renderParam.h"
 #include "Logger/Logger.h"
 #include "Scene/SceneTypes.slang"
+#include "material/material.h"
 #include "nvrhi/utils.h"
 #include "pxr/base/gf/vec2f.h"
 #include "pxr/imaging/hd/extComputationUtils.h"
@@ -313,6 +314,10 @@ void Hd_USTC_CG_Mesh::updateTLAS(
 
     auto material_id = GetMaterialId();
 
+    log::info("Material id: %s", material_id.GetText());
+
+    Hd_USTC_CG_Material* material = (*render_param->material_map)[material_id];
+
     for (int i = 0; i < transforms.size(); ++i) {
         // Combine the local transform and the instance transform.
 
@@ -335,7 +340,7 @@ void Hd_USTC_CG_Mesh::updateTLAS(
 
         GeometryInstanceData instance_data;
         instance_data.geometryID = mesh_desc_buffer->index();
-        instance_data.materialID = 0;
+        instance_data.materialID = material->GetMaterialLocation();
         memcpy(&instance_data.transform, mat.data(), sizeof(pxr::GfMatrix4f));
         instanceBuffer->write_data(&instance_data, i);
     }
