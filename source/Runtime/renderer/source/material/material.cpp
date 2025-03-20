@@ -362,72 +362,11 @@ void Hd_USTC_CG_Material::LoadTextures()
     }
 }
 
-void Hd_USTC_CG_Material::BuildGPUTextures(Hd_USTC_CG_RenderParam* render_param)
-{
-    auto descriptor_table =
-        render_param->InstanceCollection->get_descriptor_table();
-    auto device = RHI::get_device();
-
-    auto command_list = device->createCommandList();
-
-    for (auto& texture_resource : textureResources) {
-        auto image = texture_resource.second.image;
-        nvrhi::TextureDesc desc;
-        desc.width = image->GetWidth();
-        desc.height = image->GetHeight();
-        desc.format = RHI::ConvertFromHioFormat(image->GetFormat());
-
-        desc.initialState = nvrhi::ResourceStates::ShaderResource;
-        desc.isRenderTarget = false;
-
-        texture_resource.second.texture = device->createTexture(desc);
-
-        auto storage_byte_size = image->GetBytesPerPixel();
-        if (image->GetFormat() == HioFormatUNorm8Vec3srgb)
-            storage_byte_size = 4;
-
-        std::vector<uint8_t> data(
-            image->GetWidth() * image->GetHeight() * storage_byte_size, 0);
-
-        HioImage::StorageSpec storageSpec;
-
-        storageSpec.width = image->GetWidth();
-        storageSpec.height = image->GetHeight();
-        storageSpec.format = image->GetFormat();
-        storageSpec.flipped = false;
-        storageSpec.data = data.data();
-
-        texture_resource.second.image->Read(storageSpec);
-
-        auto [gpu_texture, staging] = RHI::load_texture(desc, storageSpec.data);
-
-        texture_resource.second.texture = gpu_texture;
-
-        texture_resource.second.descriptor =
-            descriptor_table->CreateDescriptorHandle(
-                nvrhi::BindingSetItem::Texture_SRV(
-                    0, texture_resource.second.texture, desc.format));
-    }
-}
-
 void Hd_USTC_CG_Material::MtlxGenerateShader(
-    HdMaterialNetwork2 hdNetwork,
-    SdfPath materialPath,
+    MaterialX::DocumentPtr mtlx_document,
     HdMaterialNetwork2Interface netInterface,
-    SdfPath surfTerminalPath,
-    HdMaterialNode2 const* surfTerminal,
     HdMtlxTexturePrimvarData& hdMtlxData)
 {
-    MaterialX::DocumentPtr mtlx_document =
-        HdMtlxCreateMtlxDocumentFromHdNetwork(
-            hdNetwork,
-            *surfTerminal,
-            surfTerminalPath,
-            materialPath,
-            libraries,
-            &hdMtlxData);
-    assert(mtlx_document);
-
     _UpdateTextureNodes(
         &netInterface, hdMtlxData.hdTextureNodes, mtlx_document);
 
@@ -496,6 +435,54 @@ HdMaterialNetwork2Interface Hd_USTC_CG_Material::FetchMaterialNetwork(
     return netInterface;
 }
 
+void Hd_USTC_CG_Material::BuildGPUTextures(Hd_USTC_CG_RenderParam* render_param)
+{
+    auto descriptor_table =
+        render_param->InstanceCollection->get_descriptor_table();
+    auto device = RHI::get_device();
+
+    auto command_list = device->createCommandList();
+
+    for (auto& texture_resource : textureResources) {
+        auto image = texture_resource.second.image;
+        nvrhi::TextureDesc desc;
+        desc.width = image->GetWidth();
+        desc.height = image->GetHeight();
+        desc.format = RHI::ConvertFromHioFormat(image->GetFormat());
+
+        desc.initialState = nvrhi::ResourceStates::ShaderResource;
+        desc.isRenderTarget = false;
+
+        texture_resource.second.texture = device->createTexture(desc);
+
+        auto storage_byte_size = image->GetBytesPerPixel();
+        if (image->GetFormat() == HioFormatUNorm8Vec3srgb)
+            storage_byte_size = 4;
+
+        std::vector<uint8_t> data(
+            image->GetWidth() * image->GetHeight() * storage_byte_size, 0);
+
+        HioImage::StorageSpec storageSpec;
+
+        storageSpec.width = image->GetWidth();
+        storageSpec.height = image->GetHeight();
+        storageSpec.format = image->GetFormat();
+        storageSpec.flipped = false;
+        storageSpec.data = data.data();
+
+        texture_resource.second.image->Read(storageSpec);
+
+        auto [gpu_texture, staging] = RHI::load_texture(desc, storageSpec.data);
+
+        texture_resource.second.texture = gpu_texture;
+
+        texture_resource.second.descriptor =
+            descriptor_table->CreateDescriptorHandle(
+                nvrhi::BindingSetItem::Texture_SRV(
+                    0, texture_resource.second.texture, desc.format));
+    }
+}
+
 void Hd_USTC_CG_Material::Sync(
     HdSceneDelegate* sceneDelegate,
     HdRenderParam* renderParam,
@@ -515,17 +502,22 @@ void Hd_USTC_CG_Material::Sync(
 
     if (surfTerminal) {
         HdMtlxTexturePrimvarData hdMtlxData;
-        MtlxGenerateShader(
-            hdNetwork,
-            materialPath,
-            netInterface,
-            surfTerminalPath,
-            surfTerminal,
-            hdMtlxData);
 
+        MaterialX::DocumentPtr mtlx_document =
+            HdMtlxCreateMtlxDocumentFromHdNetwork(
+                hdNetwork,
+                *surfTerminal,
+                surfTerminalPath,
+                materialPath,
+                libraries,
+                &hdMtlxData);
+        assert(mtlx_document);
         CollectTextures(netInterface, hdMtlxData);
         LoadTextures();
+
         BuildGPUTextures(param);
+
+        MtlxGenerateShader(mtlx_document, netInterface, hdMtlxData);
 
         for (auto& tex : textureResources) {
             if (tex.second.texture) {
