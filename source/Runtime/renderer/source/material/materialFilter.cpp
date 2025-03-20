@@ -14,7 +14,7 @@ TF_DEFINE_PRIVATE_TOKENS(
     (ND_standard_surface_surfaceshader)(ND_UsdPreviewSurface_surfaceshader)(ND_displacement_float)(ND_displacement_vector3)(ND_image_vector2)(ND_image_vector3)(ND_image_vector4)
     // For supporting Usd texturing nodes
     (
-        wrapS)(wrapT)(repeat)(periodic)(ND_UsdUVTexture_23)(ND_dot_vector2)(ND_UsdPrimvarReader_vector2)(UsdPrimvarReader_float2)(UsdUVTexture)(UsdVerticalFlip)(varname)(file)(filename)(black)(clamp)(uaddressmode)(vaddressmode)(ND_geompropvalue_vector2)(ND_separate2_vector2)(ND_separate3_vector3)(ND_separate4_vector4)(ND_separate3_color3)(ND_separate4_color4)(ND_floor_float)(ND_multiply_float)(ND_add_float)(ND_subtract_float)(ND_combine2_vector2)(separate2)(separate3)(separate4)(floor)(multiply)(add)(subtract)(combine2)(texcoord)(geomprop)(geompropvalue)(in)(in1)(in2)(out)(outx)(outy)(st)(vector2)((
+        wrapS)(wrapT)(repeat)(periodic)(ND_UsdUVTexture_23)(ND_dot_vector2)(ND_UsdPrimvarReader_vector2)(UsdPrimvarReader_float2)(UsdUVTexture)(UsdVerticalFlip)(varname)(file)(filename)(black)(clamp)(uaddressmode)(vaddressmode)(ND_geompropvalue_vector2)(ND_separate2_vector2)(ND_separate3_vector3)(ND_separate4_vector4)(ND_separate3_color3)(ND_separate4_color4)(ND_floor_float)(ND_convert_float_color3)(ND_convert_float_color4)(ND_convert_float_vector2)(ND_convert_float_vector3)(ND_convert_float_vector4)(ND_convert_vector2_vector3)(ND_convert_vector3_color3)(ND_convert_vector3_vector2)(ND_convert_vector3_vector4)(ND_convert_vector4_color4)(ND_convert_vector4_vector3)(ND_convert_color3_vector3)(ND_convert_color4_vector4)(ND_convert_color3_color4)(ND_convert_color4_color3)(convert)(ND_multiply_float)(ND_add_float)(ND_subtract_float)(ND_combine2_vector2)(separate2)(separate3)(separate4)(floor)(multiply)(add)(subtract)(combine2)(texcoord)(geomprop)(geompropvalue)(in)(in1)(in2)(out)(outx)(outy)(st)(vector2)((
         string_type,
         "string"))  // Color Space
     ((cs_raw, "raw"))((cs_auto, "auto"))((cs_srgb, "sRGB"))(
@@ -578,58 +578,63 @@ void _FixOmittedConnections(
                 if (input_in_def->getType() != input->getType()) {
                     log::info("Fixing skipped link.");
 
+                    // Get required information
+                    auto upstream = input->getConnectedOutput();
+                    auto parent = node->getParent();
+                    mx::GraphElementPtr graphParent = nullptr;
+
+                    if (parent->isA<mx::NodeGraph>()) {
+                        graphParent = parent->asA<mx::NodeGraph>();
+                    }
+                    else if (parent->isA<mx::Document>()) {
+                        graphParent = parent->asA<mx::Document>();
+                    }
+
+                    if (!graphParent || !upstream) {
+                        continue;
+                    }
+
+                    // Handle type conversion cases
+                    std::string nodeName, nodeDefString;
+
                     if (input_in_def->getType() == mx::Type::FLOAT->getName() &&
                         input->getType() == mx::Type::COLOR3->getName()) {
-                        auto upstream = input->getConnectedOutput();
-                        // Add a separate node
-                        auto parent_graph =
-                            node->getParent()->asA<mx::NodeGraph>();
-                        auto parent_doc =
-                            node->getParent()->asA<mx::Document>();
-
-                        if (parent_graph)
-
-                        {
-                            auto separate_node = parent_graph->addNode(
-                                "separate",
-                                node->getName() + "_separate",
-                                "color3");
-
-                            input->setConnectedNode(separate_node);
-                            input->setConnectedOutput(
-                                separate_node->getOutput("outr"));
-                            auto upstream_node =
-                                upstream->getParent()->asA<mx::Node>();
-                            separate_node->getInput("in")->setConnectedNode(
-                                upstream_node);
-                            separate_node->getInput("in")->setConnectedOutput(
-                                upstream);
-                        }
-
-                        if (parent_doc) {
-                            auto separate_node = parent_doc->addNode(
-                                _tokens->separate3,
-                                upstream->getName() + "_separate");
-                            separate_node->setNodeDefString(
-                                _tokens->ND_separate3_color3);
-                            separate_node->addInputsFromNodeDef();
-
-                            auto separate_def = separate_node->getNodeDef(
-                                mx::EMPTY_STRING, true);
-
-                            for (auto output :
-                                 separate_def->getActiveOutputs()) {
-                                separate_node->addOutput(
-                                    output->getName(), output->getType());
-                            }
-
-                            input->setConnectedOutput(
-                                separate_node->getOutput("outr"));
-                            input->setType(input_in_def->getType());
-                            separate_node->getInput("in")->setConnectedOutput(
-                                upstream);
-                        }
+                        nodeName = _tokens->separate3;
+                        nodeDefString = _tokens->ND_separate3_color3;
                     }
+                    else if (
+                        input_in_def->getType() ==
+                            mx::Type::VECTOR3->getName() &&
+                        input->getType() == mx::Type::COLOR3->getName()) {
+                        nodeName = "convert";
+                        nodeDefString = _tokens->ND_convert_color3_vector3;
+                    }
+                    else {
+                        continue;
+                    }
+
+                    // Create conversion node
+                    auto conversionNode = graphParent->addNode(
+                        nodeName, upstream->getName() + "_conversion");
+                    conversionNode->setNodeDefString(nodeDefString);
+                    conversionNode->addInputsFromNodeDef();
+
+                    // Add outputs from node definition
+                    auto conversionDef =
+                        conversionNode->getNodeDef(mx::EMPTY_STRING, true);
+                    for (auto output : conversionDef->getActiveOutputs()) {
+                        conversionNode->addOutput(
+                            output->getName(), output->getType());
+                    }
+
+                    // Connect nodes
+                    std::string outputName =
+                        (nodeName == _tokens->separate3) ? "outr" : "out";
+                    input->setConnectedOutput(
+                        conversionNode->getOutput(outputName));
+                    input->setType(input_in_def->getType());
+                    conversionNode->getInput("in")->setConnectedOutput(
+                        upstream);
                 }
             }
         }
