@@ -23,12 +23,16 @@ RHI_API nvrhi::IDevice* get_device();
 RHI_API nvrhi::GraphicsAPI get_backend();
 RHI_API size_t calculate_bytes_per_pixel(nvrhi::Format format);
 RHI_API std::tuple<nvrhi::TextureHandle, nvrhi::StagingTextureHandle>
-load_texture(const nvrhi::TextureDesc& desc, const void* data);
+load_texture(
+    const nvrhi::TextureDesc& desc,
+    const void* data,
+    nvrhi::ICommandList* command_list = nullptr);
 
 RHI_API void write_texture(
     nvrhi::ITexture* texture,
     nvrhi::IStagingTexture* staging,
-    const void* data);
+    const void* data,
+    nvrhi::ICommandList* command_list = nullptr);
 
 RHI_API void copy_from_texture(
     nvrhi::TextureHandle& texture,

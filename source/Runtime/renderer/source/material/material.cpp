@@ -16,6 +16,7 @@
 #include "MaterialXGenShader/Util.h"
 #include "RHI/Hgi/format_conversion.hpp"
 #include "api.h"
+#include "hdMtlxFast.h"
 #include "materialFilter.h"
 #include "nvrhi/nvrhi.h"
 #include "pxr/base/arch/fileSystem.h"
@@ -290,6 +291,10 @@ MaterialX::GenContextPtr Hd_USTC_CG_Material::shader_gen_context_ =
     std::make_shared<mx::GenContext>(mx::SlangShaderGenerator::create());
 MaterialX::DocumentPtr Hd_USTC_CG_Material::libraries = mx::createDocument();
 
+std::mutex Hd_USTC_CG_Material::shadergen_mutex;
+std::mutex Hd_USTC_CG_Material::texture_mutex;
+std::mutex Hd_USTC_CG_Material::material_data_handle_mutex;
+
 std::once_flag Hd_USTC_CG_Material::shader_gen_initialized_;
 
 Hd_USTC_CG_Material::Hd_USTC_CG_Material(SdfPath const& id) : HdMaterial(id)
@@ -309,7 +314,6 @@ Hd_USTC_CG_Material::Hd_USTC_CG_Material(SdfPath const& id) : HdMaterial(id)
 }
 
 TF_DEFINE_PRIVATE_TOKENS(_tokens, (file));
-
 void Hd_USTC_CG_Material::CollectTextures(
     HdMaterialNetwork2Interface netInterface,
     HdMtlxTexturePrimvarData hdMtlxData)
@@ -331,34 +335,27 @@ void Hd_USTC_CG_Material::CollectTextures(
             path = vFile.Get<std::string>();
         }
         texturePaths[textureNodeName.GetString()] = path;
-    }
-}
 
-void Hd_USTC_CG_Material::LoadTextures()
-{
-    for (const auto& tex : texturePaths) {
-        const std::string& textureName = tex.first;
-        const std::string& filePath = tex.second;
-
-        if (!pxr::HioImage::IsSupportedImageFile(filePath)) {
+        // Load the texture immediately
+        if (!pxr::HioImage::IsSupportedImageFile(path)) {
             TF_WARN(
                 "Texture '%s': unsupported file format '%s'.",
-                textureName.c_str(),
-                filePath.c_str());
+                textureNodeName.GetString().c_str(),
+                path.c_str());
             continue;
         }
 
-        HioImageSharedPtr image = pxr::HioImage::OpenForReading(filePath);
+        HioImageSharedPtr image = pxr::HioImage::OpenForReading(path);
         if (!image) {
             TF_WARN(
                 "Texture '%s': failed to load image from file '%s'.",
-                textureName.c_str(),
-                filePath.c_str());
+                textureNodeName.GetString().c_str(),
+                path.c_str());
             continue;
         }
 
-        textureResources[textureName].filePath = filePath;
-        textureResources[textureName].image = image;
+        textureResources[textureNodeName.GetString()].filePath = path;
+        textureResources[textureNodeName.GetString()].image = image;
     }
 }
 
@@ -384,29 +381,15 @@ void Hd_USTC_CG_Material::MtlxGenerateShader(
         shader_gen_context_->getShaderGenerator();
     {
         std::lock_guard lock(shadergen_mutex);
-        shader = shader_generator_.generate(
+        auto shader = shader_generator_.generate(
             elementName, element, *shader_gen_context_);
+        shader_source = shader->getSourceCode(mx::Stage::PIXEL);
 
         BindlessContextPtr context =
             shader_gen_context_->getUserData<BindlessContext>(
                 mx::HW::USER_DATA_BINDING_CONTEXT);
         get_data_code = context->get_data_code();
     }
-
-#ifndef NDEBUG
-    // Ensure the generated_shaders directory exists
-    std::filesystem::create_directories("./generated_shaders");
-    std::string shaderPath = "./generated_shaders/" + elementName + ".slang";
-    std::ofstream shaderFile(shaderPath);
-    if (!shaderFile) {
-        TF_WARN("Failed to open shader file: %s", shaderPath.c_str());
-    }
-    else {
-        shaderFile << shader->getSourceCode();
-        shaderFile.close();
-    }
-    shaderFile.close();
-#endif
 }
 
 HdMaterialNetwork2Interface Hd_USTC_CG_Material::FetchMaterialNetwork(
@@ -434,52 +417,83 @@ HdMaterialNetwork2Interface Hd_USTC_CG_Material::FetchMaterialNetwork(
         _GetTerminalNode(hdNetwork, terminalNodeName, &surfTerminalPath);
     return netInterface;
 }
-
 void Hd_USTC_CG_Material::BuildGPUTextures(Hd_USTC_CG_RenderParam* render_param)
 {
     auto descriptor_table =
         render_param->InstanceCollection->get_descriptor_table();
-    auto device = RHI::get_device();
-
-    auto command_list = device->createCommandList();
 
     for (auto& texture_resource : textureResources) {
-        auto image = texture_resource.second.image;
-        nvrhi::TextureDesc desc;
-        desc.width = image->GetWidth();
-        desc.height = image->GetHeight();
-        desc.format = RHI::ConvertFromHioFormat(image->GetFormat());
+        // Create a thread for asynchronous processing
+        std::thread texture_thread(
+            [&texture_resource, this, descriptor_table, render_param]() {
+                auto device = RHI::get_device();
 
-        desc.initialState = nvrhi::ResourceStates::ShaderResource;
-        desc.isRenderTarget = false;
+                auto image = texture_resource.second.image;
 
-        texture_resource.second.texture = device->createTexture(desc);
+                nvrhi::TextureDesc desc;
+                desc.width = image->GetWidth();
+                desc.height = image->GetHeight();
+                desc.format = RHI::ConvertFromHioFormat(image->GetFormat());
 
-        auto storage_byte_size = image->GetBytesPerPixel();
-        if (image->GetFormat() == HioFormatUNorm8Vec3srgb)
-            storage_byte_size = 4;
+                desc.initialState = nvrhi::ResourceStates::ShaderResource;
+                desc.isRenderTarget = false;
 
-        std::vector<uint8_t> data(
-            image->GetWidth() * image->GetHeight() * storage_byte_size, 0);
+                texture_resource.second.texture = device->createTexture(desc);
 
-        HioImage::StorageSpec storageSpec;
+                auto texture_name =
+                    std::filesystem::path(texture_resource.first)
+                        .filename()
+                        .string();
 
-        storageSpec.width = image->GetWidth();
-        storageSpec.height = image->GetHeight();
-        storageSpec.format = image->GetFormat();
-        storageSpec.flipped = false;
-        storageSpec.data = data.data();
+                auto storage_byte_size = image->GetBytesPerPixel();
+                if (image->GetFormat() == HioFormatUNorm8Vec3srgb)
+                    storage_byte_size = 4;
 
-        texture_resource.second.image->Read(storageSpec);
+                std::vector<uint8_t> data(
+                    image->GetWidth() * image->GetHeight() * storage_byte_size,
+                    0);
 
-        auto [gpu_texture, staging] = RHI::load_texture(desc, storageSpec.data);
+                HioImage::StorageSpec storageSpec;
+                storageSpec.width = image->GetWidth();
+                storageSpec.height = image->GetHeight();
+                storageSpec.format = image->GetFormat();
+                storageSpec.flipped = false;
+                storageSpec.data = data.data();
 
-        texture_resource.second.texture = gpu_texture;
+                // Read the image data asynchronously
+                texture_resource.second.image->Read(storageSpec);
 
-        texture_resource.second.descriptor =
-            descriptor_table->CreateDescriptorHandle(
-                nvrhi::BindingSetItem::Texture_SRV(
-                    0, texture_resource.second.texture, desc.format));
+                {
+                    std::lock_guard lock(texture_mutex);
+                    auto [gpu_texture, staging] =
+                        RHI::load_texture(desc, storageSpec.data);
+                    texture_resource.second.texture = gpu_texture;
+                }
+
+                texture_resource.second.descriptor =
+                    descriptor_table->CreateDescriptorHandle(
+                        nvrhi::BindingSetItem::Texture_SRV(
+                            0, texture_resource.second.texture, desc.format));
+
+                if (texture_resource.second.texture) {
+                    auto texture_id = texture_resource.second.descriptor.Get();
+
+                    // Replace the "$"+ texture_name+"_id" with the actual
+                    // texture_id in the get_data_code string
+                    std::string to_replace = "$" + texture_name + "_id";
+                    std::string replace_with = std::to_string(texture_id);
+
+                    size_t pos = get_data_code.find(to_replace);
+                    if (pos != std::string::npos) {
+                        get_data_code.replace(
+                            pos, to_replace.length(), replace_with);
+                    }
+                }
+            });
+
+        // Add the thread to the render_param for tracking
+        render_param->texture_loading_threads.push_back(
+            std::move(texture_thread));
     }
 }
 
@@ -500,45 +514,22 @@ void Hd_USTC_CG_Material::Sync(
     HdMaterialNetwork2Interface netInterface = FetchMaterialNetwork(
         sceneDelegate, hdNetwork, materialPath, surfTerminalPath, surfTerminal);
 
-    if (surfTerminal) {
-        HdMtlxTexturePrimvarData hdMtlxData;
+    HdMtlxTexturePrimvarData hdMtlxData;
 
-        MaterialX::DocumentPtr mtlx_document =
-            HdMtlxCreateMtlxDocumentFromHdNetwork(
-                hdNetwork,
-                *surfTerminal,
-                surfTerminalPath,
-                materialPath,
-                libraries,
-                &hdMtlxData);
-        assert(mtlx_document);
-        CollectTextures(netInterface, hdMtlxData);
-        LoadTextures();
+    MaterialX::DocumentPtr mtlx_document =
+        HdMtlxCreateMtlxDocumentFromHdNetworkFast(
+            hdNetwork,
+            *surfTerminal,
+            surfTerminalPath,
+            materialPath,
+            libraries,
+            &hdMtlxData);
+    assert(mtlx_document);
+    CollectTextures(netInterface, hdMtlxData);
 
-        BuildGPUTextures(param);
+    MtlxGenerateShader(mtlx_document, netInterface, hdMtlxData);
 
-        MtlxGenerateShader(mtlx_document, netInterface, hdMtlxData);
-
-        for (auto& tex : textureResources) {
-            if (tex.second.texture) {
-                auto texture_name =
-                    std::filesystem::path(tex.first).filename().string();
-                auto texture_id = tex.second.descriptor.Get();
-
-                // Replace the "$"+ texture_name+"_id" with the actual
-                // texture_id in the get_data_code string
-
-                std::string to_replace = "$" + texture_name + "_file_id";
-                std::string replace_with = std::to_string(texture_id);
-
-                size_t pos = get_data_code.find(to_replace);
-                if (pos != std::string::npos) {
-                    get_data_code.replace(
-                        pos, to_replace.length(), replace_with);
-                }
-            }
-        }
-    }
+    BuildGPUTextures(param);
     *dirtyBits = HdChangeTracker::Clean;
 }
 
@@ -607,9 +598,9 @@ std::shared_ptr<ProgramVars> Hd_USTC_CG_Material::GetShader(
     ResourceAllocator& allocator)
 {
     if (!program) {
-        if (shader) {
+        if (!shader_source.empty()) {
             ProgramDesc mtlx_desc;
-            mtlx_desc.set_source_code(shader->getSourceCode());
+            mtlx_desc.set_source_code(shader_source);
             auto mtlx_program = factory.createProgram(mtlx_desc);
         }
         ProgramDesc desc;

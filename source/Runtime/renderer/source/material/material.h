@@ -45,11 +45,9 @@ class HD_USTC_CG_API Hd_USTC_CG_Material : public HdMaterial {
         ResourceAllocator& allocator);
 
    private:
-    std::mutex material_data_handle_mutex;
-    std::mutex shadergen_mutex;
-
     HdMaterialNetwork2 surfaceNetwork;
-    MaterialX::ShaderPtr shader;
+
+    std::string shader_source;
     ProgramHandle program = nullptr;
 
     std::unordered_map<std::string, std::string> texturePaths;
@@ -67,8 +65,6 @@ class HD_USTC_CG_API Hd_USTC_CG_Material : public HdMaterial {
     void CollectTextures(
         HdMaterialNetwork2Interface netInterface,
         HdMtlxTexturePrimvarData hdMtlxData);
-
-    void LoadTextures();
 
     void BuildGPUTextures(Hd_USTC_CG_RenderParam* render_param);
 
@@ -90,6 +86,9 @@ class HD_USTC_CG_API Hd_USTC_CG_Material : public HdMaterial {
     static MaterialX::DocumentPtr libraries;
 
     static std::once_flag shader_gen_initialized_;
+    static std::mutex texture_mutex;
+    static std::mutex shadergen_mutex;
+    static std::mutex material_data_handle_mutex;
 };
 
 USTC_CG_NAMESPACE_CLOSE_SCOPE

@@ -22,10 +22,13 @@
 // language governing permissions and limitations under the Apache License.
 //
 #pragma once
-#include "api.h"
+#include <future>
+#include <thread>
+#include <vector>
 
 #include "DescriptorTableManager.h"
 #include "RHI/rhi.hpp"
+#include "api.h"
 #include "pxr/imaging/hd/renderDelegate.h"
 #include "pxr/imaging/hd/renderThread.h"
 #include "pxr/pxr.h"
@@ -82,6 +85,9 @@ class Hd_USTC_CG_RenderParam final : public HdRenderParam {
 
     nvrhi::TextureHandle presented_texture;
     LensSystem *lens_system = nullptr;
+
+    std::vector<std::thread> texture_loading_threads;
+    std::vector<std::thread> material_loading_threads;
 
    private:
     /// A handle to the global render thread.

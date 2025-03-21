@@ -644,14 +644,6 @@ void _FixOmittedConnections(
         std::set<mx::NodePtr> visitedNodes;
         processNodeRecursively(node, visitedNodes);
     }
-    std::string m;
-
-    for (auto const& traversed : renderableElements[0]->traverseTree()) {
-        traversed->validate(&m);
-        if (!m.empty()) {
-            log::warning("Validation: %s", m.c_str());
-        }
-    }
 }
 
 HdMaterialNode2 const* _GetTerminalNode(

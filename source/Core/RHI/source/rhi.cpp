@@ -99,7 +99,8 @@ size_t calculate_bytes_per_pixel(nvrhi::Format format)
 void write_texture(
     nvrhi::ITexture* texture,
     nvrhi::IStagingTexture* staging,
-    const void* data)
+    const void* data,
+    nvrhi::ICommandList* command_list)
 {
     nvrhi::IDevice* device = get_device();
     size_t rowPitch;
@@ -120,16 +121,21 @@ void write_texture(
         device->unmapStagingTexture(staging);
     }
 
-    nvrhi::CommandListHandle commandList = device->createCommandList();
-    commandList->open();
-    commandList->copyTexture(texture, {}, staging, {});
-    commandList->close();
-    device->executeCommandList(commandList);
+    nvrhi::CommandListHandle command_list_handle = nullptr;
+    if (!command_list) {
+        command_list_handle = device->createCommandList();
+        command_list = command_list_handle.Get();
+    }
+    command_list->open();
+    command_list->copyTexture(texture, {}, staging, {});
+    command_list->close();
+    device->executeCommandList(command_list);
 }
 
 std::tuple<nvrhi::TextureHandle, nvrhi::StagingTextureHandle> load_texture(
     const nvrhi::TextureDesc& desc,
-    const void* data)
+    const void* data,
+    nvrhi::ICommandList* command_list)
 {
     nvrhi::IDevice* device = get_device();
     auto texture = device->createTexture(desc);
@@ -144,7 +150,7 @@ std::tuple<nvrhi::TextureHandle, nvrhi::StagingTextureHandle> load_texture(
     auto stagingTexture =
         device->createStagingTexture(stagingDesc, nvrhi::CpuAccessMode::Write);
 
-    write_texture(texture, stagingTexture, data);
+    write_texture(texture, stagingTexture, data, command_list);
     assert(texture);
     return std::make_tuple(texture, stagingTexture);
 }
