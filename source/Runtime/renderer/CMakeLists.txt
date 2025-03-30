@@ -28,5 +28,3 @@ add_nodes(
 	EXTRA_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/source
 )
 
-target_link_libraries(physical_lens_raygen PUBLIC diff_optics)
-
