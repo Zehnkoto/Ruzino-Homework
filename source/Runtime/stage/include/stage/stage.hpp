@@ -37,7 +37,6 @@ class STAGE_API Stage {
     void finish_tick();
 
     pxr::UsdTimeCode get_current_time();
-    pxr::UsdTimeCode get_previous_time();
     void set_current_time(pxr::UsdTimeCode time);
 
     pxr::UsdTimeCode get_render_time();

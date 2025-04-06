@@ -225,7 +225,8 @@ void UsdviewEngine::OnFrame(float delta_time)
         _renderParams.frame = UsdTimeCode::Default();
     else {
         _renderParams.frame = std::min(
-            UsdTimeCode(stage_->get_previous_time()), UsdTimeCode(timecode));
+            UsdTimeCode(stage_->get_current_time()),
+            UsdTimeCode(timecode - 1.0f / 30.f));
     }
     _renderParams.drawMode = UsdImagingGLDrawMode::DRAW_WIREFRAME_ON_SURFACE;
     _renderParams.colorCorrectionMode = pxr::HdxColorCorrectionTokens->disabled;
