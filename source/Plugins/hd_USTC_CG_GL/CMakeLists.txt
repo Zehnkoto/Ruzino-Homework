@@ -1,4 +1,4 @@
-option (ENABLE_GL_BASED_RENDERER "Enable GL based renderer" ON)
+option (ENABLE_GL_BASED_RENDERER "Enable GL based renderer" OFF)
 
 if (ENABLE_GL_BASED_RENDERER)
 	

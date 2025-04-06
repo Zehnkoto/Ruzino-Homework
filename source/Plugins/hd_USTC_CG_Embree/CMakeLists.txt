@@ -1,4 +1,4 @@
-option (ENABLE_EMBREE_BASED_RENDERER "Enable Embree based renderer" ON)
+option (ENABLE_EMBREE_BASED_RENDERER "Enable Embree based renderer" OFF)
 
 if (ENABLE_EMBREE_BASED_RENDERER)
 

@@ -72,6 +72,7 @@ NODE_EXECUTION_FUNCTION(write_usd)
 
     if (mesh) {
         pxr::UsdGeomMesh usdgeom = pxr::UsdGeomMesh::Define(stage, sdf_path);
+
         if (usdgeom) {
 #if USE_USD_SCRATCH_BUFFER
             copy_prim(mesh->get_usd_mesh().GetPrim(), usdgeom.GetPrim());
@@ -89,6 +90,9 @@ NODE_EXECUTION_FUNCTION(write_usd)
                 usdgeom.SetNormalsInterpolation(pxr::UsdGeomTokens->vertex);
                 usdgeom.CreateSubdivisionSchemeAttr().Set(
                     pxr::UsdGeomTokens->none);
+            }
+            else {
+                usdgeom.CreateNormalsAttr().Block();
             }
             if (!mesh->get_display_color().empty()) {
                 auto colorPrimvar = primVarAPI.CreatePrimvar(
@@ -113,9 +117,6 @@ NODE_EXECUTION_FUNCTION(write_usd)
 
 #endif
             usdgeom.CreateDoubleSidedAttr().Set(true);
-
-            // Store polyscope quantities
-            auto primVarAPI = pxr::UsdGeomPrimvarsAPI(usdgeom);
 
             // It's invalid to use pxr::TfToken("some_prefix" + some_string)
             // directly, so we need to create a new string first.

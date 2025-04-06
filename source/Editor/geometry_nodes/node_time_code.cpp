@@ -22,6 +22,8 @@ NODE_DECLARATION_FUNCTION(time_code)
 NODE_EXECUTION_FUNCTION(time_code)
 {
     // This is for external write. Do nothing.
+    auto& global_payload = params.get_global_payload<GeomPayload&>();
+    params.set_output("time", float(global_payload.current_time.GetValue()));
     return true;
 }
 

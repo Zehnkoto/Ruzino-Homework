@@ -42,6 +42,10 @@ NODE_EXECUTION_FUNCTION(mesh2sdf)
     // Initialize OpenVDB
     openvdb::initialize();
 
+    if (voxel_size <= 0.00001) {
+        return false;
+    }
+
     // Create mesh to SDF converter
     openvdb::math::Transform::Ptr transform =
         openvdb::math::Transform::createLinearTransform(voxel_size);
@@ -75,7 +79,7 @@ NODE_EXECUTION_FUNCTION(mesh2sdf)
             params.set_error("Only triangles and quads are supported");
             return false;
         }
-    } 
+    }
 
     openvdb::FloatGrid::Ptr grid =
         openvdb::tools::meshToLevelSet<openvdb::FloatGrid>(

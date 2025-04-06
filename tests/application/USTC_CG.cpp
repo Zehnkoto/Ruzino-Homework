@@ -73,11 +73,13 @@ int main()
 
             auto plugin_path = std::filesystem::path("./Plugins");
 
-            for (auto& p : std::filesystem::directory_iterator(plugin_path)) {
-                if (p.path().extension() == ".json") {
-                    system->load_configuration(p.path().string());
+            if (std::filesystem::exists(plugin_path))
+                for (auto& p :
+                     std::filesystem::directory_iterator(plugin_path)) {
+                    if (p.path().extension() == ".json") {
+                        system->load_configuration(p.path().string());
+                    }
                 }
-            }
 
             system->init();
             system->set_node_tree_executor(create_node_tree_executor({}));

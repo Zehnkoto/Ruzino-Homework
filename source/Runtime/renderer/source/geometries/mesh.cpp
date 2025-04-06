@@ -650,7 +650,9 @@ void Hd_USTC_CG_Mesh::Sync(
                 log::info(GetId().GetAsString().c_str());
             }
 
-            if (normal_primvar.IsEmpty()) {
+            if (normal_primvar.IsEmpty() ||
+                (normal_primvar.IsArrayValued() &&
+                 normal_primvar.GetArraySize() == 1)) {
                 // If there are no normals authored, we need to compute
                 // them. This is the case for example when the normals
                 // are not authored in the USD file, but are computed by
