@@ -159,6 +159,21 @@ struct GEOMETRY_API CurveComponent : public GeometryComponent {
 
     GeometryComponentHandle copy(Geometry* operand) const override;
 
+    enum class CurveType {
+        Linear,
+        Cubic,
+
+    } curve_type = CurveType::Linear;
+    [[nodiscard]] CurveType get_type() const
+    {
+        return curve_type;
+    }
+
+    void set_type(CurveType type)
+    {
+        curve_type = type;
+    }
+
    private:
 #if USE_USD_SCRATCH_BUFFER
     pxr::UsdGeomBasisCurves curves;

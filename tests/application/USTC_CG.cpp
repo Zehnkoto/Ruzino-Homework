@@ -12,6 +12,7 @@
 #include "pxr/usd/usdGeom/sphere.h"
 #include "stage/stage.hpp"
 #include "usd_nodejson.hpp"
+#include "GCore/algorithms/intersection.h"
 #include "widgets/usdtree/usd_fileviewer.h"
 #include "widgets/usdview/usdview_widget.hpp"
 using namespace USTC_CG;
@@ -134,6 +135,7 @@ int main()
     window->run();
 
     unregister_cpp_type();
+    deinit_gpu_geometry_algorithms();
 
     window.reset();
     stage.reset();

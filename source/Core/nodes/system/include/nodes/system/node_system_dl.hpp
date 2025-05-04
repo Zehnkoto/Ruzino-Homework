@@ -53,13 +53,9 @@ std::function<Func> DynamicLibraryLoader::getFunction(
 
 class NODES_SYSTEM_API NodeDynamicLoadingSystem : public NodeSystem {
    protected:
-
-
-
     std::shared_ptr<NodeTreeDescriptor> node_tree_descriptor() override;
 
    public:
-
     NodeDynamicLoadingSystem();
     ~NodeDynamicLoadingSystem() override;
     bool load_configuration(const std::filesystem::path& config) override;

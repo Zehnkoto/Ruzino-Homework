@@ -254,6 +254,11 @@ NODE_EXECUTION_FUNCTION(write_usd)
                 curve->get_periodic() ? pxr::UsdGeomTokens->periodic
                                       : pxr::UsdGeomTokens->nonperiodic,
                 time);
+            usd_curve.CreateTypeAttr().Set(
+                curve->get_type() == CurveComponent::CurveType::Linear
+                    ? pxr::UsdGeomTokens->linear
+                    : pxr::UsdGeomTokens->cubic,
+                time);
 #endif
         }
     }

@@ -3,4 +3,5 @@ USTC_CG_ADD_LIB(
 	SHARED
 	INC_DIR  ${PROJECT_SOURCE_DIR}/include/api ${PROJECT_SOURCE_DIR}/include/Utils
 	PUBLIC_LIBS EnTT::EnTT Logger
+	PYTHON_WRAP_DIR python
 )

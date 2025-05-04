@@ -1,10 +1,11 @@
 // #define __GNUC__
 #include "GCore/Components/CurveComponent.h"
 #include "GCore/Components/MeshOperand.h"
+#include "GCore/Components/PointsComponent.h"
 #include "geom_node_base.h"
+#include "nodes/core/socket.hpp"
 
 NODE_DEF_OPEN_SCOPE
-
 NODE_DECLARATION_FUNCTION(create_grid)
 {
     b.add_input<int>("resolution").min(1).max(20).default_val(2);
@@ -409,6 +410,41 @@ NODE_EXECUTION_FUNCTION(create_ico_sphere)
     mesh->set_texcoords_array(texcoord);
 
     params.set_output("Geometry", std::move(geometry));
+    return true;
+}
+
+NODE_DECLARATION_FUNCTION(create_point)
+{
+    b.add_input<float>("X").default_val(0.0f).min(-10.f).max(10.f);
+    b.add_input<float>("Y").default_val(0.0f).min(-10.f).max(10.f);
+    b.add_input<float>("Z").default_val(0.0f).min(-10.f).max(10.f);
+    b.add_input<float>("Size").min(0.1f).max(10.0f).default_val(1.0f);
+    b.add_output<Geometry>("Point");
+}
+
+NODE_EXECUTION_FUNCTION(create_point)
+{
+    float x = params.get_input<float>("X");
+    float y = params.get_input<float>("Y");
+    float z = params.get_input<float>("Z");
+    float size = params.get_input<float>("Size");
+
+    Geometry geometry;
+    std::shared_ptr<PointsComponent> points =
+        std::make_shared<PointsComponent>(&geometry);
+    geometry.attach_component(points);
+
+    pxr::VtArray<pxr::GfVec3f> vertices;
+    vertices.push_back(pxr::GfVec3f(x, y, z));
+
+    pxr::VtArray<float> widths;
+    widths.push_back(size);
+
+    points->set_vertices(vertices);
+    points->set_normals({pxr::GfVec3f(0.0f, 0.0f, 1.0f)});
+    points->set_width(widths);
+
+    params.set_output("Point", std::move(geometry));
     return true;
 }
 

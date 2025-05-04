@@ -173,7 +173,7 @@ struct NODES_CORE_API Node {
  * It is a Nodetree.
  * It can act as a single node.
  */
-struct NodeGroup : public Node {
+struct NODES_CORE_API NodeGroup : public Node {
     NodeGroup(NodeTree* node_tree, const char* idname);
 
     NodeGroup(NodeTree* node_tree, int id, const char* idname);
@@ -218,8 +218,6 @@ struct NodeGroup : public Node {
     Node* group_out;
 };
 
-NodeTypeInfo* nodeTypeFind(const char* idname);
-// SocketType socketTypeFind(const char* idname);
 
 /* Socket declaration. */
 class ItemDeclaration {
@@ -256,6 +254,7 @@ class SocketGroupDeclaration : public ItemDeclaration {
 
 class SocketGroupBuilder {
    public:
+    SocketGroupBuilder() = default;
     SocketGroupBuilder(SocketGroupDeclaration* socket_group_declaration)
         : socket_group_declaration(socket_group_declaration)
     {
