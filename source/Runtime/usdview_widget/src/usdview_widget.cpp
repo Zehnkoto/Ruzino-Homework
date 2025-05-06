@@ -356,7 +356,7 @@ void UsdviewEngine::time_controller()
     }
 
     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-    if (ImGui::SliderFloat("Time##timecode", &timecode, 0, time_code_max)) {
+    if (ImGui::SliderFloat("##timecode", &timecode, 0, time_code_max)) {
         stage_->set_render_time(timecode);
     }
 
