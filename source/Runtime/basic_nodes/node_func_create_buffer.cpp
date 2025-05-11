@@ -78,6 +78,29 @@ NODE_DECLARATION_FUNCTION(create_float3f)
     }
     b.add_output<pxr::GfVec3f>("Buffer");
 };
+
+NODE_DECLARATION_FUNCTION(create_float4f)
+{
+    for (int i = 0; i < 4; ++i) {
+        b.add_input<float>(socket_name(i).c_str())
+            .min(-10)
+            .max(10)
+            .default_val(0);
+    }
+    b.add_output<pxr::GfVec4f>("Buffer");
+};
+
+NODE_DECLARATION_FUNCTION(create_int2)
+{
+    for (int i = 0; i < 2; ++i) {
+        b.add_input<int>(socket_name(i).c_str())
+            .min(-10)
+            .max(10)
+            .default_val(0);
+    }
+    b.add_output<pxr::GfVec2i>("Buffer");
+};
+
 NODE_DECLARATION_FUNCTION(create_int3)
 {
     for (int i = 0; i < 3; ++i) {
@@ -230,6 +253,31 @@ NODE_EXECUTION_FUNCTION(create_float3f)
     params.set_output("Buffer", data);
     return true;
 };
+
+NODE_EXECUTION_FUNCTION(create_float4f)
+{
+    float val[4];
+    for (int i = 0; i < 4; ++i) {
+        val[i] = params.get_input<float>(socket_name(i).c_str());
+    }
+    pxr::GfVec4f data;
+    memcpy(&data, val, sizeof(pxr::GfVec4f));
+    params.set_output("Buffer", data);
+    return true;
+};
+
+NODE_EXECUTION_FUNCTION(create_int2)
+{
+    int val[2];
+    for (int i = 0; i < 2; ++i) {
+        val[i] = params.get_input<int>(socket_name(i).c_str());
+    }
+    pxr::GfVec2i data;
+    memcpy(&data, val, sizeof(pxr::GfVec2i));
+    params.set_output("Buffer", data);
+    return true;
+};
+
 NODE_EXECUTION_FUNCTION(create_int3)
 {
     float val[3];
