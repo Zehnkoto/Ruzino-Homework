@@ -18,8 +18,8 @@
 #include "pxr/usd/usd/prim.h"
 #include "pxr/usd/usd/primRange.h"
 #include "pxr/usd/usd/property.h"
-#include "stage/stage.hpp"
 #include "pxr/usd/usdGeom/xformOp.h"
+#include "stage/stage.hpp"
 USTC_CG_NAMESPACE_OPEN_SCOPE
 void UsdFileViewer::ShowFileTree()
 {
@@ -197,36 +197,41 @@ void UsdFileViewer::EditValue()
     using namespace pxr;
     UsdPrim prim = stage->get_usd_stage()->GetPrimAtPath(selected);
     if (prim) {
-
-        auto xformable = UsdGeomXformable::Get(stage->get_usd_stage(), selected);
-        if (xformable){
-//            log::warning("XFORMABLE_GET! -> %s", prim.GetName().GetText());
+        auto xformable =
+            UsdGeomXformable::Get(stage->get_usd_stage(), selected);
+        if (xformable) {
+            //            log::warning("XFORMABLE_GET! -> %s",
+            //            prim.GetName().GetText());
             bool rst_stack;
             auto xform_op = xformable.GetOrderedXformOps(&rst_stack);
-            if (xform_op.size() == 0){ // no trans
-                GfMatrix4d mat = GfMatrix4d(1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1);
+            if (xform_op.size() == 0) {  // no trans
+                GfMatrix4d mat =
+                    GfMatrix4d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
                 auto trans = xformable.AddTransformOp();
                 trans.Set(mat);
-                xformable.SetXformOpOrder({trans});
+                xformable.SetXformOpOrder({ trans });
             }
-            else if (xform_op.size() == 1 && xform_op[0].GetOpType() == UsdGeomXformOp::TypeTransform){
-
+            else if (
+                xform_op.size() == 1 &&
+                xform_op[0].GetOpType() == UsdGeomXformOp::TypeTransform) {
                 auto trans = xform_op[0];
                 GfMatrix4d mat;
                 trans.Get(&mat);
-                float tmp[3]={static_cast<float>(mat[3][0]), static_cast<float>(mat[3][1]), static_cast<float>(mat[3][2])};
+                float tmp[3] = { static_cast<float>(mat[3][0]),
+                                 static_cast<float>(mat[3][1]),
+                                 static_cast<float>(mat[3][2]) };
                 bool modified_flag = false;
-                if (ImGui::SliderFloat("translate X", tmp, -10.f, 10.f)) mat[3][0] = tmp[0];
-                 if   (ImGui::SliderFloat("translate Y", tmp+1, -10.f, 10.f))mat[3][1] = tmp[1];
-                    if(ImGui::SliderFloat("translate Z", tmp+2, -10.f, 10.f))mat[3][2] = tmp[2];
+                if (ImGui::SliderFloat("translate X", tmp, -10.f, 10.f))
+                    mat[3][0] = tmp[0];
+                if (ImGui::SliderFloat("translate Y", tmp + 1, -10.f, 10.f))
+                    mat[3][1] = tmp[1];
+                if (ImGui::SliderFloat("translate Z", tmp + 2, -10.f, 10.f))
+                    mat[3][2] = tmp[2];
                 trans.Set(mat);
-                xformable.SetXformOpOrder({trans});
+                xformable.SetXformOpOrder({ trans });
             }
             // else: do nothing
         }
-
-
-
 
         auto attributes = prim.GetAttributes();
         for (auto&& attr : attributes) {
@@ -236,8 +241,9 @@ void UsdFileViewer::EditValue()
                 attr.GetName().GetString() + "##" + attr.GetName().GetString();
 
             /// print the label for dbg
-//            log::warning("%s -> %s [%s]",prim.GetName().GetText(),label.c_str(), attr.GetTypeName().GetCPPTypeName().c_str());
-
+            //            log::warning("%s -> %s
+            //            [%s]",prim.GetName().GetText(),label.c_str(),
+            //            attr.GetTypeName().GetCPPTypeName().c_str());
 
             if (v.IsHolding<double>()) {
                 double value = v.Get<double>();
@@ -336,21 +342,19 @@ void UsdFileViewer::EditValue()
             }
             else if (v.IsHolding<GfVec2d>()) {
                 GfVec2d value = v.Get<GfVec2d>();
-                float tmp[2] = {value[0], value[1]};
-                if (ImGui::SliderFloat2(
-                        label.c_str(), tmp, 0.0f, 1.0f)) {
-                    value[0]=tmp[0];
+                float tmp[2] = { value[0], value[1] };
+                if (ImGui::SliderFloat2(label.c_str(), tmp, 0.0f, 1.0f)) {
+                    value[0] = tmp[0];
                     value[1] = tmp[1];
                     attr.Set(value);
                 }
             }
             else if (v.IsHolding<GfVec3d>()) {
                 GfVec3d value = v.Get<GfVec3d>();
-                float tmp[3] = {value[0], value[1],value[2]};
+                float tmp[3] = { value[0], value[1], value[2] };
 
-                if (ImGui::SliderFloat3(
-                        label.c_str(), tmp, 0.0f, 1.0f)) {
-                    value[0]=tmp[0];
+                if (ImGui::SliderFloat3(label.c_str(), tmp, 0.0f, 1.0f)) {
+                    value[0] = tmp[0];
                     value[1] = tmp[1];
                     value[2] = tmp[2];
                     attr.Set(value);
@@ -358,11 +362,10 @@ void UsdFileViewer::EditValue()
             }
             else if (v.IsHolding<GfVec4d>()) {
                 GfVec4d value = v.Get<GfVec4d>();
-                float tmp[4] = {value[0], value[1],value[2], value[3]};
+                float tmp[4] = { value[0], value[1], value[2], value[3] };
 
-                if (ImGui::SliderFloat4(
-                        label.c_str(), tmp, 0.0f, 1.0f)) {
-                    value[0]=tmp[0];
+                if (ImGui::SliderFloat4(label.c_str(), tmp, 0.0f, 1.0f)) {
+                    value[0] = tmp[0];
                     value[1] = tmp[1];
                     value[2] = tmp[2];
                     value[3] = tmp[3];
@@ -370,17 +373,15 @@ void UsdFileViewer::EditValue()
                 }
             }
 
-//            if (v.IsHolding<VtArray<TfToken>>()){
-//                std::cout << "1\n";
-//            }
-//
-//            if (label=="xformOpOrder##xformOpOrder") {
-//                std::cout << v.IsEmpty() << "\n";
-//                log::warning("[%s]", label.c_str());
-//
-//            }
-
-
+            //            if (v.IsHolding<VtArray<TfToken>>()){
+            //                std::cout << "1\n";
+            //            }
+            //
+            //            if (label=="xformOpOrder##xformOpOrder") {
+            //                std::cout << v.IsEmpty() << "\n";
+            //                log::warning("[%s]", label.c_str());
+            //
+            //            }
         }
     }
 }
@@ -452,6 +453,18 @@ void UsdFileViewer::show_right_click_menu()
             if (ImGui::MenuItem("Sphere Light")) {
                 stage->create_sphere_light(selected);
             }
+            ImGui::EndMenu();
+        }
+
+        // create_material
+        if (ImGui::BeginMenu("Create Material")) {
+            if (ImGui::MenuItem("Material")) {
+                stage->create_material(selected);
+            }
+            if (ImGui::MenuItem("Scratch Material")) {
+                auto material = stage->create_material(selected);
+            }
+
             ImGui::EndMenu();
         }
 

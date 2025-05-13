@@ -7,6 +7,7 @@ USTC_CG_ADD_LIB(
 		Logger
 		usd
 		usdImaging
+		usdShade
 		nodes_system
 		MaterialXCore
 		MaterialXFormat

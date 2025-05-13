@@ -11,6 +11,7 @@
 #include <pxr/usd/usdGeom/xform.h>
 #include <pxr/usd/usdMtlx/reader.h>
 #include <pxr/usd/usdMtlx/utils.h>
+#include <pxr/usd/usdShade/material.h>
 
 #include "MaterialXFormat/File.h"
 #include "MaterialXFormat/Util.h"
@@ -162,6 +163,11 @@ T Stage::create_prim(const pxr::SdfPath& path, const std::string& baseName)
 pxr::UsdPrim Stage::add_prim(const pxr::SdfPath& path)
 {
     return stage->DefinePrim(path);
+}
+
+pxr::UsdShadeMaterial Stage::create_material(const pxr::SdfPath& path)
+{
+    return create_prim<pxr::UsdShadeMaterial>(path, "material");
 }
 
 pxr::UsdGeomSphere Stage::create_sphere(const pxr::SdfPath& path) const

@@ -14,6 +14,7 @@
 #include "pxr/usd/usdLux/distantLight.h"
 #include "pxr/usd/usdLux/domeLight.h"
 #include "pxr/usd/usdLux/rectLight.h"
+#include "pxr/usd/usdShade/material.h"
 #include "stage/api.h"
 
 USTC_CG_NAMESPACE_OPEN_SCOPE
@@ -43,6 +44,7 @@ class STAGE_API Stage {
     void set_render_time(pxr::UsdTimeCode time);
 
     pxr::UsdPrim add_prim(const pxr::SdfPath& path);
+    pxr::UsdShadeMaterial create_material(const pxr::SdfPath& path);
 
     pxr::UsdGeomSphere create_sphere(
         const pxr::SdfPath& path = pxr::SdfPath::EmptyPath()) const;
