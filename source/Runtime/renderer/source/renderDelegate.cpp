@@ -43,6 +43,7 @@
 #include "renderBuffer.h"
 #include "renderPass.h"
 #include "renderer.h"
+#include "material/materialX.h"
 
 #define HR_RETURN(hr) \
     if (FAILED(hr))   \
@@ -279,7 +280,7 @@ HdSprim* Hd_USTC_CG_RenderDelegate::CreateSprim(
         return new HdExtComputation(sprimId);
     }
     else if (typeId == HdPrimTypeTokens->material) {
-        auto material = new Hd_USTC_CG_Material(sprimId);
+        auto material = new Hd_USTC_CG_MaterialX(sprimId);
         materials[sprimId] = material;
 
         assert(materials[sprimId] != nullptr);
@@ -318,7 +319,7 @@ HdSprim* Hd_USTC_CG_RenderDelegate::CreateFallbackSprim(const TfToken& typeId)
         return new HdExtComputation(SdfPath::EmptyPath());
     }
     else if (typeId == HdPrimTypeTokens->material) {
-        auto material = new Hd_USTC_CG_Material(SdfPath::EmptyPath());
+        auto material = new Hd_USTC_CG_MaterialX(SdfPath::EmptyPath());
         materials[SdfPath::EmptyPath()] = material;
 
         assert(materials[SdfPath::EmptyPath()] != nullptr);

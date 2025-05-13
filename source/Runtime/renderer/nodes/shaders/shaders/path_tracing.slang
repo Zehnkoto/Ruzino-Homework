@@ -91,14 +91,16 @@ void ClosestHit(
         sample_cosine_hemisphere_concentric(random_float2(seed), pdf);
     float3 world_ray_dir = sf.fromLocal(ray_dir);
 
+    var material_header = materialHeaderBuffer[material_id];
+
     // Evaluate material
     CallableData callData;
     callData.vertexInfo = vertex;
     callData.L = world_ray_dir;
     callData.V = -WorldRayDirection();
     callData.color = float4(0, 0, 0, 1);
-    callData.materialID = material_id;
-    CallShader(material_id, callData);
+    callData.materialBlobID = material_header.material_blob_id;
+    CallShader(material_header.material_type_id, callData);
 
     // Update payload
     payload.throughput *= callData.color.rgb / pdf;
@@ -136,25 +138,25 @@ void Miss(inout RayPayload payload)
 {
     // Enhanced environment lighting with realistic sky model
     float3 rayDir = WorldRayDirection();
-    
+
     // Sky gradient parameters
     float3 horizonColor = float3(0.8, 0.9, 1.0);
     float3 zenithColor = float3(0.2, 0.4, 0.8);
     float3 sunsetColor = float3(0.9, 0.5, 0.2);
-    
+
     // Calculate sky color based on ray direction
     float skyBlend = pow(max(0.0, rayDir.z + 0.1), 0.8);
     float3 skyColor = lerp(horizonColor, zenithColor, skyBlend);
-    
+
     // Add sun and sunset glow
     float3 sunDir = normalize(float3(0.5, 0.5, 0.5));
     float sunDot = max(0.0, dot(rayDir, sunDir));
     float sunIntensity = pow(sunDot, 128.0) * 5.0;
     float sunsetIntensity = pow(sunDot, 8.0) * (1.0 - rayDir.z * 0.5);
-    
+
     skyColor += float3(1.0, 0.9, 0.7) * sunIntensity;
     skyColor += sunsetColor * sunsetIntensity * (1.0 - skyBlend) * 0.4;
-    
+
     // Add contribution to path
     payload.color += payload.throughput * skyColor;
     payload.terminated = true;

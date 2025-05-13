@@ -90,12 +90,12 @@ NODE_EXECUTION_FUNCTION(rasterize)
     auto device_buffer =
         instance_collection->draw_indirect_pool.get_device_buffer();
 
-    context.set_resource_state(device_buffer, ResourceStates::IndirectArgument);
-
     GraphicsRenderState state;
 
     // find the named mesh
     context.begin();
+    context.set_resource_state(device_buffer, ResourceStates::IndirectArgument);
+
     context.draw_indirect(
         state,
         program_vars,

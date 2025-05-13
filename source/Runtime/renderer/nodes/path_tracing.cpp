@@ -1,10 +1,10 @@
 
 #include "../source/renderTLAS.h"
+#include "GPUContext/raytracing_context.hpp"
 #include "nodes/core/def/node_def.hpp"
 #include "nvrhi/nvrhi.h"
 #include "nvrhi/utils.h"
 #include "render_node_base.h"
-#include "GPUContext/raytracing_context.hpp"
 #include "shaders/shaders/utils/HitObject.h"
 #include "utils/math.h"
 // A traditional path tracing node
@@ -117,8 +117,10 @@ NODE_EXECUTION_FUNCTION(path_tracing)
     program_vars["meshDescBuffer"] =
         instance_collection->mesh_pool.get_device_buffer();
 
-    program_vars["materialBuffer"] =
+    program_vars["materialBlobBuffer"] =
         instance_collection->material_pool.get_device_buffer();
+    program_vars["materialHeaderBuffer"] =
+        instance_collection->material_header_pool.get_device_buffer();
 
     program_vars.set_descriptor_table(
         "t_BindlessBuffers",
