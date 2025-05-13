@@ -108,11 +108,12 @@ NODE_EXECUTION_FUNCTION(create_circle)
     return true;
 }
 
-
 NODE_DECLARATION_FUNCTION(create_cylinder_section)
 {
     b.add_input<float>("height").min(0.1).max(20).default_val(1.0);
     b.add_input<float>("radius").min(0.1).max(20).default_val(1.0);
+    b.add_input<float>("angle").min(0.1).max(6.28).default_val(
+        1.57);  // In radians, up to 2π
     b.add_input<int>("resolution").min(2).max(100).default_val(16);
     b.add_output<Geometry>("Geometry");
 }
@@ -121,6 +122,7 @@ NODE_EXECUTION_FUNCTION(create_cylinder_section)
 {
     float height = params.get_input<float>("height");
     float radius = params.get_input<float>("radius");
+    float angle = params.get_input<float>("angle");
     int resolution = params.get_input<int>("resolution");
 
     Geometry geometry;
@@ -128,10 +130,6 @@ NODE_EXECUTION_FUNCTION(create_cylinder_section)
         std::make_shared<MeshComponent>(&geometry);
     geometry.attach_component(mesh);
 
-    // Since height = arc length = radius * angle
-    // angle = height / radius (in radians)
-    float angle = height / radius;
-    
     pxr::VtArray<pxr::GfVec3f> points;
     pxr::VtArray<pxr::GfVec3f> normals;
     pxr::VtArray<pxr::GfVec2f> texcoord;
@@ -140,27 +138,27 @@ NODE_EXECUTION_FUNCTION(create_cylinder_section)
 
     int rows = resolution;
     int cols = resolution;
-
     // Generate vertices
     for (int i = 0; i <= rows; ++i) {
         float v = static_cast<float>(i) / rows;
         float z = height * v;
-        
+
         for (int j = 0; j <= cols; ++j) {
             float u = static_cast<float>(j) / cols;
-            float theta = angle * u;
-            
+            // Angle goes from -angle/2 to +angle/2 to center the section
+            float theta = angle * (u - 0.5f);
+
             // Calculate position
             float x = radius * std::cos(theta);
             float y = radius * std::sin(theta);
-            
+
             points.push_back(pxr::GfVec3f(x, y, z));
-            
+
             // Normal is pointing outward from the cylinder axis
             pxr::GfVec3f normal(x, y, 0);
             normal.Normalize();
             normals.push_back(normal);
-            
+
             // UV coordinates: u along the arc, v along the height
             texcoord.push_back(pxr::GfVec2f(u, v));
         }
@@ -173,7 +171,7 @@ NODE_EXECUTION_FUNCTION(create_cylinder_section)
             int idx1 = idx0 + 1;
             int idx2 = (i + 1) * (cols + 1) + j + 1;
             int idx3 = (i + 1) * (cols + 1) + j;
-            
+
             faceVertexCounts.push_back(4);
             faceVertexIndices.push_back(idx0);
             faceVertexIndices.push_back(idx1);
@@ -525,7 +523,7 @@ NODE_EXECUTION_FUNCTION(create_point)
     widths.push_back(size);
 
     points->set_vertices(vertices);
-    points->set_normals({pxr::GfVec3f(0.0f, 0.0f, 1.0f)});
+    points->set_normals({ pxr::GfVec3f(0.0f, 0.0f, 1.0f) });
     points->set_width(widths);
 
     params.set_output("Point", std::move(geometry));

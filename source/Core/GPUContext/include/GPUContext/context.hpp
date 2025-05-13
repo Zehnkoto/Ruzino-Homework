@@ -16,6 +16,10 @@ class GPUCONTEXT_API GPUContext {
     virtual void begin();
     virtual void finish();
 
+    void set_resource_state(
+        nvrhi::IResource* resource,
+        nvrhi::ResourceStates state);
+
     void write_buffer(
         nvrhi::IBuffer* buffer,
         const void* data,

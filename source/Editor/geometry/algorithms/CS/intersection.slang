@@ -36,14 +36,14 @@ void RayGen()
     payload.valid = false;
 
     TraceRay(
-        SceneBVH,       // Acceleration structure
-        RAY_FLAG_NONE,  // Ray flags
-        0xFF,           // Instance inclusion mask
-        0,              // Hit group index
-        1,              // Number of hit groups
-        0,              // Miss shader index
-        ray,            // Ray description
-        payload         // Ray payload
+        SceneBVH,  // Acceleration structure
+        RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH,
+        0xFF,    // Instance inclusion mask
+        0,       // Hit group index
+        1,       // Number of hit groups
+        0,       // Miss shader index
+        ray,     // Ray description
+        payload  // Ray payload
     );
 
     // Store result

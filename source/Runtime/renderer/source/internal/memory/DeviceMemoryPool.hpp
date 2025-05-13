@@ -52,6 +52,8 @@ class DeviceMemoryPool {
     void Initialize();
     DeviceMemoryPool();
 
+    std::vector<T> get_content() const;
+
     explicit DeviceMemoryPool(const nvrhi::BufferDesc& buffer_desc);
 
     DeviceMemoryPool(const DeviceMemoryPool&) = delete;
@@ -203,26 +205,34 @@ nvrhi::IBuffer* DeviceMemoryPool<T>::MemoryHandleData::get_device_buffer() const
 template<typename T>
 void DeviceMemoryPool<T>::MemoryHandleData::read_data(void* data)
 {
-    nvrhi::BufferDesc desc = pool->buffer_desc<T>();
-    desc.byteSize = size;
-    desc.debugName = "StagingBuffer";
-    desc.cpuAccess = nvrhi::CpuAccessMode::Read;
-    desc.initialState = nvrhi::ResourceStates::CopyDest;
-    auto staging = RHI::get_device()->createBuffer(desc);
+    std::lock_guard lock(execution_launch_mutex);
 
+    // Create a staging buffer with CPU read access
+    nvrhi::BufferDesc stagingDesc;
+    stagingDesc.byteSize = size;
+    stagingDesc.cpuAccess = nvrhi::CpuAccessMode::Read;
+    stagingDesc.debugName = "StagingReadbackBuffer";
+
+    nvrhi::IDevice* device = RHI::get_device();
+    nvrhi::BufferHandle stagingBuffer = device->createBuffer(stagingDesc);
+
+    // Copy data from device buffer to staging buffer
     pool->commandList->open();
     pool->commandList->copyBuffer(
-        staging, 0, pool->device_buffer, offset, size);
+        stagingBuffer, 0, pool->device_buffer, offset, size);
     pool->commandList->close();
-    RHI::get_device()->executeCommandList(
-        pool->commandList, nvrhi::CommandQueue::Copy);
-    // RHI::get_device()->waitForIdle();
-    // RHI::get_device()->runGarbageCollection();
 
-    auto mapped_data =
-        RHI::get_device()->mapBuffer(staging, nvrhi::CpuAccessMode::Read);
-    memcpy(data, mapped_data, size);
-    RHI::get_device()->unmapBuffer(staging);
+    // Execute the command list and wait for completion
+    device->executeCommandList(pool->commandList, nvrhi::CommandQueue::Copy);
+    device->waitForIdle();
+
+    // Map the staging buffer to read the data
+    void* mappedData =
+        device->mapBuffer(stagingBuffer, nvrhi::CpuAccessMode::Read);
+    if (mappedData) {
+        memcpy(data, mappedData, size);
+        device->unmapBuffer(stagingBuffer);
+    }
 }
 
 template<typename T>
@@ -245,6 +255,43 @@ template<typename T>
 DeviceMemoryPool<T>::DeviceMemoryPool()
 {
     Initialize();
+}
+
+template<typename T>
+std::vector<T> DeviceMemoryPool<T>::get_content() const
+{
+    std::vector<T> content;
+    std::lock_guard<std::mutex> lock(execution_launch_mutex);
+
+    // Create a staging buffer to read data from the device
+    nvrhi::BufferDesc stagingDesc;
+    stagingDesc.byteSize = current_max_memory_offset;
+    stagingDesc.cpuAccess = nvrhi::CpuAccessMode::Read;
+    stagingDesc.debugName = "ContentReadbackBuffer";
+
+    nvrhi::IDevice* device = RHI::get_device();
+    nvrhi::BufferHandle stagingBuffer = device->createBuffer(stagingDesc);
+
+    // Copy data from device buffer to staging buffer
+    commandList->open();
+    commandList->copyBuffer(
+        stagingBuffer, 0, device_buffer, 0, current_max_memory_offset);
+    commandList->close();
+
+    // Execute and wait for completion
+    device->executeCommandList(commandList, nvrhi::CommandQueue::Copy);
+    device->waitForIdle();
+
+    // Map the buffer to read data
+    void* mappedData =
+        device->mapBuffer(stagingBuffer, nvrhi::CpuAccessMode::Read);
+    if (mappedData) {
+        content.resize(current_max_memory_offset / sizeof(T));
+        memcpy(content.data(), mappedData, current_max_memory_offset);
+        device->unmapBuffer(stagingBuffer);
+    }
+
+    return content;
 }
 
 template<typename T>
@@ -384,8 +431,8 @@ bool DeviceMemoryPool<T>::compress()
 
     std::lock_guard lock(execution_launch_mutex);
     device->executeCommandList(commandList, nvrhi::CommandQueue::Copy);
-    // device->waitForIdle();
-    // device->runGarbageCollection();
+    device->waitForIdle();
+    device->runGarbageCollection();
 
     *this = std::move(new_pool);
     return true;

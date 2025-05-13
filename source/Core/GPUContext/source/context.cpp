@@ -28,6 +28,33 @@ void GPUContext::finish()
     resource_allocator_.device->executeCommandList(commandList_);
 }
 
+void GPUContext::set_resource_state(
+    nvrhi::IResource* resource,
+    nvrhi::ResourceStates state)
+{
+    auto* texture = dynamic_cast<nvrhi::ITexture*>(resource);
+    if (texture) {
+        commandList_->setTextureState(
+            texture, nvrhi::TextureSubresourceSet(), state);
+        return;
+    }
+
+    auto* buffer = dynamic_cast<nvrhi::IBuffer*>(resource);
+    if (buffer) {
+        commandList_->setBufferState(buffer, state);
+        return;
+    }
+
+    auto* accelStruct = dynamic_cast<nvrhi::rt::IAccelStruct*>(resource);
+    if (accelStruct) {
+        commandList_->setAccelStructState(accelStruct, state);
+        return;
+    }
+    commandList_->commitBarriers();
+    // If we get here, it's an unknown resource type
+    assert(false && "Unknown resource type in set_resource_state");
+}
+
 void GPUContext::write_buffer(
     nvrhi::IBuffer* buffer,
     const void* data,

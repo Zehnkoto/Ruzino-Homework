@@ -85,6 +85,13 @@ NODE_EXECUTION_FUNCTION(rasterize)
 
     instance_collection->draw_indirect_pool.compress();
 
+    // auto content = instance_collection->draw_indirect_pool.get_content();
+
+    auto device_buffer =
+        instance_collection->draw_indirect_pool.get_device_buffer();
+
+    context.set_resource_state(device_buffer, ResourceStates::IndirectArgument);
+
     GraphicsRenderState state;
 
     // find the named mesh
@@ -92,7 +99,7 @@ NODE_EXECUTION_FUNCTION(rasterize)
     context.draw_indirect(
         state,
         program_vars,
-        instance_collection->draw_indirect_pool.get_device_buffer(),
+        device_buffer,
         instance_collection->draw_indirect_pool.count());
 
     context.finish();
