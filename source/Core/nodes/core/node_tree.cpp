@@ -1225,7 +1225,8 @@ void NodeTree::deserialize(const std::string& str)
             else {
                 node = std::make_unique<Node>(this, id, id_name.c_str());
             }
-            node->storage_info = storage_info;
+            if (!storage_info.empty())
+                node->storage_info = storage_info;
 
             if (!node->valid())
                 continue;
