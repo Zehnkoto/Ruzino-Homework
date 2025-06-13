@@ -125,6 +125,7 @@ float3 sample_standard_surface(
     transmission_weight /= total_weight;
     
     float3 L;
+    pdf = 0.0;
     
     // Choose sampling method based on weights
     float r = random_float(seed);
@@ -150,7 +151,7 @@ float3 sample_standard_surface(
         // Reflect view direction around half vector
         L = reflect(-V, H);
         
-        // Calculate GGX PDF
+        // Calculate GGX PDF for this component
         float VdotH = max(0.001, dot(V, H));
         float NdotH = max(0.001, dot(normal, H));
         
@@ -158,7 +159,7 @@ float3 sample_standard_surface(
         float denom = NdotH * NdotH * (alpha2 - 1.0) + 1.0;
         float D = alpha2 / (M_PI * denom * denom);
         
-        pdf = metal_weight * D * NdotH / (4.0 * VdotH);
+        pdf += metal_weight * D * NdotH / (4.0 * VdotH);
         
     } else if (r < metal_weight + specular_weight) {
         // Sample dielectric reflection
@@ -184,7 +185,7 @@ float3 sample_standard_surface(
         float denom = NdotH * NdotH * (alpha2 - 1.0) + 1.0;
         float D = alpha2 / (M_PI * denom * denom);
         
-        pdf = specular_weight * D * NdotH / (4.0 * VdotH);
+        pdf += specular_weight * D * NdotH / (4.0 * VdotH);
           
     }   
          else if (r < metal_weight + specular_weight + transmission_weight) {
@@ -229,7 +230,7 @@ float3 sample_standard_surface(
             float alpha2 = alpha * alpha;
             float denom = NdotH * NdotH * (alpha2 - 1.0) + 1.0;
             float D = alpha2 / (M_PI * denom * denom);
-            pdf = transmission_weight * D * NdotH / (4.0 * abs(VdotH));
+            pdf += transmission_weight * D * NdotH / (4.0 * abs(VdotH));
         } else {
             // Refraction around microfacet using proper transmission formula
             // This matches the mx_surface_transmission implementation
@@ -247,16 +248,58 @@ float3 sample_standard_surface(
             // Jacobian for transmission - must match the BSDF implementation
             float denom_jacobian = VdotH + LdotH / eta;
             float jacobian = (eta * eta * LdotH) / (denom_jacobian * denom_jacobian);
-            pdf = transmission_weight * D * NdotH * jacobian;
+            pdf += transmission_weight * D * NdotH * jacobian;
         }
     }
         else {
         // Sample diffuse (cosine-weighted hemisphere)
-        L = sample_cosine_hemisphere_concentric(random_float2(seed), pdf);
+        float cosine_pdf;
+        L = sample_cosine_hemisphere_concentric(random_float2(seed), cosine_pdf);
         L = sf.fromLocal(L);
         
-        // Scale PDF by diffuse weight
-        pdf *= diffuse_weight;
+        // Add diffuse PDF contribution
+        pdf += diffuse_weight * cosine_pdf;
+    }
+    
+    // Now accumulate PDFs for all other components that could have generated this direction
+    float NdotL = max(0.0, dot(normal, L));
+    
+    if (NdotL > 0.0) {
+        // Add diffuse PDF if we didn't sample it
+        if (r >= metal_weight + specular_weight + transmission_weight) {
+            // We already added diffuse PDF above
+        } else {
+            pdf += diffuse_weight * NdotL / M_PI;
+        }
+        
+        // Add specular reflection PDF contributions
+        float3 H_refl = normalize(V + L);
+        float VdotH_refl = max(0.001, dot(V, H_refl));
+        float NdotH_refl = max(0.001, dot(normal, H_refl));
+        
+        // Metal reflection PDF
+        if (r >= metal_weight) {
+            float2 roughness_vector;
+            mx_roughness_anisotropy(specular_roughness, specular_anisotropy, roughness_vector);
+            float alpha = max(0.001, roughness_vector.x * roughness_vector.x);
+            
+            float alpha2 = alpha * alpha;
+            float denom = NdotH_refl * NdotH_refl * (alpha2 - 1.0) + 1.0;
+            float D = alpha2 / (M_PI * denom * denom);
+            pdf += metal_weight * D * NdotH_refl / (4.0 * VdotH_refl);
+        }
+        
+        // Specular reflection PDF
+        if (r < metal_weight || r >= metal_weight + specular_weight) {
+            float2 roughness_vector;
+            mx_roughness_anisotropy(specular_roughness, specular_anisotropy, roughness_vector);
+            float alpha = max(0.001, roughness_vector.x * roughness_vector.x);
+            
+            float alpha2 = alpha * alpha;
+            float denom = NdotH_refl * NdotH_refl * (alpha2 - 1.0) + 1.0;
+            float D = alpha2 / (M_PI * denom * denom);
+            pdf += specular_weight * D * NdotH_refl / (4.0 * VdotH_refl);
+        }
     }
     
     // Clamp PDF to avoid numerical issues

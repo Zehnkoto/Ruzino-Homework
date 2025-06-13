@@ -79,7 +79,7 @@ void ClosestHit(
     // Create shading frame
     bool valid;
     ShadingFrame sf =
-        ShadingFrame.createSafe(vertex.normalW, float4(0, 0, 0, 1), valid);
+        ShadingFrame.createSafe(vertex.normalW, float4(1, 1, 0, 1), valid);
     vertex.tangentW.xyz = sf.T;
 
     // Get material ID
@@ -106,14 +106,15 @@ void ClosestHit(
 
     float pdf = callData.pdf;
     float3 ray_dir = callData.sampledDir;
-    float3 local_ray_dir = sf.toLocal(ray_dir);    // Check if this is transmission or reflection
-    bool isTransmission = dot(ray_dir, vertex.normalW) < 0.0;
-    
+    float3 local_ray_dir =
+        sf.toLocal(ray_dir);  // Check if this is transmission or reflection
+    bool isTransmission = local_ray_dir.z < 0.0;
+
     if (isTransmission) {
         // For transmission, apply cosine weighting on the exit side
         // Use the absolute value to handle both sides correctly
-        float cosine_factor = abs(dot(ray_dir, vertex.normalW));
-        payload.throughput *= cosine_factor * callData.throughput / pdf;
+        float cosine_factor = abs(local_ray_dir.z);
+        payload.throughput *= callData.throughput / pdf * cosine_factor*3.14;
     }
     else {
         // For reflection, apply cosine weighting
@@ -124,14 +125,17 @@ void ClosestHit(
     payload.hitPosition = vertex.posW;
     payload.hitNormal = vertex.normalW;
     payload.depth++;
-    payload.seed = callData.seed;    // Trace next ray (light comes from environment/miss shader)
+    payload.seed =
+        callData
+            .seed;  // Trace next ray (light comes from environment/miss shader)
     if (!payload.terminated) {
         RayDesc nextRay;
-        
+
         // Better ray offset handling for transmission vs reflection
-        bool isTransmission = dot(ray_dir, vertex.normalW) < 0.0;
-        float3 offset_normal = isTransmission ? -vertex.normalW : vertex.normalW;
-        
+        bool isTransmission = local_ray_dir.z < 0.0;
+        float3 offset_normal =
+            isTransmission ? -vertex.normalW : vertex.normalW;
+
         nextRay.Origin = vertex.posW + offset_normal * 0.001;
         nextRay.Direction = ray_dir;
         nextRay.TMin = 0.0;
@@ -178,6 +182,7 @@ void Miss(inout RayPayload payload)
     skyColor += sunsetColor * sunsetIntensity * (1.0 - skyBlend) * 0.4;
 
     // Add contribution to path
+    //skyColor = 0.5f;
     payload.color += payload.throughput * skyColor * 1.0;
     payload.terminated = true;
 }
