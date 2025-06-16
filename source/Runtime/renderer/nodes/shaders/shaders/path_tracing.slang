@@ -126,18 +126,14 @@ void ClosestHit(
         sf.toLocal(ray_dir);  // Check if this is transmission or reflection
     bool isTransmission = local_ray_dir.z < 0.0;
 
-    if (isTransmission) {
-        // For transmission, apply cosine weighting on the exit side
-        // Use the absolute value to handle both sides correctly
-        float cosine_factor = abs(local_ray_dir.z);
-        payload.throughput *= callData.throughput / pdf * cosine_factor * 3.14;
-        // payload.throughput = 0.0f;
-    }
-    else {
-        // For reflection, apply cosine weighting
-        float cosine_factor = abs(local_ray_dir.z);
-        payload.throughput *= cosine_factor * callData.throughput / pdf;
-    }
+    // if (isTransmission) {
+    //     payload.color = float3(1,0,0);  // For debugging, visualize transmission
+    //     payload.seed = callData.seed;
+    //     payload.terminated = true;
+    //     return;
+    // }
+    float cosine_factor = abs(local_ray_dir.z);
+    payload.throughput *= cosine_factor * callData.throughput / pdf;
 
     payload.hitPosition = vertex.posW;
     payload.hitNormal = vertex.normalW;

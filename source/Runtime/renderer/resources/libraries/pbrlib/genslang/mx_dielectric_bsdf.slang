@@ -76,6 +76,11 @@ void mx_dielectric_bsdf_transmission(
     if (weight < M_FLOAT_EPS) {
         return;
     }
+    if (scatter_mode != 0) {
+        bsdf.response = float3(1.0);
+        bsdf.throughput = 1.0;
+        return;
+    }
 
     N = mx_forward_facing_normal(N, V);
     float NdotV = clamp(dot(N, V), M_FLOAT_EPS, 1.0);

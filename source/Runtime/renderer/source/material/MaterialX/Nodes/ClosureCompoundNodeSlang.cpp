@@ -112,37 +112,38 @@ float3 sample_transmission(float2 u, float3 V, float2 roughness, float eta, out 
     // Sample microfacet normal using GGX VNDF distribution
     float3 H = mx_ggx_importance_sample_VNDF(u, V, roughness);
     
-    // Compute transmission direction using Snell's law
+    // Calculate transmission direction using Snell's law
     float VdotH = dot(V, H);
     float discriminant = 1.0 - eta * eta * (1.0 - VdotH * VdotH);
     
-    if (discriminant < 0.0) {
-        // Total internal reflection
-        pdf = 0.0;
-        return float3(0.0);
-    }
+
     
-    // Correct transmission direction formula: L = eta * V + (eta * VdotH - sqrt(discriminant)) * H
-    float3 L = eta * V + (eta * VdotH - sqrt(discriminant)) * H;
-    L = normalize(L);
+    // Compute transmission direction
+    float sqrt_discriminant = sqrt(discriminant);
+    float3 L = -eta * V + (eta * VdotH - sqrt_discriminant) * H;
     
-    // Check if transmission is valid (below surface for thin_walled=false)
+    // Check if transmission is valid (below surface)
     if (L.z >= 0.0) {
         pdf = 0.0;
         return float3(0.0);
     }
     
-    // Compute PDF using correct VNDF and Jacobian
-    float NdotH = max(H.z, M_FLOAT_EPS);
+    // Compute PDF using VNDF formulation for transmission
     float NdotV = max(V.z, M_FLOAT_EPS);
-    float LdotH = max(abs(dot(L, H)), M_FLOAT_EPS);
+    float LdotH = abs(dot(L, H));
     
-    // VNDF PDF: D(H) * G1(V) * max(0, V·H) / NdotV
+    // VNDF PDF in microfacet normal space
     float D = mx_ggx_NDF(H, roughness);
     float G1 = mx_ggx_smith_G1(NdotV, mx_average_alpha(roughness));
     float vndf_pdf = D * G1 * abs(VdotH) / NdotV;
+
+    // Check for total internal reflection
+    if (discriminant < 0.0) {
+        pdf = vndf_pdf; // No transmission, return reflection direction
+        return reflect(-V, H); // Total internal reflection, return reflection direction
+    }
     
-    // Transform to transmission direction with correct Jacobian
+    // Transform to transmission direction using proper Jacobian
     float denominator = abs(VdotH + eta * LdotH);
     float jacobian = eta * eta * LdotH / (denominator * denominator);
     pdf = vndf_pdf * jacobian;
@@ -225,7 +226,7 @@ float3 sample_standard_surface(
     
     // Non-metal path weights
     float nonmetal_weight = 1.0 - metalness;
-    float diffuse_weight = base * (1.0 - fresnel_avg) * luminance(base_color);
+    float diffuse_weight = base * (1.0 - fresnel_avg) * luminance(base_color) * (1-transmission);
     float reflection_weight = fresnel_avg * specular;
     float transmission_weight = (1.0 - fresnel_avg) * transmission * luminance(transmission_color);
     
@@ -317,7 +318,7 @@ float3 sample_standard_surface(
             // Transmission PDF
             float3 H = normalize(V_local + eta * L_local);
             
-            float VdotH = max(dot(V_local, H), M_FLOAT_EPS);
+            float VdotH = max(abs(dot(V_local, H)), M_FLOAT_EPS);
             float LdotH = max(abs(dot(L_local, H)), M_FLOAT_EPS);
             
             float D = mx_ggx_NDF(H, alpha);
@@ -327,6 +328,7 @@ float3 sample_standard_surface(
             float denominator = abs(VdotH + eta * LdotH);
             float jacobian = eta * eta * LdotH / (denominator * denominator);
             transmission_pdf = vndf_pdf * jacobian;
+            transmission_pdf = 1.0f;
         }
         
         nonmetal_pdf = diffuse_pdf * diffuse_weight + reflection_pdf * reflection_weight + transmission_pdf * transmission_weight;
