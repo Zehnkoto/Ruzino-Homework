@@ -115,9 +115,7 @@ void SurfaceNodeSlang::emitFunctionCall(
         shadergen.emitScopeBegin(stage);
 
         shadergen.emitLine("float3 N = normalize(" + prefix + HW::T_NORMAL_WORLD + ")", stage);
-        shadergen.emitLine("float3 V = normalize(" + HW::T_VIEW_POSITION + " - " + prefix + HW::T_POSITION_WORLD + ")", stage);
         shadergen.emitLine("float3 P = " + prefix + HW::T_POSITION_WORLD, stage);
-        shadergen.emitLine("float3 L = float3(0,0,0);", stage);
         shadergen.emitLine("float occlusion = 1.0", stage);
         shadergen.emitLineBreak(stage);
 
