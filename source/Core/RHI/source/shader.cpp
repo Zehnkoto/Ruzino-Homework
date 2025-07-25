@@ -327,6 +327,9 @@ ShaderReflectionInfo ShaderFactory::shader_reflect(
         SlangResourceShape resource_shape = type_reflection->getResourceShape();
         auto d_set_count = typeLayout->getDescriptorSetCount();
 
+        auto element_count = typeLayout->getElementCount();
+        assert(element_count == 0);
+
         slang::ParameterCategory category = parameter->getCategory();
         std::string name = parameter->getName();
 

@@ -9,8 +9,8 @@ import stdlib.genslang.lib.mx_math;
 float2
 mx_compute_sample_size_uv(float2 uv, float filterSize, float filterOffset)
 {
-    float2 derivUVx = ddx(uv) * 0.5f;
-    float2 derivUVy = ddy(uv) * 0.5f;
+    float2 derivUVx = 0.5f;
+    float2 derivUVy = 0.5f;
     float derivX = abs(derivUVx.x) + abs(derivUVy.x);
     float derivY = abs(derivUVx.y) + abs(derivUVy.y);
     float sampleSizeU = 2.0f * filterSize * derivX + filterOffset;

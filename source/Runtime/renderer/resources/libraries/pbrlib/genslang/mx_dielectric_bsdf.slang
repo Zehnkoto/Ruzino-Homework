@@ -1,4 +1,5 @@
 import stdlib.genslang.mx_bsdf;
+import pbrlib.genslang.lib.mx_closure_type;
 import pbrlib.genslang.lib.mx_transmission_refract;
 import pbrlib.genslang.lib.mx_microfacet_specular;
 import pbrlib.genslang.lib.mx_environment_prefilter;
@@ -141,8 +142,10 @@ void mx_dielectric_bsdf_indirect(
     }
 
     N = mx_forward_facing_normal(N, V);
-
     float NdotV = clamp(dot(N, V), M_FLOAT_EPS, 1.0);
+
+    float2 safeAlpha = clamp(roughness, M_FLOAT_EPS, 1.0);
+    float avgAlpha = mx_average_alpha(safeAlpha);
 
     FresnelData fd;
     float3 safeTint = max(tint, 0.0);
@@ -152,16 +155,41 @@ void mx_dielectric_bsdf_indirect(
     else {
         fd = mx_init_fresnel_dielectric(ior);
     }
+    
     float3 F = mx_compute_fresnel(NdotV, fd);
-
-    float2 safeAlpha = clamp(roughness, M_FLOAT_EPS, 1.0);
-    float avgAlpha = mx_average_alpha(safeAlpha);
-
     float F0 = mx_ior_to_f0(ior);
+    
     float3 comp = mx_ggx_energy_compensation(NdotV, avgAlpha, F);
     float3 dirAlbedo = mx_ggx_dir_albedo(NdotV, avgAlpha, F0, 1.0) * comp;
     bsdf.throughput = 1.0 - dirAlbedo * weight;
 
     float3 Li = mx_environment_radiance(N, V, X, safeAlpha, distribution, fd);
     bsdf.response = Li * safeTint * comp * weight;
+}
+
+void mx_dielectric_bsdf(ClosureData closureData, float weight, float3 tint, float ior, float2 roughness, float thinfilm_thickness, float thinfilm_ior, float3 N, float3 X, int distribution, int scatter_mode, inout BSDF bsdf)
+{
+    if (weight < M_FLOAT_EPS)
+    {
+        return;
+    }
+    if (closureData.closureType != CLOSURE_TYPE_TRANSMISSION && scatter_mode == 1)
+    {
+        return;
+    }
+
+    if (closureData.closureType == CLOSURE_TYPE_REFLECTION)
+    {
+        mx_dielectric_bsdf_reflection(closureData.L, closureData.V, closureData.P, closureData.occlusion, 
+                                    weight, tint, ior, roughness, N, X, distribution, scatter_mode, bsdf);
+    }
+    else if (closureData.closureType == CLOSURE_TYPE_TRANSMISSION)
+    {
+        mx_dielectric_bsdf_transmission(closureData.L, closureData.V, closureData.P, closureData.occlusion,
+                                      weight, tint, ior, roughness, N, X, distribution, scatter_mode, bsdf);
+    }
+    else if (closureData.closureType == CLOSURE_TYPE_INDIRECT)
+    {
+        mx_dielectric_bsdf_indirect(closureData.V, weight, tint, ior, roughness, N, X, distribution, scatter_mode, bsdf);
+    }
 }

@@ -23,6 +23,10 @@ StructuredBuffer<MaterialHeader> materialHeaderBuffer : register(t4);
 [[vk::binding(1, 1)]]
 Texture2D t_BindlessTextures[] : register(t0, space2);
 
-SamplerState sampler : register(s2);
+// Sampler array for different addressing and filtering modes
+// Index calculation: (uaddressmode * 3) + filtertype
+// 0=wrap, 1=clamp, 2=mirror for address modes
+// 0=point, 1=linear, 2=aniso for filter types
+SamplerState samplers[9] : register(s2);
 
-#endif 
+#endif

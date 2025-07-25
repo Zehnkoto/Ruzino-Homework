@@ -1,5 +1,6 @@
 import stdlib.genslang.mx_bsdf;
 import stdlib.genslang.lib.mx_math;
+import pbrlib.genslang.lib.mx_closure_type;
 import pbrlib.genslang.lib.mx_environment_prefilter;
 import pbrlib.genslang.lib.mx_microfacet;
 
@@ -42,4 +43,24 @@ void mx_translucent_bsdf_indirect(
     // Invert normal since we're transmitting light from the other side
     float3 Li = mx_environment_irradiance(-normal);
     bsdf.response = Li * color * weight;
+}
+
+void mx_translucent_bsdf(ClosureData closureData, float weight, float3 color, float3 N, inout BSDF bsdf)
+{
+    bsdf.throughput = float3(0.0);
+
+    if (weight < M_FLOAT_EPS)
+    {
+        return;
+    }
+
+    if (closureData.closureType == CLOSURE_TYPE_REFLECTION)
+    {
+        mx_translucent_bsdf_reflection(closureData.L, closureData.V, closureData.P, closureData.occlusion,
+                                     weight, color, N, bsdf);
+    }
+    else if (closureData.closureType == CLOSURE_TYPE_INDIRECT)
+    {
+        mx_translucent_bsdf_indirect(closureData.V, weight, color, N, bsdf);
+    }
 }

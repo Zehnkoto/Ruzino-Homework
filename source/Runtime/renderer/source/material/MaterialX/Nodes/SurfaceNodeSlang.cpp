@@ -216,6 +216,7 @@ void SurfaceNodeSlang::emitFunctionCall(
         if (const ShaderNode* bsdf = bsdfInput->getConnectedSibling())
         {
             shadergen.emitComment("Calculate the BSDF transmission for viewing direction", stage);
+            shadergen.emitScopeBegin(stage);
             if (bsdf->hasClassification(ShaderNode::Classification::BSDF_T) || bsdf->hasClassification(ShaderNode::Classification::VDF)) {
                 shadergen.emitLine("ClosureData closureData = ClosureData(CLOSURE_TYPE_TRANSMISSION, L, V, N, P, occlusion)", stage);
                 shadergen.emitFunctionCall(*bsdf, context, stage);
@@ -235,6 +236,8 @@ void SurfaceNodeSlang::emitFunctionCall(
             {
                 shadergen.emitLine(outTransparency + " += " + bsdf->getOutput()->getVariable() + ".response", stage);
             }
+
+            shadergen.emitScopeEnd(stage);
 
             shadergen.emitLineBreak(stage);
             shadergen.emitComment("Compute and apply surface opacity", stage);

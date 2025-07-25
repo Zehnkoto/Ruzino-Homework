@@ -650,6 +650,8 @@ void SlangShaderGenerator::emitPixelStage(
     setFunctionName("main", stage);
 
     const VariableBlock& vertexData = stage.getInputBlock(HW::VERTEX_DATA);
+    _tokenSubstitutions[HW::T_VIEW_POSITION] =
+        "vd." + HW::POSITION_WORLD;
 
     emitLine("void eval_sample_pdf(", stage, false);
 

@@ -168,7 +168,6 @@ float3 sample_transmission(float2 u, float3 V, float2 roughness, float eta, out 
 
 float3 sample_standard_surface(
     VertexData vd, 
-    SamplerState sampler, 
     float3 V, 
     float base, 
     float3 base_color, 
@@ -438,7 +437,6 @@ float3 sample_specular_reflection(float2 u, float3 V, float roughness, out float
 
 float3 sample_preview_surface(
     VertexData vd,
-    SamplerState sampler,
     float3 V,
     float3 diffuseColor,
     float3 emissiveColor,
@@ -625,8 +623,6 @@ void ClosureCompoundNodeSlang::emitFunctionDefinition(
             delim = ", ";
         }
 
-        shadergen.emitString(delim + "SamplerState sampler", stage);
-
         const string& type = syntax.getTypeName(Type::VECTOR3);
         shadergen.emitString(delim + type + " " + HW::DIR_L, stage);
         shadergen.emitString(", " + type + " " + HW::DIR_V, stage);
@@ -743,8 +739,6 @@ void ClosureCompoundNodeSlang::emitFunctionCall(
             delim = ", ";
         }
 
-        shadergen.emitString(delim + "sampler", stage);
-
         shadergen.emitString(delim + HW::DIR_L + ", " + HW::DIR_V, stage);
         shadergen.emitString(delim + "eta_flipped", stage);
         
@@ -776,7 +770,7 @@ void ClosureCompoundNodeSlang::emitFunctionCall(
             // Call the standard surface sampling function
             shadergen.emitLineBegin(stage);
             shadergen.emitString(
-                "sampled_direction = sample_standard_surface(vd, sampler, V, ",
+                "sampled_direction = sample_standard_surface(vd, V, ",
                 stage);
 
             // Emit all the standard surface parameters
@@ -795,7 +789,7 @@ void ClosureCompoundNodeSlang::emitFunctionCall(
             // Call the USD preview surface sampling function
             shadergen.emitLineBegin(stage);
             shadergen.emitString(
-                "sampled_direction = sample_preview_surface(vd, sampler, V, ",
+                "sampled_direction = sample_preview_surface(vd, V, ",
                 stage);
 
             // Emit all the USD preview surface parameters
@@ -839,8 +833,6 @@ void ClosureCompoundNodeSlang::emitFunctionCall(
             shadergen.emitString(delim2 + vertexData2.getInstance(), stage);
             delim2 = ", ";
         }
-
-        shadergen.emitString(delim2 + "sampler", stage);
 
         shadergen.emitString(
             delim2 + "sampled_direction" + ", " + HW::DIR_V, stage);

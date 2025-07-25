@@ -1,5 +1,5 @@
 <?xml version="1.0"?>
-<materialx version="1.38">
+<materialx version="1.39">
   <!--
     Copyright Contributors to the MaterialX Project
     SPDX-License-Identifier: Apache-2.0
@@ -32,19 +32,18 @@
     <input name="default" type="color4" implname="default_value" />
   </implementation>
   <implementation name="IM_image_vector2_genslang" nodedef="ND_image_vector2" file="mx_image_vector2.slang" function="mx_image_vector2" target="genslang">
-    <input name="default" type="floattor2" implname="default_value" />
+    <input name="default" type="vector2" implname="default_value" />
   </implementation>
   <implementation name="IM_image_vector3_genslang" nodedef="ND_image_vector3" file="mx_image_vector3.slang" function="mx_image_vector3" target="genslang">
-    <input name="default" type="floattor3" implname="default_value" />
+    <input name="default" type="vector3" implname="default_value" />
   </implementation>
   <implementation name="IM_image_vector4_genslang" nodedef="ND_image_vector4" file="mx_image_vector4.slang" function="mx_image_vector4" target="genslang">
-    <input name="default" type="floattor4" implname="default_value" />
+    <input name="default" type="vector4" implname="default_value" />
   </implementation>
 
   <!-- <normalmap> -->
-  <implementation name="IM_normalmap_float_genslang" nodedef="ND_normalmap" file="mx_normalmap.slang" function="mx_normalmap_float" target="genslang" />
+  <implementation name="IM_normalmap_float_genslang" nodedef="ND_normalmap_float" file="mx_normalmap.slang" function="mx_normalmap_float" target="genslang" />
   <implementation name="IM_normalmap_vector2_genslang" nodedef="ND_normalmap_vector2" file="mx_normalmap.slang" function="mx_normalmap_vector2" target="genslang" />
-
 
   <!-- ======================================================================== -->
   <!-- Procedural nodes                                                         -->
@@ -131,12 +130,6 @@
   <implementation name="IM_worleynoise3d_vector3_genslang" nodedef="ND_worleynoise3d_vector3" file="mx_worleynoise3d_vector3.slang" function="mx_worleynoise3d_vector3" target="genslang" />
 
   <!-- ======================================================================== -->
-  <!-- Global nodes                                                             -->
-  <!-- ======================================================================== -->
-
-  <!-- <ambientocclusion> -->
-
-  <!-- ======================================================================== -->
   <!-- Geometric nodes                                                          -->
   <!-- ======================================================================== -->
 
@@ -164,13 +157,16 @@
   <!-- <geompropvalue> -->
   <implementation name="IM_geompropvalue_integer_genslang" nodedef="ND_geompropvalue_integer" function="mx_geompropvalue_int" target="genslang" />
   <implementation name="IM_geompropvalue_boolean_genslang" nodedef="ND_geompropvalue_boolean" function="mx_geompropvalue_bool" target="genslang" />
-  <implementation name="IM_geompropvalue_string_genslang" nodedef="ND_geompropvalue_string" function="mx_geompropvalue_string" target="genslang" />
   <implementation name="IM_geompropvalue_float_genslang" nodedef="ND_geompropvalue_float" function="mx_geompropvalue_float" target="genslang" />
   <implementation name="IM_geompropvalue_color3_genslang" nodedef="ND_geompropvalue_color3" function="mx_geompropvalue_color" target="genslang" />
   <implementation name="IM_geompropvalue_color4_genslang" nodedef="ND_geompropvalue_color4" function="mx_geompropvalue_color4" target="genslang" />
   <implementation name="IM_geompropvalue_vector2_genslang" nodedef="ND_geompropvalue_vector2" function="mx_geompropvalue_vector2" target="genslang" />
   <implementation name="IM_geompropvalue_vector3_genslang" nodedef="ND_geompropvalue_vector3" function="mx_geompropvalue_vector" target="genslang" />
   <implementation name="IM_geompropvalue_vector4_genslang" nodedef="ND_geompropvalue_vector4" function="mx_geompropvalue_vector4" target="genslang" />
+
+  <!-- <geompropvalueuniform> -->
+  <implementation name="IM_geompropvalue_string_genslang" nodedef="ND_geompropvalueuniform_string" function="mx_geompropvalue_string" target="genslang" />
+  <implementation name="IM_geompropvalue_filename_genslang" nodedef="ND_geompropvalueuniform_filename" function="mx_geompropvalue_string" target="genslang" />
 
   <!-- ======================================================================== -->
   <!-- Application nodes                                                        -->
@@ -180,7 +176,14 @@
   <implementation name="IM_frame_float_genslang" nodedef="ND_frame_float" function="mx_frame_float" target="genslang" />
 
   <!-- <time> -->
-  <implementation name="IM_time_float_genslang" nodedef="ND_time_float" function="mx_time_float" target="genslang" />
+  <nodegraph name="NG_time_float_genslang" nodedef="ND_time_float" target="genslang">
+    <frame name="frame" type="float"/>
+    <divide name="time" type="float">
+      <input name="in1" type="float" nodename="frame"/>
+      <input name="in1" type="float" interfacename="fps"/>
+    </divide>
+    <output name="out" type="float" nodename="time" />
+  </nodegraph>
 
   <!-- ======================================================================== -->
   <!-- Math nodes                                                               -->
@@ -188,6 +191,7 @@
 
   <!-- <add> -->
   <implementation name="IM_add_float_genslang" nodedef="ND_add_float" target="genslang" sourcecode="{{in1}} + {{in2}}" />
+  <implementation name="IM_add_integer_genslang" nodedef="ND_add_integer" target="genslang" sourcecode="{{in1}} + {{in2}}" />
   <implementation name="IM_add_color3_genslang" nodedef="ND_add_color3" target="genslang" sourcecode="{{in1}} + {{in2}}" />
   <implementation name="IM_add_color3FA_genslang" nodedef="ND_add_color3FA" target="genslang" sourcecode="{{in1}} + {{in2}}" />
   <implementation name="IM_add_color4_genslang" nodedef="ND_add_color4" target="genslang" sourcecode="{{in1}} + {{in2}}" />
@@ -205,6 +209,7 @@
 
   <!-- <subtract> -->
   <implementation name="IM_subtract_float_genslang" nodedef="ND_subtract_float" target="genslang" sourcecode="{{in1}} - {{in2}}" />
+  <implementation name="IM_subtract_integer_genslang" nodedef="ND_subtract_integer" target="genslang" sourcecode="{{in1}} - {{in2}}" />
   <implementation name="IM_subtract_color3_genslang" nodedef="ND_subtract_color3" target="genslang" sourcecode="{{in1}} - {{in2}}" />
   <implementation name="IM_subtract_color3FA_genslang" nodedef="ND_subtract_color3FA" target="genslang" sourcecode="{{in1}} - {{in2}}" />
   <implementation name="IM_subtract_color4_genslang" nodedef="ND_subtract_color4" target="genslang" sourcecode="{{in1}} - {{in2}}" />
@@ -251,17 +256,25 @@
   <implementation name="IM_divide_matrix44_genslang" nodedef="ND_divide_matrix44" target="genslang" sourcecode="{{in1}} / {{in2}}" />
 
   <!-- <modulo> -->
-  <implementation name="IM_modulo_float_genslang" nodedef="ND_modulo_float" target="genslang" sourcecode="fmod({{in1}}, {{in2}})" />
-  <implementation name="IM_modulo_color3_genslang" nodedef="ND_modulo_color3" target="genslang" sourcecode="fmod({{in1}}, {{in2}})" />
-  <implementation name="IM_modulo_color3FA_genslang" nodedef="ND_modulo_color3FA" target="genslang" sourcecode="fmod({{in1}}, {{in2}})" />
-  <implementation name="IM_modulo_color4_genslang" nodedef="ND_modulo_color4" target="genslang" sourcecode="fmod({{in1}}, {{in2}})" />
-  <implementation name="IM_modulo_color4FA_genslang" nodedef="ND_modulo_color4FA" target="genslang" sourcecode="fmod({{in1}}, {{in2}})" />
-  <implementation name="IM_modulo_vector2_genslang" nodedef="ND_modulo_vector2" target="genslang" sourcecode="fmod({{in1}}, {{in2}})" />
-  <implementation name="IM_modulo_vector2FA_genslang" nodedef="ND_modulo_vector2FA" target="genslang" sourcecode="fmod({{in1}}, {{in2}})" />
-  <implementation name="IM_modulo_vector3_genslang" nodedef="ND_modulo_vector3" target="genslang" sourcecode="fmod({{in1}}, {{in2}})" />
-  <implementation name="IM_modulo_vector3FA_genslang" nodedef="ND_modulo_vector3FA" target="genslang" sourcecode="fmod({{in1}}, {{in2}})" />
-  <implementation name="IM_modulo_vector4_genslang" nodedef="ND_modulo_vector4" target="genslang" sourcecode="fmod({{in1}}, {{in2}})" />
-  <implementation name="IM_modulo_vector4FA_genslang" nodedef="ND_modulo_vector4FA" target="genslang" sourcecode="fmod({{in1}}, {{in2}})" />
+  <implementation name="IM_modulo_float_genslang" nodedef="ND_modulo_float" target="genslang" sourcecode="mx_mod({{in1}}, {{in2}})" />
+  <implementation name="IM_modulo_color3_genslang" nodedef="ND_modulo_color3" target="genslang" sourcecode="mx_mod({{in1}}, {{in2}})" />
+  <implementation name="IM_modulo_color3FA_genslang" nodedef="ND_modulo_color3FA" target="genslang" sourcecode="mx_mod({{in1}}, {{in2}})" />
+  <implementation name="IM_modulo_color4_genslang" nodedef="ND_modulo_color4" target="genslang" sourcecode="mx_mod({{in1}}, {{in2}})" />
+  <implementation name="IM_modulo_color4FA_genslang" nodedef="ND_modulo_color4FA" target="genslang" sourcecode="mx_mod({{in1}}, {{in2}})" />
+  <implementation name="IM_modulo_vector2_genslang" nodedef="ND_modulo_vector2" target="genslang" sourcecode="mx_mod({{in1}}, {{in2}})" />
+  <implementation name="IM_modulo_vector2FA_genslang" nodedef="ND_modulo_vector2FA" target="genslang" sourcecode="mx_mod({{in1}}, {{in2}})" />
+  <implementation name="IM_modulo_vector3_genslang" nodedef="ND_modulo_vector3" target="genslang" sourcecode="mx_mod({{in1}}, {{in2}})" />
+  <implementation name="IM_modulo_vector3FA_genslang" nodedef="ND_modulo_vector3FA" target="genslang" sourcecode="mx_mod({{in1}}, {{in2}})" />
+  <implementation name="IM_modulo_vector4_genslang" nodedef="ND_modulo_vector4" target="genslang" sourcecode="mx_mod({{in1}}, {{in2}})" />
+  <implementation name="IM_modulo_vector4FA_genslang" nodedef="ND_modulo_vector4FA" target="genslang" sourcecode="mx_mod({{in1}}, {{in2}})" />
+
+  <!-- <fract> -->
+  <implementation name="IM_fract_float_genslang" nodedef="ND_fract_float" target="genslang" sourcecode="fract({{in}})" />
+  <implementation name="IM_fract_color3_genslang" nodedef="ND_fract_color3" target="genslang" sourcecode="fract({{in}})" />
+  <implementation name="IM_fract_color4_genslang" nodedef="ND_fract_color4" target="genslang" sourcecode="fract({{in}})" />
+  <implementation name="IM_fract_vector2_genslang" nodedef="ND_fract_vector2" target="genslang" sourcecode="fract({{in}})" />
+  <implementation name="IM_fract_vector3_genslang" nodedef="ND_fract_vector3" target="genslang" sourcecode="fract({{in}})" />
+  <implementation name="IM_fract_vector4_genslang" nodedef="ND_fract_vector4" target="genslang" sourcecode="fract({{in}})" />
 
   <!-- <invert> -->
   <implementation name="IM_invert_float_genslang" nodedef="ND_invert_float" target="genslang" sourcecode="{{amount}} - {{in}}" />
@@ -325,30 +338,30 @@
   <implementation name="IM_power_vector4FA_genslang" nodedef="ND_power_vector4FA" target="genslang" sourcecode="pow({{in1}}, float4({{in2}}))" />
 
   <!-- <sin>, <cos>, <tan>, <asin>, <acos>, <atan2> -->
-  <implementation name="IM_sin_float_genslang" nodedef="ND_sin_float" target="genslang" sourcecode="sin({{in}})" />
-  <implementation name="IM_cos_float_genslang" nodedef="ND_cos_float" target="genslang" sourcecode="cos({{in}})" />
-  <implementation name="IM_tan_float_genslang" nodedef="ND_tan_float" target="genslang" sourcecode="tan({{in}})" />
-  <implementation name="IM_asin_float_genslang" nodedef="ND_asin_float" target="genslang" sourcecode="asin({{in}})" />
-  <implementation name="IM_acos_float_genslang" nodedef="ND_acos_float" target="genslang" sourcecode="acos({{in}})" />
-  <implementation name="IM_atan2_float_genslang" nodedef="ND_atan2_float" target="genslang" sourcecode="atan({{in1}}, {{in2}})" />
-  <implementation name="IM_sin_vector2_genslang" nodedef="ND_sin_vector2" target="genslang" sourcecode="sin({{in}})" />
-  <implementation name="IM_cos_vector2_genslang" nodedef="ND_cos_vector2" target="genslang" sourcecode="cos({{in}})" />
-  <implementation name="IM_tan_vector2_genslang" nodedef="ND_tan_vector2" target="genslang" sourcecode="tan({{in}})" />
-  <implementation name="IM_asin_vector2_genslang" nodedef="ND_asin_vector2" target="genslang" sourcecode="asin({{in}})" />
-  <implementation name="IM_acos_vector2_genslang" nodedef="ND_acos_vector2" target="genslang" sourcecode="acos({{in}})" />
-  <implementation name="IM_atan2_vector2_genslang" nodedef="ND_atan2_vector2" target="genslang" sourcecode="atan({{in1}}, {{in2}})" />
-  <implementation name="IM_sin_vector3_genslang" nodedef="ND_sin_vector3" target="genslang" sourcecode="sin({{in}})" />
-  <implementation name="IM_cos_vector3_genslang" nodedef="ND_cos_vector3" target="genslang" sourcecode="cos({{in}})" />
-  <implementation name="IM_tan_vector3_genslang" nodedef="ND_tan_vector3" target="genslang" sourcecode="tan({{in}})" />
-  <implementation name="IM_asin_vector3_genslang" nodedef="ND_asin_vector3" target="genslang" sourcecode="asin({{in}})" />
-  <implementation name="IM_acos_vector3_genslang" nodedef="ND_acos_vector3" target="genslang" sourcecode="acos({{in}})" />
-  <implementation name="IM_atan2_vector3_genslang" nodedef="ND_atan2_vector3" target="genslang" sourcecode="atan({{in1}}, {{in2}})" />
-  <implementation name="IM_sin_vector4_genslang" nodedef="ND_sin_vector4" target="genslang" sourcecode="sin({{in}})" />
-  <implementation name="IM_cos_vector4_genslang" nodedef="ND_cos_vector4" target="genslang" sourcecode="cos({{in}})" />
-  <implementation name="IM_tan_vector4_genslang" nodedef="ND_tan_vector4" target="genslang" sourcecode="tan({{in}})" />
-  <implementation name="IM_asin_vector4_genslang" nodedef="ND_asin_vector4" target="genslang" sourcecode="asin({{in}})" />
-  <implementation name="IM_acos_vector4_genslang" nodedef="ND_acos_vector4" target="genslang" sourcecode="acos({{in}})" />
-  <implementation name="IM_atan2_vector4_genslang" nodedef="ND_atan2_vector4" target="genslang" sourcecode="atan({{in1}}, {{in2}})" />
+  <implementation name="IM_sin_float_genslang" nodedef="ND_sin_float" target="genslang" sourcecode="mx_sin({{in}})" />
+  <implementation name="IM_cos_float_genslang" nodedef="ND_cos_float" target="genslang" sourcecode="mx_cos({{in}})" />
+  <implementation name="IM_tan_float_genslang" nodedef="ND_tan_float" target="genslang" sourcecode="mx_tan({{in}})" />
+  <implementation name="IM_asin_float_genslang" nodedef="ND_asin_float" target="genslang" sourcecode="mx_asin({{in}})" />
+  <implementation name="IM_acos_float_genslang" nodedef="ND_acos_float" target="genslang" sourcecode="mx_acos({{in}})" />
+  <implementation name="IM_atan2_float_genslang" nodedef="ND_atan2_float" target="genslang" sourcecode="mx_atan({{iny}}, {{inx}})" />
+  <implementation name="IM_sin_vector2_genslang" nodedef="ND_sin_vector2" target="genslang" sourcecode="mx_sin({{in}})" />
+  <implementation name="IM_cos_vector2_genslang" nodedef="ND_cos_vector2" target="genslang" sourcecode="mx_cos({{in}})" />
+  <implementation name="IM_tan_vector2_genslang" nodedef="ND_tan_vector2" target="genslang" sourcecode="mx_tan({{in}})" />
+  <implementation name="IM_asin_vector2_genslang" nodedef="ND_asin_vector2" target="genslang" sourcecode="mx_asin({{in}})" />
+  <implementation name="IM_acos_vector2_genslang" nodedef="ND_acos_vector2" target="genslang" sourcecode="mx_acos({{in}})" />
+  <implementation name="IM_atan2_vector2_genslang" nodedef="ND_atan2_vector2" target="genslang" sourcecode="mx_atan({{iny}}, {{inx}})" />
+  <implementation name="IM_sin_vector3_genslang" nodedef="ND_sin_vector3" target="genslang" sourcecode="mx_sin({{in}})" />
+  <implementation name="IM_cos_vector3_genslang" nodedef="ND_cos_vector3" target="genslang" sourcecode="mx_cos({{in}})" />
+  <implementation name="IM_tan_vector3_genslang" nodedef="ND_tan_vector3" target="genslang" sourcecode="mx_tan({{in}})" />
+  <implementation name="IM_asin_vector3_genslang" nodedef="ND_asin_vector3" target="genslang" sourcecode="mx_asin({{in}})" />
+  <implementation name="IM_acos_vector3_genslang" nodedef="ND_acos_vector3" target="genslang" sourcecode="mx_acos({{in}})" />
+  <implementation name="IM_atan2_vector3_genslang" nodedef="ND_atan2_vector3" target="genslang" sourcecode="mx_atan({{iny}}, {{inx}})" />
+  <implementation name="IM_sin_vector4_genslang" nodedef="ND_sin_vector4" target="genslang" sourcecode="mx_sin({{in}})" />
+  <implementation name="IM_cos_vector4_genslang" nodedef="ND_cos_vector4" target="genslang" sourcecode="mx_cos({{in}})" />
+  <implementation name="IM_tan_vector4_genslang" nodedef="ND_tan_vector4" target="genslang" sourcecode="mx_tan({{in}})" />
+  <implementation name="IM_asin_vector4_genslang" nodedef="ND_asin_vector4" target="genslang" sourcecode="mx_asin({{in}})" />
+  <implementation name="IM_acos_vector4_genslang" nodedef="ND_acos_vector4" target="genslang" sourcecode="mx_acos({{in}})" />
+  <implementation name="IM_atan2_vector4_genslang" nodedef="ND_atan2_vector4" target="genslang" sourcecode="mx_atan({{iny}}, {{inx}})" />
 
   <!-- <sqrt> -->
   <implementation name="IM_sqrt_float_genslang" nodedef="ND_sqrt_float" target="genslang" sourcecode="sqrt({{in}})" />
@@ -457,8 +470,8 @@
   <implementation name="IM_determinant_matrix44_genslang" nodedef="ND_determinant_matrix44" target="genslang" sourcecode="determinant({{in}})" />
 
   <!-- <invertmatrix> -->
-  <implementation name="IM_invertmatrix_matrix33_genslang" nodedef="ND_invertmatrix_matrix33" target="genslang" sourcecode="inverse({{in}})" />
-  <implementation name="IM_invertmatrix_matrix44_genslang" nodedef="ND_invertmatrix_matrix44" target="genslang" sourcecode="inverse({{in}})" />
+  <implementation name="IM_invertmatrix_matrix33_genslang" nodedef="ND_invertmatrix_matrix33" target="genslang" sourcecode="mx_inverse({{in}})" />
+  <implementation name="IM_invertmatrix_matrix44_genslang" nodedef="ND_invertmatrix_matrix44" target="genslang" sourcecode="mx_inverse({{in}})" />
 
   <!-- <rotate2d> -->
   <implementation name="IM_rotate2d_vector2_genslang" nodedef="ND_rotate2d_vector2" file="mx_rotate_vector2.slang" function="mx_rotate_vector2" target="genslang" />
@@ -487,9 +500,6 @@
 
   <!-- <smoothstep> -->
   <implementation name="IM_smoothstep_float_genslang" nodedef="ND_smoothstep_float" file="mx_smoothstep_float.slang" function="mx_smoothstep_float" target="genslang" />
-  <implementation name="IM_smoothstep_vector2_genslang" nodedef="ND_smoothstep_vector2" file="mx_smoothstep_vector2.slang" function="mx_smoothstep_vector2" target="genslang" />
-  <implementation name="IM_smoothstep_vector3_genslang" nodedef="ND_smoothstep_vector3" file="mx_smoothstep_vector3.slang" function="mx_smoothstep_vector3" target="genslang" />
-  <implementation name="IM_smoothstep_vector4_genslang" nodedef="ND_smoothstep_vector4" file="mx_smoothstep_vector4.slang" function="mx_smoothstep_vector4" target="genslang" />
 
   <!-- <luminance> -->
   <implementation name="IM_luminance_color3_genslang" nodedef="ND_luminance_color3" file="mx_luminance_color3.slang" function="mx_luminance_color3" target="genslang" />
@@ -591,150 +601,113 @@
 
   <!-- <ifgreater -->
   <implementation name="IM_ifgreater_float_genslang" nodedef="ND_ifgreater_float" target="genslang" sourcecode="({{value1}} > {{value2}}) ? {{in1}} : {{in2}}" />
+  <implementation name="IM_ifgreater_integer_genslang" nodedef="ND_ifgreater_integer" target="genslang" sourcecode="({{value1}} > {{value2}}) ? {{in1}} : {{in2}}" />
   <implementation name="IM_ifgreater_color3_genslang" nodedef="ND_ifgreater_color3" target="genslang" sourcecode="({{value1}} > {{value2}}) ? {{in1}} : {{in2}}" />
   <implementation name="IM_ifgreater_color4_genslang" nodedef="ND_ifgreater_color4" target="genslang" sourcecode="({{value1}} > {{value2}}) ? {{in1}} : {{in2}}" />
   <implementation name="IM_ifgreater_vector2_genslang" nodedef="ND_ifgreater_vector2" target="genslang" sourcecode="({{value1}} > {{value2}}) ? {{in1}} : {{in2}}" />
   <implementation name="IM_ifgreater_vector3_genslang" nodedef="ND_ifgreater_vector3" target="genslang" sourcecode="({{value1}} > {{value2}}) ? {{in1}} : {{in2}}" />
   <implementation name="IM_ifgreater_vector4_genslang" nodedef="ND_ifgreater_vector4" target="genslang" sourcecode="({{value1}} > {{value2}}) ? {{in1}} : {{in2}}" />
+  <implementation name="IM_ifgreater_matrix33_genslang" nodedef="ND_ifgreater_matrix33" target="genslang" sourcecode="({{value1}} > {{value2}}) ? {{in1}} : {{in2}}" />
+  <implementation name="IM_ifgreater_matrix44_genslang" nodedef="ND_ifgreater_matrix44" target="genslang" sourcecode="({{value1}} > {{value2}}) ? {{in1}} : {{in2}}" />
+  <implementation name="IM_ifgreater_boolean_genslang" nodedef="ND_ifgreater_boolean" target="genslang" sourcecode="({{value1}} > {{value2}}) ? true : false" />
   <implementation name="IM_ifgreater_floatI_genslang" nodedef="ND_ifgreater_floatI" target="genslang" sourcecode="({{value1}} > {{value2}}) ? {{in1}} : {{in2}}" />
+  <implementation name="IM_ifgreater_integerI_genslang" nodedef="ND_ifgreater_integerI" target="genslang" sourcecode="({{value1}} > {{value2}}) ? {{in1}} : {{in2}}" />
   <implementation name="IM_ifgreater_color3I_genslang" nodedef="ND_ifgreater_color3I" target="genslang" sourcecode="({{value1}} > {{value2}}) ? {{in1}} : {{in2}}" />
   <implementation name="IM_ifgreater_color4I_genslang" nodedef="ND_ifgreater_color4I" target="genslang" sourcecode="({{value1}} > {{value2}}) ? {{in1}} : {{in2}}" />
   <implementation name="IM_ifgreater_vector2I_genslang" nodedef="ND_ifgreater_vector2I" target="genslang" sourcecode="({{value1}} > {{value2}}) ? {{in1}} : {{in2}}" />
   <implementation name="IM_ifgreater_vector3I_genslang" nodedef="ND_ifgreater_vector3I" target="genslang" sourcecode="({{value1}} > {{value2}}) ? {{in1}} : {{in2}}" />
   <implementation name="IM_ifgreater_vector4I_genslang" nodedef="ND_ifgreater_vector4I" target="genslang" sourcecode="({{value1}} > {{value2}}) ? {{in1}} : {{in2}}" />
+  <implementation name="IM_ifgreater_matrix33I_genslang" nodedef="ND_ifgreater_matrix33I" target="genslang" sourcecode="({{value1}} > {{value2}}) ? {{in1}} : {{in2}}" />
+  <implementation name="IM_ifgreater_matrix44I_genslang" nodedef="ND_ifgreater_matrix44I" target="genslang" sourcecode="({{value1}} > {{value2}}) ? {{in1}} : {{in2}}" />
+  <implementation name="IM_ifgreater_booleanI_genslang" nodedef="ND_ifgreater_booleanI" target="genslang" sourcecode="({{value1}} > {{value2}}) ? true : false" />
 
   <!-- <ifgreatereq -->
   <implementation name="IM_ifgreatereq_float_genslang" nodedef="ND_ifgreatereq_float" target="genslang" sourcecode="({{value1}} >= {{value2}}) ? {{in1}} : {{in2}}" />
+  <implementation name="IM_ifgreatereq_integer_genslang" nodedef="ND_ifgreatereq_integer" target="genslang" sourcecode="({{value1}} >= {{value2}}) ? {{in1}} : {{in2}}" />
   <implementation name="IM_ifgreatereq_color3_genslang" nodedef="ND_ifgreatereq_color3" target="genslang" sourcecode="({{value1}} >= {{value2}}) ? {{in1}} : {{in2}}" />
   <implementation name="IM_ifgreatereq_color4_genslang" nodedef="ND_ifgreatereq_color4" target="genslang" sourcecode="({{value1}} >= {{value2}}) ? {{in1}} : {{in2}}" />
   <implementation name="IM_ifgreatereq_vector2_genslang" nodedef="ND_ifgreatereq_vector2" target="genslang" sourcecode="({{value1}} >= {{value2}}) ? {{in1}} : {{in2}}" />
   <implementation name="IM_ifgreatereq_vector3_genslang" nodedef="ND_ifgreatereq_vector3" target="genslang" sourcecode="({{value1}} >= {{value2}}) ? {{in1}} : {{in2}}" />
   <implementation name="IM_ifgreatereq_vector4_genslang" nodedef="ND_ifgreatereq_vector4" target="genslang" sourcecode="({{value1}} >= {{value2}}) ? {{in1}} : {{in2}}" />
+  <implementation name="IM_ifgreatereq_matrix33_genslang" nodedef="ND_ifgreatereq_matrix33" target="genslang" sourcecode="({{value1}} >= {{value2}}) ? {{in1}} : {{in2}}" />
+  <implementation name="IM_ifgreatereq_matrix44_genslang" nodedef="ND_ifgreatereq_matrix44" target="genslang" sourcecode="({{value1}} >= {{value2}}) ? {{in1}} : {{in2}}" />
+  <implementation name="IM_ifgreatereq_boolean_genslang" nodedef="ND_ifgreatereq_boolean" target="genslang" sourcecode="({{value1}} >= {{value2}}) ? true : false" />
   <implementation name="IM_ifgreatereq_floatI_genslang" nodedef="ND_ifgreatereq_floatI" target="genslang" sourcecode="({{value1}} >= {{value2}}) ? {{in1}} : {{in2}}" />
+  <implementation name="IM_ifgreatereq_integerI_genslang" nodedef="ND_ifgreatereq_integerI" target="genslang" sourcecode="({{value1}} >= {{value2}}) ? {{in1}} : {{in2}}" />
   <implementation name="IM_ifgreatereq_color3I_genslang" nodedef="ND_ifgreatereq_color3I" target="genslang" sourcecode="({{value1}} >= {{value2}}) ? {{in1}} : {{in2}}" />
   <implementation name="IM_ifgreatereq_color4I_genslang" nodedef="ND_ifgreatereq_color4I" target="genslang" sourcecode="({{value1}} >= {{value2}}) ? {{in1}} : {{in2}}" />
   <implementation name="IM_ifgreatereq_vector2I_genslang" nodedef="ND_ifgreatereq_vector2I" target="genslang" sourcecode="({{value1}} >= {{value2}}) ? {{in1}} : {{in2}}" />
   <implementation name="IM_ifgreatereq_vector3I_genslang" nodedef="ND_ifgreatereq_vector3I" target="genslang" sourcecode="({{value1}} >= {{value2}}) ? {{in1}} : {{in2}}" />
   <implementation name="IM_ifgreatereq_vector4I_genslang" nodedef="ND_ifgreatereq_vector4I" target="genslang" sourcecode="({{value1}} >= {{value2}}) ? {{in1}} : {{in2}}" />
+  <implementation name="IM_ifgreatereq_matrix33I_genslang" nodedef="ND_ifgreatereq_matrix33I" target="genslang" sourcecode="({{value1}} >= {{value2}}) ? {{in1}} : {{in2}}" />
+  <implementation name="IM_ifgreatereq_matrix44I_genslang" nodedef="ND_ifgreatereq_matrix44I" target="genslang" sourcecode="({{value1}} >= {{value2}}) ? {{in1}} : {{in2}}" />
+  <implementation name="IM_ifgreatereq_booleanI_genslang" nodedef="ND_ifgreatereq_booleanI" target="genslang" sourcecode="({{value1}} >= {{value2}}) ? true : false" />
 
   <!-- <ifequal -->
   <implementation name="IM_ifequal_float_genslang" nodedef="ND_ifequal_float" target="genslang" sourcecode="({{value1}} == {{value2}}) ? {{in1}} : {{in2}}" />
+  <implementation name="IM_ifequal_integer_genslang" nodedef="ND_ifequal_integer" target="genslang" sourcecode="({{value1}} == {{value2}}) ? {{in1}} : {{in2}}" />
   <implementation name="IM_ifequal_color3_genslang" nodedef="ND_ifequal_color3" target="genslang" sourcecode="({{value1}} == {{value2}}) ? {{in1}} : {{in2}}" />
   <implementation name="IM_ifequal_color4_genslang" nodedef="ND_ifequal_color4" target="genslang" sourcecode="({{value1}} == {{value2}}) ? {{in1}} : {{in2}}" />
   <implementation name="IM_ifequal_vector2_genslang" nodedef="ND_ifequal_vector2" target="genslang" sourcecode="({{value1}} == {{value2}}) ? {{in1}} : {{in2}}" />
   <implementation name="IM_ifequal_vector3_genslang" nodedef="ND_ifequal_vector3" target="genslang" sourcecode="({{value1}} == {{value2}}) ? {{in1}} : {{in2}}" />
   <implementation name="IM_ifequal_vector4_genslang" nodedef="ND_ifequal_vector4" target="genslang" sourcecode="({{value1}} == {{value2}}) ? {{in1}} : {{in2}}" />
+  <implementation name="IM_ifequal_matrix33_genslang" nodedef="ND_ifequal_matrix33" target="genslang" sourcecode="({{value1}} == {{value2}}) ? {{in1}} : {{in2}}" />
+  <implementation name="IM_ifequal_matrix44_genslang" nodedef="ND_ifequal_matrix44" target="genslang" sourcecode="({{value1}} == {{value2}}) ? {{in1}} : {{in2}}" />
+  <implementation name="IM_ifequal_boolean_genslang" nodedef="ND_ifequal_boolean" target="genslang" sourcecode="({{value1}} == {{value2}}) ? true : false" />
   <implementation name="IM_ifequal_floatI_genslang" nodedef="ND_ifequal_floatI" target="genslang" sourcecode="({{value1}} == {{value2}}) ? {{in1}} : {{in2}}" />
+  <implementation name="IM_ifequal_integerI_genslang" nodedef="ND_ifequal_integerI" target="genslang" sourcecode="({{value1}} == {{value2}}) ? {{in1}} : {{in2}}" />
   <implementation name="IM_ifequal_color3I_genslang" nodedef="ND_ifequal_color3I" target="genslang" sourcecode="({{value1}} == {{value2}}) ? {{in1}} : {{in2}}" />
   <implementation name="IM_ifequal_color4I_genslang" nodedef="ND_ifequal_color4I" target="genslang" sourcecode="({{value1}} == {{value2}}) ? {{in1}} : {{in2}}" />
   <implementation name="IM_ifequal_vector2I_genslang" nodedef="ND_ifequal_vector2I" target="genslang" sourcecode="({{value1}} == {{value2}}) ? {{in1}} : {{in2}}" />
   <implementation name="IM_ifequal_vector3I_genslang" nodedef="ND_ifequal_vector3I" target="genslang" sourcecode="({{value1}} == {{value2}}) ? {{in1}} : {{in2}}" />
   <implementation name="IM_ifequal_vector4I_genslang" nodedef="ND_ifequal_vector4I" target="genslang" sourcecode="({{value1}} == {{value2}}) ? {{in1}} : {{in2}}" />
+  <implementation name="IM_ifequal_matrix33I_genslang" nodedef="ND_ifequal_matrix33I" target="genslang" sourcecode="({{value1}} == {{value2}}) ? {{in1}} : {{in2}}" />
+  <implementation name="IM_ifequal_matrix44I_genslang" nodedef="ND_ifequal_matrix44I" target="genslang" sourcecode="({{value1}} == {{value2}}) ? {{in1}} : {{in2}}" />
+  <implementation name="IM_ifequal_booleanI_genslang" nodedef="ND_ifequal_booleanI" target="genslang" sourcecode="({{value1}} == {{value2}}) ? true : false" />
   <implementation name="IM_ifequal_floatB_genslang" nodedef="ND_ifequal_floatB" target="genslang" sourcecode="({{value1}} == {{value2}}) ? {{in1}} : {{in2}}" />
+  <implementation name="IM_ifequal_integerB_genslang" nodedef="ND_ifequal_integerB" target="genslang" sourcecode="({{value1}} == {{value2}}) ? {{in1}} : {{in2}}" />
   <implementation name="IM_ifequal_color3B_genslang" nodedef="ND_ifequal_color3B" target="genslang" sourcecode="({{value1}} == {{value2}}) ? {{in1}} : {{in2}}" />
   <implementation name="IM_ifequal_color4B_genslang" nodedef="ND_ifequal_color4B" target="genslang" sourcecode="({{value1}} == {{value2}}) ? {{in1}} : {{in2}}" />
   <implementation name="IM_ifequal_vector2B_genslang" nodedef="ND_ifequal_vector2B" target="genslang" sourcecode="({{value1}} == {{value2}}) ? {{in1}} : {{in2}}" />
   <implementation name="IM_ifequal_vector3B_genslang" nodedef="ND_ifequal_vector3B" target="genslang" sourcecode="({{value1}} == {{value2}}) ? {{in1}} : {{in2}}" />
   <implementation name="IM_ifequal_vector4B_genslang" nodedef="ND_ifequal_vector4B" target="genslang" sourcecode="({{value1}} == {{value2}}) ? {{in1}} : {{in2}}" />
-
-  <!-- <switch> -->
-
-  <!-- 'which' type : float -->
-  <implementation name="IM_switch_float_genslang" nodedef="ND_switch_float" target="genslang" />
-  <implementation name="IM_switch_color3_genslang" nodedef="ND_switch_color3" target="genslang" />
-  <implementation name="IM_switch_color4_genslang" nodedef="ND_switch_color4" target="genslang" />
-  <implementation name="IM_switch_vector2_genslang" nodedef="ND_switch_vector2" target="genslang" />
-  <implementation name="IM_switch_vector3_genslang" nodedef="ND_switch_vector3" target="genslang" />
-  <implementation name="IM_switch_vector4_genslang" nodedef="ND_switch_vector4" target="genslang" />
-
-  <!-- 'which' type : integer -->
-  <implementation name="IM_switch_floatI_genslang" nodedef="ND_switch_floatI" target="genslang" />
-  <implementation name="IM_switch_color3I_genslang" nodedef="ND_switch_color3I" target="genslang" />
-  <implementation name="IM_switch_color4I_genslang" nodedef="ND_switch_color4I" target="genslang" />
-  <implementation name="IM_switch_vector2I_genslang" nodedef="ND_switch_vector2I" target="genslang" />
-  <implementation name="IM_switch_vector3I_genslang" nodedef="ND_switch_vector3I" target="genslang" />
-  <implementation name="IM_switch_vector4I_genslang" nodedef="ND_switch_vector4I" target="genslang" />
+  <implementation name="IM_ifequal_matrix33B_genslang" nodedef="ND_ifequal_matrix33B" target="genslang" sourcecode="({{value1}} == {{value2}}) ? {{in1}} : {{in2}}" />
+  <implementation name="IM_ifequal_matrix44B_genslang" nodedef="ND_ifequal_matrix44B" target="genslang" sourcecode="({{value1}} == {{value2}}) ? {{in1}} : {{in2}}" />
+  <implementation name="IM_ifequal_booleanB_genslang" nodedef="ND_ifequal_booleanB" target="genslang" sourcecode="({{value1}} == {{value2}}) ? true : false" />
 
   <!-- ======================================================================== -->
   <!-- Channel nodes                                                            -->
   <!-- ======================================================================== -->
 
   <!-- <convert> -->
-  <implementation name="IM_convert_float_color3_genslang" nodedef="ND_convert_float_color3" target="genslang" />
-  <implementation name="IM_convert_float_color4_genslang" nodedef="ND_convert_float_color4" target="genslang" />
-  <implementation name="IM_convert_float_vector2_genslang" nodedef="ND_convert_float_vector2" target="genslang" />
-  <implementation name="IM_convert_float_vector3_genslang" nodedef="ND_convert_float_vector3" target="genslang" />
-  <implementation name="IM_convert_float_vector4_genslang" nodedef="ND_convert_float_vector4" target="genslang" />
-  <implementation name="IM_convert_vector2_vector3_genslang" nodedef="ND_convert_vector2_vector3" target="genslang" />
-  <implementation name="IM_convert_vector3_vector2_genslang" nodedef="ND_convert_vector3_vector2" target="genslang" />
-  <implementation name="IM_convert_vector3_color3_genslang" nodedef="ND_convert_vector3_color3" target="genslang" />
-  <implementation name="IM_convert_vector3_vector4_genslang" nodedef="ND_convert_vector3_vector4" target="genslang" />
-  <implementation name="IM_convert_vector4_vector3_genslang" nodedef="ND_convert_vector4_vector3" target="genslang" />
-  <implementation name="IM_convert_vector4_color4_genslang" nodedef="ND_convert_vector4_color4" target="genslang" />
-  <implementation name="IM_convert_color3_vector3_genslang" nodedef="ND_convert_color3_vector3" target="genslang" />
-  <implementation name="IM_convert_color4_vector4_genslang" nodedef="ND_convert_color4_vector4" target="genslang" />
-  <implementation name="IM_convert_color3_color4_genslang" nodedef="ND_convert_color3_color4" target="genslang" />
-  <implementation name="IM_convert_color4_color3_genslang" nodedef="ND_convert_color4_color3" target="genslang" />
-  <implementation name="IM_convert_boolean_float_genslang" nodedef="ND_convert_boolean_float" target="genslang" />
-  <implementation name="IM_convert_integer_float_genslang" nodedef="ND_convert_integer_float" target="genslang" />
+  <implementation name="IM_convert_boolean_float_genslang" nodedef="ND_convert_boolean_float" target="genslang" sourcecode="float({{in}})" />
+  <implementation name="IM_convert_integer_float_genslang" nodedef="ND_convert_integer_float" target="genslang" sourcecode="float({{in}})" />
 
-  <!-- <swizzle> -->
-  <!-- from type: float -->
-  <implementation name="IM_swizzle_float_color3_genslang" nodedef="ND_swizzle_float_color3" target="genslang" />
-  <implementation name="IM_swizzle_float_color4_genslang" nodedef="ND_swizzle_float_color4" target="genslang" />
-  <implementation name="IM_swizzle_float_vector2_genslang" nodedef="ND_swizzle_float_vector2" target="genslang" />
-  <implementation name="IM_swizzle_float_vector3_genslang" nodedef="ND_swizzle_float_vector3" target="genslang" />
-  <implementation name="IM_swizzle_float_vector4_genslang" nodedef="ND_swizzle_float_vector4" target="genslang" />
-  <!-- from type: color3 -->
-  <implementation name="IM_swizzle_color3_float_genslang" nodedef="ND_swizzle_color3_float" target="genslang" />
-  <implementation name="IM_swizzle_color3_color3_genslang" nodedef="ND_swizzle_color3_color3" target="genslang" />
-  <implementation name="IM_swizzle_color3_color4_genslang" nodedef="ND_swizzle_color3_color4" target="genslang" />
-  <implementation name="IM_swizzle_color3_vector2_genslang" nodedef="ND_swizzle_color3_vector2" target="genslang" />
-  <implementation name="IM_swizzle_color3_vector3_genslang" nodedef="ND_swizzle_color3_vector3" target="genslang" />
-  <implementation name="IM_swizzle_color3_vector4_genslang" nodedef="ND_swizzle_color3_vector4" target="genslang" />
-  <!-- from type: color4 -->
-  <implementation name="IM_swizzle_color4_float_genslang" nodedef="ND_swizzle_color4_float" target="genslang" />
-  <implementation name="IM_swizzle_color4_color3_genslang" nodedef="ND_swizzle_color4_color3" target="genslang" />
-  <implementation name="IM_swizzle_color4_color4_genslang" nodedef="ND_swizzle_color4_color4" target="genslang" />
-  <implementation name="IM_swizzle_color4_vector2_genslang" nodedef="ND_swizzle_color4_vector2" target="genslang" />
-  <implementation name="IM_swizzle_color4_vector3_genslang" nodedef="ND_swizzle_color4_vector3" target="genslang" />
-  <implementation name="IM_swizzle_color4_vector4_genslang" nodedef="ND_swizzle_color4_vector4" target="genslang" />
-  <!-- from type: floattor2 -->
-  <implementation name="IM_swizzle_vector2_float_genslang" nodedef="ND_swizzle_vector2_float" target="genslang" />
-  <implementation name="IM_swizzle_vector2_color3_genslang" nodedef="ND_swizzle_vector2_color3" target="genslang" />
-  <implementation name="IM_swizzle_vector2_color4_genslang" nodedef="ND_swizzle_vector2_color4" target="genslang" />
-  <implementation name="IM_swizzle_vector2_vector2_genslang" nodedef="ND_swizzle_vector2_vector2" target="genslang" />
-  <implementation name="IM_swizzle_vector2_vector3_genslang" nodedef="ND_swizzle_vector2_vector3" target="genslang" />
-  <implementation name="IM_swizzle_vector2_vector4_genslang" nodedef="ND_swizzle_vector2_vector4" target="genslang" />
-  <!-- from type: floattor3 -->
-  <implementation name="IM_swizzle_vector3_float_genslang" nodedef="ND_swizzle_vector3_float" target="genslang" />
-  <implementation name="IM_swizzle_vector3_color3_genslang" nodedef="ND_swizzle_vector3_color3" target="genslang" />
-  <implementation name="IM_swizzle_vector3_color4_genslang" nodedef="ND_swizzle_vector3_color4" target="genslang" />
-  <implementation name="IM_swizzle_vector3_vector2_genslang" nodedef="ND_swizzle_vector3_vector2" target="genslang" />
-  <implementation name="IM_swizzle_vector3_vector3_genslang" nodedef="ND_swizzle_vector3_vector3" target="genslang" />
-  <implementation name="IM_swizzle_vector3_vector4_genslang" nodedef="ND_swizzle_vector3_vector4" target="genslang" />
-  <!-- from type: floattor4 -->
-  <implementation name="IM_swizzle_vector4_float_genslang" nodedef="ND_swizzle_vector4_float" target="genslang" />
-  <implementation name="IM_swizzle_vector4_color3_genslang" nodedef="ND_swizzle_vector4_color3" target="genslang" />
-  <implementation name="IM_swizzle_vector4_color4_genslang" nodedef="ND_swizzle_vector4_color4" target="genslang" />
-  <implementation name="IM_swizzle_vector4_vector2_genslang" nodedef="ND_swizzle_vector4_vector2" target="genslang" />
-  <implementation name="IM_swizzle_vector4_vector3_genslang" nodedef="ND_swizzle_vector4_vector3" target="genslang" />
-  <implementation name="IM_swizzle_vector4_vector4_genslang" nodedef="ND_swizzle_vector4_vector4" target="genslang" />
+  <!-- <combine2> -->
+  <implementation name="IM_combine2_vector2_genslang" nodedef="ND_combine2_vector2" target="genslang" sourcecode="float2({{in1}},{{in2}})" />
+  <implementation name="IM_combine2_color4CF_genslang" nodedef="ND_combine2_color4CF" target="genslang" sourcecode="float4({{in1}}[0],{{in1}}[1],{{in1}}[2],{{in2}})" />
+  <implementation name="IM_combine2_vector4VF_genslang" nodedef="ND_combine2_vector4VF" target="genslang" sourcecode="float4({{in1}}[0],{{in1}}[1],{{in1}}[2],{{in2}})" />
+  <implementation name="IM_combine2_vector4VV_genslang" nodedef="ND_combine2_vector4VV" target="genslang" sourcecode="float4({{in1}}[0],{{in1}}[1],{{in2}}[0],{{in2}}[1])" />
 
-  <!-- <combine> -->
-  <implementation name="IM_combine2_vector2_genslang" nodedef="ND_combine2_vector2" target="genslang" />
-  <implementation name="IM_combine2_color4CF_genslang" nodedef="ND_combine2_color4CF" target="genslang" />
-  <implementation name="IM_combine2_vector4VF_genslang" nodedef="ND_combine2_vector4VF" target="genslang" />
-  <implementation name="IM_combine2_vector4VV_genslang" nodedef="ND_combine2_vector4VV" target="genslang" />
-  <implementation name="IM_combine3_color3_genslang" nodedef="ND_combine3_color3" target="genslang" />
-  <implementation name="IM_combine3_vector3_genslang" nodedef="ND_combine3_vector3" target="genslang" />
-  <implementation name="IM_combine4_color4_genslang" nodedef="ND_combine4_color4" target="genslang" />
-  <implementation name="IM_combine4_vector4_genslang" nodedef="ND_combine4_vector4" target="genslang" />
+  <!-- <combine3> -->
+  <implementation name="IM_combine3_color3_genslang" nodedef="ND_combine3_color3" target="genslang" sourcecode="float3({{in1}},{{in2}},{{in3}})" />
+  <implementation name="IM_combine3_vector3_genslang" nodedef="ND_combine3_vector3" target="genslang" sourcecode="float3({{in1}},{{in2}},{{in3}})" />
+
+  <!-- <combine4> -->
+  <implementation name="IM_combine4_color4_genslang" nodedef="ND_combine4_color4" target="genslang" sourcecode="float4({{in1}},{{in2}},{{in3}},{{in4}})" />
+  <implementation name="IM_combine4_vector4_genslang" nodedef="ND_combine4_vector4" target="genslang" sourcecode="float4({{in1}},{{in2}},{{in3}},{{in4}})" />
 
   <!-- <creatematrix> -->
   <implementation name="IM_creatematrix_vector3_matrix33_genslang" nodedef="ND_creatematrix_vector3_matrix33" file="mx_creatematrix_vector3_matrix33.slang" function="mx_creatematrix_vector3_matrix33" target="genslang" />
   <implementation name="IM_creatematrix_vector3_matrix44_genslang" nodedef="ND_creatematrix_vector3_matrix44" file="mx_creatematrix_vector3_matrix44.slang" function="mx_creatematrix_vector3_matrix44" target="genslang" />
   <implementation name="IM_creatematrix_vector4_matrix44_genslang" nodedef="ND_creatematrix_vector4_matrix44" file="mx_creatematrix_vector4_matrix44.slang" function="mx_creatematrix_vector4_matrix44" target="genslang" />
+
+  <!-- <extract> -->
+  <implementation name="IM_extract_color3_genslang" nodedef="ND_extract_color3" sourcecode="{{in}}[{{index}}]" target="genslang" />
+  <implementation name="IM_extract_color4_genslang" nodedef="ND_extract_color4" sourcecode="{{in}}[{{index}}]" target="genslang" />
+  <implementation name="IM_extract_vector2_genslang" nodedef="ND_extract_vector2" sourcecode="{{in}}[{{index}}]" target="genslang" />
+  <implementation name="IM_extract_vector3_genslang" nodedef="ND_extract_vector3" sourcecode="{{in}}[{{index}}]" target="genslang" />
+  <implementation name="IM_extract_vector4_genslang" nodedef="ND_extract_vector4" sourcecode="{{in}}[{{index}}]" target="genslang" />
 
   <!-- ======================================================================== -->
   <!-- Convolution nodes                                                        -->
@@ -750,6 +723,14 @@
 
   <!-- <heighttonormal> -->
   <implementation name="IM_heighttonormal_vector3_genslang" nodedef="ND_heighttonormal_vector3" target="genslang" />
+
+  <!-- ======================================================================== -->
+  <!-- Logical operator nodes                                                   -->
+  <!-- ======================================================================== -->
+
+  <implementation name="IM_logical_and_genslang" nodedef="ND_logical_and" target="genslang" sourcecode="{{in1}} && {{in2}}"/>
+  <implementation name="IM_logical_or_genslang" nodedef="ND_logical_or" target="genslang" sourcecode="{{in1}} || {{in2}}"/>
+  <implementation name="IM_logical_not_genslang" nodedef="ND_logical_not" target="genslang" sourcecode="!{{in}}"/>
 
   <!-- ======================================================================== -->
   <!-- Organization nodes                                                       -->
