@@ -41,6 +41,12 @@ void mx_dielectric_bsdf(
     float3 safeTint = max(tint, 0.0);
 
     if (closureData.closureType == CLOSURE_TYPE_REFLECTION) {
+        if (dot(N, L) < 0.0) {
+            bsdf.throughput = 0.0;
+            bsdf.response = float3(0.0);
+            return;
+        }
+
         X = normalize(X - dot(X, N) * N);
         float3 Y = cross(N, X);
         float3 H = normalize(L + V);
@@ -63,7 +69,8 @@ void mx_dielectric_bsdf(
                         weight / (4.0 * NdotV * NdotL);
     }
     else if (closureData.closureType == CLOSURE_TYPE_TRANSMISSION) {
-        
+        X = normalize(X - dot(X, N) * N);
+
         if (dot(N, L) > 0.0) {
             bsdf.throughput = 0.0;
             bsdf.response = float3(0.0);

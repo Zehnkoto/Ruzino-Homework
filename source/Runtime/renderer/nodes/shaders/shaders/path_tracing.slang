@@ -157,16 +157,19 @@ void ClosestHit(
     // else {
     // }
     payload.throughput *= cosine_factor * callData.throughput / pdf;
-    if (payload.depth == 0) {
-        // payload.color =  callData.pdf / 1000 / 5;
-        payload.color = cosine_factor * callData.throughput / callData.pdf / 2;
-        payload.color = callData.throughput;
-        // if (!isTransmission)
-        //     payload.color = 0;
-        // payload.color = callData.sampledDir * 0.5 + 0.5;  // For debugging,
-        payload.seed = callData.seed;
-        return;
-    }
+    // if (payload.depth == 0) {
+    //     // payload.color =  callData.pdf / 1000 / 5;
+    //     payload.color = cosine_factor * callData.throughput / callData.pdf / 2;
+    //     payload.color = callData.throughput / callData.pdf / 2;
+    //     // payload.color = callData.throughput / callData.pdf / 2;
+    //     // payload.color = callData.throughput / callData.pdf/ 2;
+    //     // payload.color = callData.throughput;//  / callData.pdf / 2;
+    //     if (!isTransmission)
+    //         payload.color = 0;
+    //     // payload.color = callData.sampledDir * 0.5 + 0.5;  // For debugging,
+    //     payload.seed = callData.seed;
+    //     return;
+    // }
 
     // payload.color = payload.throughput/2;
     // payload.seed = callData.seed;

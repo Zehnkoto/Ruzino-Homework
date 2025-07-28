@@ -337,9 +337,11 @@ float3 sample_standard_surface(
             float VdotH = max(dot(V_local, H), M_FLOAT_EPS);
             float LdotH = max(abs(dot(L_local, H)), M_FLOAT_EPS);
             
-            float D = mx_ggx_NDF(H, alpha);
+            float D = mx_ggx_NDF(normalize(float3(0.5, 0.5, 0.5)), alpha);
             float G1 = mx_ggx_smith_G1(NdotV, mx_average_alpha(alpha));
             float vndf_pdf = D * G1 * VdotH / NdotV;
+
+            pdf = D;
             
             // Transform to transmission direction with proper Jacobian
             float denom = VdotH + LdotH / eta;
@@ -353,7 +355,7 @@ float3 sample_standard_surface(
     // Final MIS PDF combining both paths
     pdf = metal_pdf * metal_weight + nonmetal_pdf * nonmetal_weight;
     pdf = max(pdf, M_FLOAT_EPS);
-    
+
     // Transform to world space
     return sf.fromLocal(L_local);
 }
