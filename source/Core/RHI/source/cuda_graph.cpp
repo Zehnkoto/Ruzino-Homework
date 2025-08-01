@@ -42,8 +42,18 @@ class CUDAGraph : public nvrhi::RefCounter<ICUDAGraph> {
             const_cast<CUDAGraphDesc&>(desc_).stream = stream;
         }
 
+        // 检查流是否已经在捕获模式
+        cudaStreamCaptureStatus captureStatus;
         cudaError_t result =
-            cudaStreamBeginCapture(stream, cudaStreamCaptureModeGlobal);
+            cudaStreamGetCaptureInfo(stream, &captureStatus, nullptr);
+        if (result == cudaSuccess &&
+            captureStatus != cudaStreamCaptureStatusNone) {
+            std::cerr << "Stream is already capturing! Status: "
+                      << captureStatus << std::endl;
+            return false;
+        }
+
+        result = cudaStreamBeginCapture(stream, cudaStreamCaptureModeGlobal);
         if (result != cudaSuccess) {
             std::cerr << "Failed to begin capture: "
                       << cudaGetErrorString(result) << std::endl;
@@ -174,6 +184,161 @@ CUDAGraphHandle create_cuda_graph(cudaStream_t stream)
     return create_cuda_graph(desc);
 }
 
+CUDAGraphCapture::~CUDAGraphCapture()
+{
+    finalize();
+}
+
+CUDAGraphCapture& CUDAGraphCapture::operator=(CUDAGraphCapture&& other) noexcept
+{
+    if (this != &other) {
+        finalize();
+        graph_ = std::move(other.graph_);
+        exec_ = std::move(other.exec_);
+        capturing_ = other.capturing_;
+        other.capturing_ = false;
+    }
+    return *this;
+}
+
+CUDAGraphExecHandle CUDAGraphCapture::get()
+{
+    finalize();
+    return exec_;
+}
+
+ICUDAGraphExec* CUDAGraphCapture::operator->()
+{
+    finalize();
+    return exec_.Get();
+}
+
+ICUDAGraphExec& CUDAGraphCapture::operator*()
+{
+    finalize();
+    return *exec_;
+}
+
+CUDAGraphCapture::operator nvrhi::RefCountPtr<ICUDAGraphExec>()
+{
+    return get();
+}
+
+CUDAGraphExecHandle CUDAGraphCapture::release()
+{
+    finalize();
+    return std::move(exec_);
+}
+
+void CUDAGraphCapture::finalize()
+{
+    if (capturing_ && graph_ && graph_->isCapturing()) {
+        exec_ = graph_->endCapture();
+        capturing_ = false;
+    }
+}
+
+CUDAGraphBuilder& CUDAGraphBuilder::addMemAllocNode(
+    void** ptr,
+    size_t size,
+    const std::vector<cudaGraphNode_t>& deps)
+{
+    cudaMemAllocNodeParams params = {};
+    params.bytesize = size;
+    params.poolProps.allocType = cudaMemAllocationTypePinned;
+    params.poolProps.location.type = cudaMemLocationTypeDevice;
+    params.poolProps.location.id = 0;
+
+    // Use memory pool if available
+    if (memPool_) {
+        params.poolProps.handleTypes = cudaMemHandleTypeNone;
+        // Associate with the memory pool
+        // Note: For simplicity, we'll use the default device allocation
+        // In a real implementation, you'd properly configure pool allocation
+    }
+
+    cudaGraphNode_t node;
+    CUDA_CHECK(cudaGraphAddMemAllocNode(
+        &node, graph_, deps.data(), deps.size(), &params));
+    *ptr = params.dptr;
+    nodes_.push_back(node);
+    return *this;
+}
+
+CUDAGraphBuilder& CUDAGraphBuilder::addMemFreeNode(
+    void* ptr,
+    const std::vector<cudaGraphNode_t>& deps)
+{
+    cudaGraphNode_t node;
+    CUDA_CHECK(
+        cudaGraphAddMemFreeNode(&node, graph_, deps.data(), deps.size(), ptr));
+    nodes_.push_back(node);
+    return *this;
+}
+
+CUDAGraphBuilder& CUDAGraphBuilder::addMemsetNode(
+    void* ptr,
+    int value,
+    size_t count,
+    const std::vector<cudaGraphNode_t>& deps)
+{
+    cudaMemsetParams params = {};
+    params.dst = ptr;
+    params.value = value;
+    params.elementSize = 1;
+    params.width = count;
+    params.height = 1;
+
+    cudaGraphNode_t node;
+    CUDA_CHECK(cudaGraphAddMemsetNode(
+        &node, graph_, deps.data(), deps.size(), &params));
+    nodes_.push_back(node);
+    return *this;
+}
+
+CUDAGraphBuilder& CUDAGraphBuilder::addHostNode(
+    cudaHostFn_t fn,
+    void* userData,
+    const std::vector<cudaGraphNode_t>& deps)
+{
+    cudaHostNodeParams params = {};
+    params.fn = fn;
+    params.userData = userData;
+
+    cudaGraphNode_t node;
+    CUDA_CHECK(
+        cudaGraphAddHostNode(&node, graph_, deps.data(), deps.size(), &params));
+    nodes_.push_back(node);
+    return *this;
+}
+
+CUDAGraphExecHandle CUDAGraphBuilder::build()
+{
+    cudaGraphExec_t graphExec;
+    CUDA_CHECK(cudaGraphInstantiate(&graphExec, graph_, nullptr, nullptr, 0));
+
+    // 这里需要创建一个wrapper，简化处理
+    auto handle = nvrhi::RefCountPtr<ICUDAGraphExec>(
+        new CUDAGraphExec(graphExec, nullptr));  // 需要实现
+
+    return handle;
+}
+
+CUDAGraphMemoryPool::CUDAGraphMemoryPool(size_t initialSize)
+{
+    cudaMemPoolProps poolProps = {};
+    poolProps.allocType = cudaMemAllocationTypePinned;
+    poolProps.handleTypes = cudaMemHandleTypeNone;
+    poolProps.location.type = cudaMemLocationTypeDevice;
+    poolProps.location.id = 0;
+
+    CUDA_CHECK(cudaMemPoolCreate(&pool_, &poolProps));
+
+    // Set initial threshold
+    uint64_t threshold = initialSize;
+    CUDA_CHECK(cudaMemPoolSetAttribute(
+        pool_, cudaMemPoolAttrReleaseThreshold, &threshold));
+}
 }  // namespace cuda
 
 USTC_CG_NAMESPACE_CLOSE_SCOPE

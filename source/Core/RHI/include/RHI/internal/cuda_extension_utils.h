@@ -1,5 +1,5 @@
 #pragma once
-
+#include <sstream>
 #define CUDA_CHECK(call)                                              \
     do {                                                              \
         cudaError_t error = call;                                     \

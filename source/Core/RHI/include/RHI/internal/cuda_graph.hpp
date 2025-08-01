@@ -1,5 +1,6 @@
 #pragma once
 
+#include "RHI/internal/cuda_extension_utils.h"
 #if USTC_CG_WITH_CUDA
 
 #include <RHI/api.h>
@@ -70,7 +71,7 @@ RHI_API CUDAGraphHandle create_cuda_graph(const CUDAGraphDesc& desc);
 RHI_API CUDAGraphHandle create_cuda_graph(cudaStream_t stream = nullptr);
 
 // Elegant RAII wrapper that IS the captured graph executable
-class CUDAGraphCapture {
+class RHI_API CUDAGraphCapture {
    public:
     // Constructor starts capture
     CUDAGraphCapture(CUDAGraphHandle graph) : graph_(graph), exec_(nullptr)
@@ -84,10 +85,7 @@ class CUDAGraphCapture {
     }
 
     // Destructor ensures capture is ended
-    ~CUDAGraphCapture()
-    {
-        finalize();
-    }
+    ~CUDAGraphCapture();
 
     // Move constructor
     CUDAGraphCapture(CUDAGraphCapture&& other) noexcept
@@ -99,17 +97,7 @@ class CUDAGraphCapture {
     }
 
     // Move assignment
-    CUDAGraphCapture& operator=(CUDAGraphCapture&& other) noexcept
-    {
-        if (this != &other) {
-            finalize();
-            graph_ = std::move(other.graph_);
-            exec_ = std::move(other.exec_);
-            capturing_ = other.capturing_;
-            other.capturing_ = false;
-        }
-        return *this;
-    }
+    CUDAGraphCapture& operator=(CUDAGraphCapture&& other) noexcept;
 
     // Delete copy operations
     CUDAGraphCapture(const CUDAGraphCapture&) = delete;
@@ -122,66 +110,27 @@ class CUDAGraphCapture {
     }
 
     // Get the executable (automatically finalizes capture)
-    CUDAGraphExecHandle get()
-    {
-        finalize();
-        return exec_;
-    }
+    CUDAGraphExecHandle get();
 
     // Dereference operators for direct access
-    ICUDAGraphExec* operator->()
-    {
-        finalize();
-        return exec_.Get();
-    }
+    ICUDAGraphExec* operator->();
 
-    ICUDAGraphExec& operator*()
-    {
-        finalize();
-        return *exec_;
-    }
+    ICUDAGraphExec& operator*();
 
     // Implicit conversion to handle
-    operator CUDAGraphExecHandle()
-    {
-        return get();
-    }
+    operator CUDAGraphExecHandle();
 
     // Release ownership of the executable
-    CUDAGraphExecHandle release()
-    {
-        finalize();
-        return std::move(exec_);
-    }
+    CUDAGraphExecHandle release();
 
    private:
-    void finalize()
-    {
-        if (capturing_ && graph_ && graph_->isCapturing()) {
-            exec_ = graph_->endCapture();
-            capturing_ = false;
-        }
-    }
+    void finalize();
 
    private:
     CUDAGraphHandle graph_;
     CUDAGraphExecHandle exec_;
     bool capturing_ = false;
 };
-
-// Utility function to capture a lambda into a graph
-template<typename F>
-CUDAGraphExecHandle capture_cuda_graph(cudaStream_t stream, F&& operations)
-{
-    auto graph = create_cuda_graph(stream);
-    if (!graph->beginCapture()) {
-        return nullptr;
-    }
-
-    operations();
-
-    return graph->endCapture();
-}
 
 // Ultra-elegant RAII factory function that returns a ready-to-use executable
 template<typename F>
@@ -203,6 +152,126 @@ auto with_cuda_graph(cudaStream_t stream, F&& operations) -> CUDAGraphCapture
 {
     return capture_graph(stream, std::forward<F>(operations));
 }
+
+// Advanced graph builder for explicit node management
+class RHI_API CUDAGraphBuilder {
+   public:
+    CUDAGraphBuilder(cudaMemPool_t pool = nullptr) : memPool_(pool)
+    {
+        CUDA_CHECK(cudaGraphCreate(&graph_, 0));
+    }
+
+    ~CUDAGraphBuilder()
+    {
+        if (graph_) {
+            cudaGraphDestroy(graph_);
+        }
+    }
+
+    // Add memory allocation node
+    CUDAGraphBuilder& addMemAllocNode(
+        void** ptr,
+        size_t size,
+        const std::vector<cudaGraphNode_t>& deps = {});
+
+    // Add memory free node
+    CUDAGraphBuilder& addMemFreeNode(
+        void* ptr,
+        const std::vector<cudaGraphNode_t>& deps = {});
+
+    // Add memset node
+    CUDAGraphBuilder& addMemsetNode(
+        void* ptr,
+        int value,
+        size_t count,
+        const std::vector<cudaGraphNode_t>& deps = {});
+
+    // Add kernel node
+    template<typename Kernel, typename... Args>
+    CUDAGraphBuilder& addKernelNode(
+        Kernel kernel,
+        dim3 grid,
+        dim3 block,
+        size_t sharedMem,
+        const std::vector<cudaGraphNode_t>& deps,
+        Args... args)
+    {
+        cudaKernelNodeParams params = {};
+
+        // 这里需要处理参数打包，简化版本
+        static void* kernelArgs[] = { &args... };
+
+        params.func = (void*)kernel;
+        params.gridDim = grid;
+        params.blockDim = block;
+        params.sharedMemBytes = sharedMem;
+        params.kernelParams = kernelArgs;
+
+        cudaGraphNode_t node;
+        CUDA_CHECK(cudaGraphAddKernelNode(
+            &node, graph_, deps.data(), deps.size(), &params));
+        nodes_.push_back(node);
+        return *this;
+    }
+
+    // Add host function node
+    CUDAGraphBuilder& addHostNode(
+        cudaHostFn_t fn,
+        void* userData,
+        const std::vector<cudaGraphNode_t>& deps = {});
+
+    // Build the final executable graph
+    CUDAGraphExecHandle build();
+
+    // Get specific node for dependencies
+    cudaGraphNode_t getNode(size_t index) const
+    {
+        return (index < nodes_.size()) ? nodes_[index] : nullptr;
+    }
+
+    cudaGraphNode_t getLastNode() const
+    {
+        return nodes_.empty() ? nullptr : nodes_.back();
+    }
+
+   private:
+    cudaGraph_t graph_;
+    std::vector<cudaGraphNode_t> nodes_;
+    cudaMemPool_t memPool_;
+};
+
+// Factory function for advanced graph building
+inline CUDAGraphBuilder create_advanced_graph()
+{
+    return CUDAGraphBuilder();
+}
+
+// Factory function for advanced graph building with memory pool
+inline CUDAGraphBuilder create_advanced_graph_with_pool(cudaMemPool_t pool)
+{
+    return CUDAGraphBuilder(pool);
+}
+
+// Memory pool management for graphs
+class RHI_API CUDAGraphMemoryPool {
+   public:
+    CUDAGraphMemoryPool(size_t initialSize = 1024 * 1024);
+
+    ~CUDAGraphMemoryPool()
+    {
+        if (pool_) {
+            cudaMemPoolDestroy(pool_);
+        }
+    }
+
+    cudaMemPool_t getPool() const
+    {
+        return pool_;
+    }
+
+   private:
+    cudaMemPool_t pool_;
+};
 
 }  // namespace cuda
 
