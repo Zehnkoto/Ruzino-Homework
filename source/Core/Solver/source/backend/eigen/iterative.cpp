@@ -111,6 +111,50 @@ class EigenCGSolver
     EigenCGSolver() : EigenIterativeSolver("Eigen Conjugate Gradient")
     {
     }
+
+    // Override solve method to check matrix properties
+    SolverResult solve(
+        const Eigen::SparseMatrix<float>& A,
+        const Eigen::VectorXf& b,
+        Eigen::VectorXf& x,
+        const SolverConfig& config = SolverConfig{}) override
+    {
+        // Check if matrix is likely SPD
+        if (!isLikelySPD(A)) {
+            SolverResult result;
+            result.error_message = "CG requires symmetric positive definite matrix";
+            result.converged = false;
+            return result;
+        }
+
+        // Use the base class implementation for SPD matrices
+        return EigenIterativeSolver::solve(A, b, x, config);
+    }
+
+   private:
+    // Check if matrix is likely SPD
+    bool isLikelySPD(const Eigen::SparseMatrix<float>& A) {
+        if (A.rows() != A.cols()) return false;
+        
+        // Quick symmetry check on a sample of entries
+        int sample_size = std::min(100, (int)A.rows());
+        for (int i = 0; i < sample_size; ++i) {
+            for (int j = i + 1; j < sample_size; ++j) {
+                float aij = A.coeff(i, j);
+                float aji = A.coeff(j, i);
+                if (abs(aij - aji) > 1e-6f * std::max(abs(aij), abs(aji)) + 1e-10f) {
+                    return false;
+                }
+            }
+        }
+        
+        // Check diagonal positivity
+        for (int i = 0; i < sample_size; ++i) {
+            if (A.coeff(i, i) <= 0) return false;
+        }
+        
+        return true;
+    }
 };
 
 class EigenBiCGStabSolver

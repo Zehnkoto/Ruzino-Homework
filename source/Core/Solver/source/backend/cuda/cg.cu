@@ -299,6 +299,30 @@ class CudaCGSolver : public LinearSolver {
     cublasHandle_t cublasHandle;
     bool initialized = false;
 
+    // Check if matrix is likely SPD
+    bool isLikelySPD(const Eigen::SparseMatrix<float>& A) {
+        if (A.rows() != A.cols()) return false;
+        
+        // Quick symmetry check on a sample of entries
+        int sample_size = std::min(100, (int)A.rows());
+        for (int i = 0; i < sample_size; ++i) {
+            for (int j = i + 1; j < sample_size; ++j) {
+                float aij = A.coeff(i, j);
+                float aji = A.coeff(j, i);
+                if (abs(aij - aji) > 1e-6f * std::max(abs(aij), abs(aji)) + 1e-10f) {
+                    return false;
+                }
+            }
+        }
+        
+        // Check diagonal positivity
+        for (int i = 0; i < sample_size; ++i) {
+            if (A.coeff(i, i) <= 0) return false;
+        }
+        
+        return true;
+    }
+
    public:
     CudaCGSolver()
     {
@@ -329,9 +353,7 @@ class CudaCGSolver : public LinearSolver {
     bool requiresGPU() const override
     {
         return true;
-    }
-
-    SolverResult solve(
+    }    SolverResult solve(
         const Eigen::SparseMatrix<float>& A,
         const Eigen::VectorXf& b,
         Eigen::VectorXf& x,
@@ -343,6 +365,18 @@ class CudaCGSolver : public LinearSolver {
         try {
             int n = A.rows();
             int nnz = A.nonZeros();
+
+            // Check if matrix is likely SPD (basic symmetry check)
+            if (!isLikelySPD(A)) {
+                result.error_message = "CG requires symmetric positive definite matrix";
+                result.converged = false;
+                return result;
+            }            // Check if matrix is likely SPD (basic symmetry check)
+            if (!isLikelySPD(A)) {
+                result.error_message = "CG requires symmetric positive definite matrix";
+                result.converged = false;
+                return result;
+            }
 
             if (config.verbose) {
                 std::cout << "CUDA CG: n=" << n << ", nnz=" << nnz << std::endl;

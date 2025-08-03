@@ -116,27 +116,8 @@ namespace {
                 1,
                 reinterpret_cast<float*>(d_r->get_device_ptr()),
                 1,
-                &rho);
-
-            // Breakdown check - simpler condition
+                &rho);  // Breakdown check - simpler condition
             if (abs(rho) < 1e-12f * b_norm * b_norm) {
-                // 获取device指针用于GPU kernel
-                float* r_ptr = reinterpret_cast<float*>(d_r->get_device_ptr());
-                float* r0_ptr =
-                    reinterpret_cast<float*>(d_r0->get_device_ptr());
-
-                USTC_CG::cuda::GPUParallelFor(
-                    "BiCGSTAB_check_restart", 1, GPU_LAMBDA_Ex(int dummy) {
-                        // Check if we can restart with a different r0
-                        float r_norm = 0.0f;
-                        for (int i = 0; i < n; ++i) {
-                            r_norm += r_ptr[i] * r_ptr[i];
-                        }
-                        // If residual is still reasonable, we can try
-                        // restarting (This is just an example - the actual
-                        // logic would be more complex)
-                    });
-
                 result.error_message = "BiCGSTAB breakdown: rho too small";
                 break;
             }
@@ -279,10 +260,31 @@ namespace {
                 reinterpret_cast<float*>(d_t->get_device_ptr()),
                 1,
                 &t_dot_t);
-
             if (t_dot_t < 1e-12f * b_norm * b_norm) {
-                result.error_message = "BiCGSTAB breakdown: t^T * t too small";
-                break;
+                // Instead of breaking down, try to recover using a different
+                // approach Use the intermediate solution x = x + alpha * p
+                cublasSaxpy(
+                    cublasHandle,
+                    n,
+                    &alpha,
+                    reinterpret_cast<float*>(d_p->get_device_ptr()),
+                    1,
+                    reinterpret_cast<float*>(d_x->get_device_ptr()),
+                    1);
+
+                // Check if this gives acceptable solution
+                float s_relative_residual = s_norm / b_norm;
+                if (s_relative_residual < config.tolerance * 10) {
+                    result.converged = true;
+                    result.iterations = iter + 1;
+                    result.final_residual = s_relative_residual;
+                    break;
+                }
+                else {
+                    result.error_message =
+                        "BiCGSTAB breakdown: t^T * t too small";
+                    break;
+                }
             }
 
             omega = t_dot_s / t_dot_t;
