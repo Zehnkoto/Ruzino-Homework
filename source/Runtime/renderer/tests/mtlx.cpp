@@ -12,8 +12,6 @@
 #include "../source/material/MaterialX/SlangResourceBindingContext.h"
 #include "../source/material/MaterialX/SlangShaderGenerator.h"
 #include "../source/material/MaterialX/SlangSyntax.h"
-#include "../source/material/MaterialX/VkResourceBindingContext.h"
-#include "../source/material/MaterialX/VkShaderGenerator.h"
 #include "slang_tester.hpp"
 
 namespace mx = MaterialX;
@@ -67,7 +65,7 @@ TEST(MATERIALX, shader_gen)
 
 TEST(GenShader, Syntax_Check)
 {
-    mx::SyntaxPtr syntax = mx::SlangSyntax::create();
+    mx::SyntaxPtr syntax = mx::SlangSyntax::create(mx::TypeSystem::create());
 
     ASSERT_TRUE(syntax->getTypeName(mx::Type::FLOAT) == "float");
     ASSERT_TRUE(syntax->getTypeName(mx::Type::COLOR3) == "float3");

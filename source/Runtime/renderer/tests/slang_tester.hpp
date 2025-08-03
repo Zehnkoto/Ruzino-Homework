@@ -920,8 +920,8 @@ void ShaderGeneratorTester::findLights(
 {
     lights.clear();
     for (mx::NodePtr node : doc->getNodes()) {
-        const mx::TypeDesc* type = mx::TypeDesc::get(node->getType());
-        if (type == mx::Type::LIGHTSHADER) {
+        auto type = node->getType();
+        if (type == mx::Type::LIGHTSHADER.getName()) {
             lights.push_back(node);
         }
     }

@@ -18,7 +18,7 @@ NODE_EXECUTION_FUNCTION(projective_dynamics)
 
     auto resource_allocator = get_resource_allocator();
 
-
+    return true;
 }
 
 NODE_DECLARATION_UI(projective_dynamics);

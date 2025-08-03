@@ -11,6 +11,7 @@ NODE_DECLARATION_FUNCTION(mass_spring)
 NODE_EXECUTION_FUNCTION(mass_spring)
 {
     // Function content omitted
+    return true;
 }
 
 NODE_DECLARATION_UI(mass_spring);

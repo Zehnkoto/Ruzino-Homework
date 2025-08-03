@@ -18,6 +18,8 @@ add_dependencies(USTC_CG hd_USTC_CG)
 add_dependencies(USTC_CG render_nodes)
 # add_dependencies(USTC_CG gl_based_render_nodes)
 
+
+if (USTC_CG_WITH_POLYSCOPE)
 target_link_libraries(USTC_CG_polyscope PUBLIC polyscope_widget)
 
 add_dependencies(USTC_CG_polyscope geometry_nodes)
@@ -38,3 +40,4 @@ if (ENABLE_SUBMISSION)
     add_dependencies(USTC_CG submissions_nodes)
     endif ()
 endif ()
+endif (USTC_CG_WITH_POLYSCOPE)
