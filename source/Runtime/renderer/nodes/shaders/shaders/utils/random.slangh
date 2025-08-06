@@ -15,7 +15,7 @@ float random_float(inout uint seed)
     return randomFloat;
 }
 
-float2 random_float2(inout uint seed)
+no_diff float2 random_float2(no_diff inout uint seed)
 {
     return float2(random_float(seed), random_float(seed));
 }
