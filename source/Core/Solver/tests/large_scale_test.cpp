@@ -76,17 +76,21 @@ class LargeScaleTest : public ::testing::Test {
                     Eigen::Triplet<float>(idx, idx, center_coeff));
 
                 if (i > 0)
-                    triplets.push_back(Eigen::Triplet<float>(
-                        idx, (i - 1) * grid_size + j, neighbor_coeff));
+                    triplets.push_back(
+                        Eigen::Triplet<float>(
+                            idx, (i - 1) * grid_size + j, neighbor_coeff));
                 if (i < grid_size - 1)
-                    triplets.push_back(Eigen::Triplet<float>(
-                        idx, (i + 1) * grid_size + j, neighbor_coeff));
+                    triplets.push_back(
+                        Eigen::Triplet<float>(
+                            idx, (i + 1) * grid_size + j, neighbor_coeff));
                 if (j > 0)
-                    triplets.push_back(Eigen::Triplet<float>(
-                        idx, i * grid_size + (j - 1), neighbor_coeff));
+                    triplets.push_back(
+                        Eigen::Triplet<float>(
+                            idx, i * grid_size + (j - 1), neighbor_coeff));
                 if (j < grid_size - 1)
-                    triplets.push_back(Eigen::Triplet<float>(
-                        idx, i * grid_size + (j + 1), neighbor_coeff));
+                    triplets.push_back(
+                        Eigen::Triplet<float>(
+                            idx, i * grid_size + (j + 1), neighbor_coeff));
             }
         }
         A.setFromTriplets(triplets.begin(), triplets.end());

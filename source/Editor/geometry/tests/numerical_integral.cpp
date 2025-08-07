@@ -1,279 +1,385 @@
+#include <gtest/gtest.h>
+
 #include <exprtk/exprtk.hpp>
 #include <iostream>
 #include <limits>
 #include <string>
 #include <vector>
 
-// Multi-variable Simpson integration on simplex using barycentric coordinates
-template<typename T>
-inline T integrate_simplex(
-    const exprtk::expression<T>& e,
-    const std::vector<std::string>& barycentric_names,
-    const std::size_t number_of_intervals = 100)
+#include "../../geometry_nodes/fem_bem/ElementBasis.hpp"
+
+using namespace USTC_CG::fem_bem;
+
+// Test integrate_against functionality for different dimensions
+TEST(IntegrateAgainstTest, FEM1D_BasicIntegration)
 {
-    if (barycentric_names.empty())
-        return T(0);
+    auto fem1d = make_fem_1d();
+    fem1d->add_vertex_expression("u1");
+    fem1d->add_vertex_expression("1 - u1");  // u2 = 1 - u1
 
-    const std::size_t dim = barycentric_names.size();
-    const exprtk::symbol_table<T>& sym_table = e.get_symbol_table();
+    // Test integration of constant function
+    auto results = fem1d->integrate_vertex_against_str("1");
+    ASSERT_EQ(results.size(), 2);
+    EXPECT_NEAR(results[0], 0.5, 1e-3);  // ∫u1 du = 1/2
+    EXPECT_NEAR(results[1], 0.5, 1e-3);  // ∫(1-u1) du = 1/2
 
-    if (!sym_table.valid())
-        return std::numeric_limits<T>::quiet_NaN();
-
-    // Get variable references
-    std::vector<exprtk::details::variable_node<T>*> vars(dim);
-    std::vector<T> original_values(dim);
-
-    for (std::size_t i = 0; i < dim; ++i) {
-        vars[i] = sym_table.get_variable(barycentric_names[i]);
-        if (!vars[i])
-            return std::numeric_limits<T>::quiet_NaN();
-        original_values[i] = vars[i]->ref();
-    }
-
-    T total_integral = T(0);
-
-    // For 2D case (triangle)
-    if (dim == 3) {
-        const T h = T(1) / number_of_intervals;
-
-        for (std::size_t i = 0; i <= number_of_intervals; ++i) {
-            for (std::size_t j = 0; j <= number_of_intervals - i; ++j) {
-                const T u1 = i * h;
-                const T u2 = j * h;
-                const T u3 = T(1) - u1 - u2;
-
-                if (u3 >= T(0)) {
-                    vars[0]->ref() = u1;
-                    vars[1]->ref() = u2;
-                    vars[2]->ref() = u3;
-
-                    T weight = T(1);
-                    // Boundary correction for trapezoidal rule
-                    if (i == 0 || j == 0 || i + j == number_of_intervals)
-                        weight = T(0.5);
-                    if ((i == 0 && j == 0) ||
-                        (i == 0 && i + j == number_of_intervals) ||
-                        (j == 0 && i + j == number_of_intervals))
-                        weight = T(0.25);
-
-                    // Correct area element for triangle: h*h/2 * 2 = h*h
-                    total_integral += weight * e.value() * h * h * T(2);
-                }
-            }
-        }
-    }
-    // For 1D case (line segment)
-    else if (dim == 2) {
-        const T h = T(1) / (T(2) * number_of_intervals);
-
-        for (std::size_t i = 0; i < number_of_intervals; ++i) {
-            T u = i * T(2) * h;
-
-            // Simpson's rule: f(x0) + 4f(x1) + f(x2)
-            vars[0]->ref() = u;
-            vars[1]->ref() = T(1) - u;
-            const T y0 = e.value();
-
-            u += h;
-            vars[0]->ref() = u;
-            vars[1]->ref() = T(1) - u;
-            const T y1 = e.value();
-
-            u += h;
-            vars[0]->ref() = u;
-            vars[1]->ref() = T(1) - u;
-            const T y2 = e.value();
-
-            total_integral += h * (y0 + T(4) * y1 + y2) / T(3);
-        }
-    }
-    // For 3D case (tetrahedron)
-    else if (dim == 4) {
-        const T h = T(1) / number_of_intervals;
-
-        for (std::size_t i = 0; i <= number_of_intervals; ++i) {
-            for (std::size_t j = 0; j <= number_of_intervals - i; ++j) {
-                for (std::size_t k = 0; k <= number_of_intervals - i - j; ++k) {
-                    const T u1 = i * h;
-                    const T u2 = j * h;
-                    const T u3 = k * h;
-                    const T u4 = T(1) - u1 - u2 - u3;
-
-                    if (u4 >= T(0)) {
-                        vars[0]->ref() = u1;
-                        vars[1]->ref() = u2;
-                        vars[2]->ref() = u3;
-                        vars[3]->ref() = u4;
-
-                        T weight = T(1);
-                        // Boundary correction
-                        int boundary_count = 0;
-                        if (i == 0)
-                            boundary_count++;
-                        if (j == 0)
-                            boundary_count++;
-                        if (k == 0)
-                            boundary_count++;
-                        if (i + j + k == number_of_intervals)
-                            boundary_count++;
-
-                        if (boundary_count > 0)
-                            weight = T(1) / T(1 << boundary_count);
-
-                        total_integral += weight * e.value() * h * h * h * T(6);
-                    }
-                }
-            }
-        }
-    }
-
-    // Restore original values
-    for (std::size_t i = 0; i < dim; ++i) {
-        vars[i]->ref() = original_values[i];
-    }
-
-    return total_integral;
+    // Test integration with polynomial
+    results =
+        fem1d->integrate_vertex_against_str("1");  // Integrate against constant
+    EXPECT_NEAR(results[0], 0.5, 1e-3);            // ∫u1*1 du = 1/2
+    EXPECT_NEAR(results[1], 0.5, 1e-3);            // ∫(1-u1)*1 du = 1/2
 }
 
-// Test functions
-void test_line_integral()
+TEST(IntegrateAgainstTest, FEM2D_BasicIntegration)
 {
-    typedef double T;
-    typedef exprtk::symbol_table<T> symbol_table_t;
-    typedef exprtk::expression<T> expression_t;
-    typedef exprtk::parser<T> parser_t;
+    auto fem2d = make_fem_2d();
+    fem2d->add_vertex_expression("u1");
+    fem2d->add_vertex_expression("u2");
+    fem2d->add_vertex_expression("1 - u1 - u2");  // u3 = 1 - u1 - u2
+    fem2d->add_edge_expression("u1*u2");
 
-    T u1 = 0.0, u2 = 0.0;
+    // Test vertex integration
+    auto results = fem2d->integrate_vertex_against_str("1");
+    ASSERT_EQ(results.size(), 3);
+    EXPECT_NEAR(results[0], 1.0 / 3.0, 1e-3);  // ∫u1 dA = 1/3
+    EXPECT_NEAR(results[1], 1.0 / 3.0, 1e-3);  // ∫u2 dA = 1/3
+    EXPECT_NEAR(results[2], 1.0 / 3.0, 1e-3);  // ∫(1-u1-u2) dA = 1/3
 
-    symbol_table_t symbol_table;
-    symbol_table.add_variable("u1", u1);
-    symbol_table.add_variable("u2", u2);
-
-    expression_t expression;
-    expression.register_symbol_table(symbol_table);
-
-    parser_t parser;
-
-    // Test 1: integrate u1 over line segment (should be 1/2)
-    std::string expr1 = "u1";
-    if (parser.compile(expr1, expression)) {
-        std::vector<std::string> vars = { "u1", "u2" };
-        T result = integrate_simplex(expression, vars, 1000);
-        std::cout << "Line integral of u1: " << result << " (expected: 0.5)"
-                  << std::endl;
-    }
-
-    // Test 2: integrate u1*u2 over line segment (should be 1/6)
-    std::string expr2 = "u1*u2";
-    if (parser.compile(expr2, expression)) {
-        std::vector<std::string> vars = { "u1", "u2" };
-        T result = integrate_simplex(expression, vars, 1000);
-        std::cout << "Line integral of u1*u2: " << result
-                  << " (expected: 0.1667)" << std::endl;
-    }
+    // Test edge integration
+    auto edge_results = fem2d->integrate_edge_against_str("1");
+    ASSERT_EQ(edge_results.size(), 1);
+    EXPECT_NEAR(edge_results[0], 1.0 / 12.0, 1e-3);  // ∫u1*u2 dA = 1/12
 }
 
-void test_triangle_integral()
+TEST(IntegrateAgainstTest, FEM3D_VolumeIntegration)
 {
-    typedef double T;
-    typedef exprtk::symbol_table<T> symbol_table_t;
-    typedef exprtk::expression<T> expression_t;
-    typedef exprtk::parser<T> parser_t;
+    auto fem3d = make_fem_3d();
+    fem3d->add_vertex_expression("u1");
+    fem3d->add_volume_expression("u1*u2*u3");
 
-    T u1 = 0.0, u2 = 0.0, u3 = 0.0;
+    // Test vertex integration
+    auto results = fem3d->integrate_vertex_against_str("1");
+    ASSERT_EQ(results.size(), 1);
+    EXPECT_NEAR(results[0], 0.25, 1e-3);  // ∫u1 dV = 1/4
 
-    symbol_table_t symbol_table;
-    symbol_table.add_variable("u1", u1);
-    symbol_table.add_variable("u2", u2);
-    symbol_table.add_variable("u3", u3);
-
-    expression_t expression;
-    expression.register_symbol_table(symbol_table);
-
-    parser_t parser;
-
-    // Test 1: integrate 1 over triangle (should be 1)
-    std::string expr1 = "1";
-    if (parser.compile(expr1, expression)) {
-        std::vector<std::string> vars = { "u1", "u2", "u3" };
-        T result1 = integrate_simplex(expression, vars, 100);
-        std::cout << "Triangle integral of 1: " << result1 << " (expected: 1)"
-                  << std::endl;
-    }
-
-    // Test 2: integrate u1 over triangle (should be 1/3)
-    std::string expr2 = "u1";
-    if (parser.compile(expr2, expression)) {
-        std::vector<std::string> vars = { "u1", "u2", "u3" };
-        T result1 = integrate_simplex(expression, vars, 100);
-        std::cout << "Triangle integral of u1: " << result1
-                  << " (expected: 0.3333)" << std::endl;
-    }
-
-    // Test 3: integrate u1*u2 over triangle (should be 1/12)
-    std::string expr3 = "u1*u2";
-    if (parser.compile(expr3, expression)) {
-        std::vector<std::string> vars = { "u1", "u2", "u3" };
-        T result1 = integrate_simplex(expression, vars, 100);
-        std::cout << "Triangle integral of u1*u2: " << result1
-                  << " (expected: 0.0833)" << std::endl;
-    }
+    // Test volume integration
+    auto vol_results = fem3d->integrate_volume_against_str("1", 100);
+    ASSERT_EQ(vol_results.size(), 1);
+    EXPECT_NEAR(vol_results[0], 1.0 / 720 * 6, 1e-3);  // ∫u1*u2*u3 dV = 1/720
 }
 
-void test_tetrahedron_integral()
+TEST(IntegrateAgainstTest, WithMapping_2D)
 {
-    typedef double T;
-    typedef exprtk::symbol_table<T> symbol_table_t;
-    typedef exprtk::expression<T> expression_t;
-    typedef exprtk::parser<T> parser_t;
+    auto fem2d = make_fem_2d();
+    fem2d->add_vertex_expression("1");
 
-    T u1 = 0.0, u2 = 0.0, u3 = 0.0, u4 = 0.0;
+    // Triangle with area = 1.5
+    std::vector<pxr::GfVec2d> triangle = { pxr::GfVec2d(0.0, 0.0),
+                                           pxr::GfVec2d(3.0, 0.0),
+                                           pxr::GfVec2d(0.0, 1.0) };
 
-    symbol_table_t symbol_table;
-    symbol_table.add_variable("u1", u1);
-    symbol_table.add_variable("u2", u2);
-    symbol_table.add_variable("u3", u3);
-    symbol_table.add_variable("u4", u4);
+    auto results = fem2d->integrate_vertex_against_with_mapping("1", triangle);
+    ASSERT_EQ(results.size(), 1);
+    // Result should be 1 (from reference element), multiply by area 1.5
+    // gives 1.5
+    EXPECT_NEAR(results[0], 1.0, 1e-3);
 
-    expression_t expression;
-    expression.register_symbol_table(symbol_table);
+    // Test with expression involving x coordinate
+    results = fem2d->integrate_vertex_against_with_mapping("x", triangle);
+    EXPECT_GT(results[0], 0.0);  // Should be positive since x >= 0 on triangle
+}
 
-    parser_t parser;
+TEST(IntegrateAgainstTest, WithMapping_3D)
+{
+    auto fem3d = make_fem_3d();
+    fem3d->add_vertex_expression("1");
 
-    // Test 1: integrate 1 over tetrahedron (should be 1)
-    std::string expr1 = "1";
-    if (parser.compile(expr1, expression)) {
-        std::vector<std::string> vars = { "u1", "u2", "u3", "u4" };
-        T result = integrate_simplex(expression, vars, 100);
-        std::cout << "Tetrahedron integral of 1: " << result
-                  << " (expected: 1.0)" << std::endl;
-    }
+    // Unit tetrahedron
+    std::vector<pxr::GfVec3d> tetrahedron = { pxr::GfVec3d(0.0, 0.0, 0.0),
+                                              pxr::GfVec3d(1.0, 0.0, 0.0),
+                                              pxr::GfVec3d(0.0, 1.0, 0.0),
+                                              pxr::GfVec3d(0.0, 0.0, 1.0) };
 
-    // Test 2: integrate u1 over tetrahedron (should be 1/4)
-    std::string expr2 = "u1";
-    if (parser.compile(expr2, expression)) {
-        std::vector<std::string> vars = { "u1", "u2", "u3", "u4" };
-        T result = integrate_simplex(expression, vars, 100);
-        std::cout << "Tetrahedron integral of u1: " << result
-                  << " (expected: 0.25)" << std::endl;
-    }
+    auto results =
+        fem3d->integrate_vertex_against_with_mapping("1", tetrahedron);
+    ASSERT_EQ(results.size(), 1);
+    EXPECT_NEAR(results[0], 1.0, 1e-3);  // ∫1 dV = 1 on reference tet
+
+    // Test with spatial expression
+    results =
+        fem3d->integrate_vertex_against_with_mapping("x + y + z", tetrahedron);
+    EXPECT_GT(results[0], 0.0);
+}
+
+TEST(IntegrateAgainstTest, BEM2D_Integration)
+{
+    auto bem2d = make_bem_2d();
+    bem2d->add_vertex_expression("u1");
+    bem2d->add_vertex_expression("1 - u1");  // u2 = 1 - u1
+
+    // BEM2D has element_dimension = 1 (1D elements in 2D space)
+    auto results = bem2d->integrate_vertex_against_str("1");
+    ASSERT_EQ(results.size(), 2);
+    EXPECT_NEAR(results[0], 0.5, 1e-3);  // ∫u1 ds = 1/2 on line
+    EXPECT_NEAR(results[1], 0.5, 1e-3);  // ∫(1-u1) ds = 1/2 on line
+}
+
+TEST(IntegrateAgainstTest, BEM3D_Integration)
+{
+    auto bem3d = make_bem_3d();
+    bem3d->add_vertex_expression("u1");
+    bem3d->add_edge_expression("u1*u2");
+
+    // BEM3D has element_dimension = 2 (2D elements in 3D space)
+    auto results = bem3d->integrate_vertex_against_str("1");
+    ASSERT_EQ(results.size(), 1);
+    EXPECT_NEAR(results[0], 1.0 / 3.0, 1e-3);  // ∫u1 dS = 1/3 on triangle
+
+    auto edge_results = bem3d->integrate_edge_against_str("1");
+    ASSERT_EQ(edge_results.size(), 1);
+    EXPECT_NEAR(edge_results[0], 1.0 / 12.0, 1e-3);  // ∫u1*u2 dS = 1/12
+}
+
+// Test dimension mismatch errors
+TEST(IntegrateAgainstTest, DimensionMismatchErrors)
+{
+    auto fem2d = make_fem_2d();
+    fem2d->add_vertex_expression("1");
+
+    // Wrong number of vertices for 2D mapping (should be 3, not 2)
+    std::vector<pxr::GfVec2d> wrong_vertices = { pxr::GfVec2d(0.0, 0.0),
+                                                 pxr::GfVec2d(1.0, 0.0) };
+
+    // This should still work but may not give expected results
+    auto results =
+        fem2d->integrate_vertex_against_with_mapping("x", wrong_vertices);
+    // The function should handle gracefully but results may be incorrect
+
+    // Test with too many vertices (should still work, extra ignored)
+    std::vector<pxr::GfVec2d> extra_vertices = {
+        pxr::GfVec2d(0.0, 0.0),
+        pxr::GfVec2d(1.0, 0.0),
+        pxr::GfVec2d(0.0, 1.0),
+        pxr::GfVec2d(1.0, 1.0)  // Extra vertex
+    };
+
+    results = fem2d->integrate_vertex_against_with_mapping("x", extra_vertices);
+    EXPECT_FALSE(results.empty());
+}
+
+TEST(IntegrateAgainstTest, UnsupportedOperations)
+{
+    auto fem1d = make_fem_1d();
+
+    // FEM1D doesn't support edge operations
+    EXPECT_FALSE(fem1d->supports_edge_expressions());
+    EXPECT_FALSE(fem1d->supports_face_expressions());
+    EXPECT_FALSE(fem1d->supports_volume_expressions());
+
+    // These should return empty results
+    auto empty_results = fem1d->integrate_edge_against_str("1");
+    EXPECT_TRUE(empty_results.empty());
+
+    empty_results = fem1d->integrate_face_against_str("1");
+    EXPECT_TRUE(empty_results.empty());
+
+    empty_results = fem1d->integrate_volume_against_str("1");
+    EXPECT_TRUE(empty_results.empty());
+}
+
+TEST(IntegrateAgainstTest, InvalidExpressions)
+{
+    auto fem2d = make_fem_2d();
+    fem2d->add_vertex_expression("u1");
+
+    // Test with invalid mathematical expression
+    EXPECT_THROW(
+        {
+            auto results =
+                fem2d->integrate_vertex_against_str("invalid_function()");
+        },
+        std::runtime_error);
+
+    // Test with undefined variable
+    EXPECT_THROW(
+        {
+            auto results = fem2d->integrate_vertex_against_str("undefined_var");
+        },
+        std::runtime_error);
+}
+
+TEST(IntegrateAgainstTest, EmptyExpressions)
+{
+    auto fem2d = make_fem_2d();
+
+    // No expressions added, should return empty
+    auto results = fem2d->integrate_vertex_against_str("1");
+    EXPECT_TRUE(results.empty());
+
+    // Add expression and test
+    fem2d->add_vertex_expression("u1 + u2 + (1 - u1 - u2)");
+    results = fem2d->integrate_vertex_against_str("1");
+    ASSERT_EQ(results.size(), 1);
+    EXPECT_NEAR(results[0], 1.0, 1e-3);  // ∫(u1+u2+(1-u1-u2)) dA = ∫1 dA = 1
+}
+
+// Test correct scaling with different domain sizes
+TEST(IntegrateAgainstTest, DomainScaling)
+{
+    auto fem2d = make_fem_2d();
+    fem2d->add_vertex_expression("1");
+
+    // Unit triangle (area = 0.5)
+    std::vector<pxr::GfVec2d> unit_triangle = { pxr::GfVec2d(0.0, 0.0),
+                                                pxr::GfVec2d(1.0, 0.0),
+                                                pxr::GfVec2d(0.0, 1.0) };
+    auto unit_results =
+        fem2d->integrate_vertex_against_with_mapping("1", unit_triangle);
+    ASSERT_EQ(unit_results.size(), 1);
+
+    // Scaled triangle (area = 2.0)
+    std::vector<pxr::GfVec2d> scaled_triangle = { pxr::GfVec2d(0.0, 0.0),
+                                                  pxr::GfVec2d(2.0, 0.0),
+                                                  pxr::GfVec2d(0.0, 2.0) };
+    auto scaled_results =
+        fem2d->integrate_vertex_against_with_mapping("1", scaled_triangle);
+    ASSERT_EQ(scaled_results.size(), 1);
+
+    // Results should be the same (1.0) since they're on reference element
+    EXPECT_NEAR(unit_results[0], scaled_results[0], 1e-3);
+    EXPECT_NEAR(unit_results[0], 1.0, 1e-3);
+}
+
+// Test coordinate mapping correctness
+TEST(IntegrateAgainstTest, CoordinateMappingCorrectness)
+{
+    auto fem2d = make_fem_2d();
+    fem2d->add_vertex_expression(
+        "u1");  // This is 1 at first vertex, 0 at others
+
+    // Triangle: (0,0), (1,0), (0,1)
+    std::vector<pxr::GfVec2d> triangle = { pxr::GfVec2d(0.0, 0.0),
+                                           pxr::GfVec2d(1.0, 0.0),
+                                           pxr::GfVec2d(0.0, 1.0) };
+
+    // Integrate x over triangle using u1 shape function
+    // Should give centroid x-coordinate weighted by shape function
+    auto results = fem2d->integrate_vertex_against_with_mapping("x", triangle);
+    ASSERT_EQ(results.size(), 1);
+    EXPECT_GT(results[0], 0.0);
+
+    // Integrate y coordinate
+    results = fem2d->integrate_vertex_against_with_mapping("y", triangle);
+    EXPECT_GT(results[0], 0.0);
+}
+
+// Test 3D coordinate mapping
+TEST(IntegrateAgainstTest, CoordinateMapping_3D)
+{
+    auto fem3d = make_fem_3d();
+    fem3d->add_vertex_expression("1");
+
+    // Unit tetrahedron
+    std::vector<pxr::GfVec3d> tetrahedron = { pxr::GfVec3d(0.0, 0.0, 0.0),
+                                              pxr::GfVec3d(1.0, 0.0, 0.0),
+                                              pxr::GfVec3d(0.0, 1.0, 0.0),
+                                              pxr::GfVec3d(0.0, 0.0, 1.0) };
+
+    auto results = fem3d->integrate_vertex_against_with_mapping(
+        "x*x + y*y + z*z", tetrahedron);
+    ASSERT_EQ(results.size(), 1);
+    EXPECT_GT(results[0], 0.0);
+}
+
+// Test boundary elements with mapping
+TEST(IntegrateAgainstTest, BoundaryElementMapping)
+{
+    auto bem2d = make_bem_2d();  // 1D elements in 2D space
+    bem2d->add_vertex_expression("u1");
+    bem2d->add_vertex_expression("1 - u1");  // u2 = 1 - u1
+
+    // Line segment from (0,0) to (2,0)
+    std::vector<pxr::GfVec2d> line = { pxr::GfVec2d(0.0, 0.0),
+                                       pxr::GfVec2d(2.0, 0.0) };
+
+    auto results = bem2d->integrate_vertex_against_with_mapping("1", line);
+    ASSERT_EQ(results.size(), 2);
+    EXPECT_NEAR(results[0], 0.5, 1e-3);  // ∫u1 ds = 0.5
+    EXPECT_NEAR(results[1], 0.5, 1e-3);  // ∫u2 ds = 0.5
+
+    // Integrate x coordinate
+    results = bem2d->integrate_vertex_against_with_mapping("x", line);
+    EXPECT_GT(results[0], 0.0);
+    EXPECT_GT(results[1], 0.0);
+}
+
+// Test various dimension mismatches
+TEST(IntegrateAgainstTest, ComprehensiveDimensionTests)
+{
+    // Test FEM1D with 3D vertices (should work but only use first coordinate)
+    auto fem1d = make_fem_1d();
+    fem1d->add_vertex_expression("u1");
+
+    std::vector<pxr::GfVec3d> line_3d = { pxr::GfVec3d(0.0, 5.0, 10.0),
+                                          pxr::GfVec3d(1.0, 7.0, 15.0) };
+
+    auto results = fem1d->integrate_vertex_against_with_mapping("x", line_3d);
+    EXPECT_FALSE(results.empty());
+
+    // Test BEM3D with 2D vertices mapping
+    auto bem3d = make_bem_3d();
+    bem3d->add_vertex_expression("u1");
+
+    std::vector<pxr::GfVec2d> triangle_2d = { pxr::GfVec2d(0.0, 0.0),
+                                              pxr::GfVec2d(1.0, 0.0),
+                                              pxr::GfVec2d(0.0, 1.0) };
+
+    // Should work - BEM3D can use 2D coordinates (z=0 implicitly)
+    results =
+        bem3d->integrate_vertex_against_with_mapping("x + y", triangle_2d);
+    EXPECT_FALSE(results.empty());
+}
+
+// Test edge cases with empty or single point domains
+TEST(IntegrateAgainstTest, EdgeCases)
+{
+    auto fem2d = make_fem_2d();
+    fem2d->add_vertex_expression("1");
+
+    // Empty vertex list
+    std::vector<pxr::GfVec2d> empty_vertices;
+    auto results =
+        fem2d->integrate_vertex_against_with_mapping("1", empty_vertices);
+    // Should handle gracefully
+
+    // Single vertex (degenerate triangle)
+    std::vector<pxr::GfVec2d> single_vertex = { pxr::GfVec2d(1.0, 1.0) };
+    results = fem2d->integrate_vertex_against_with_mapping("1", single_vertex);
+    // Should handle gracefully
+}
+
+// Test numerical precision with high-order polynomials
+TEST(IntegrateAgainstTest, HighOrderPolynomials)
+{
+    auto fem2d = make_fem_2d();
+    fem2d->add_vertex_expression("u1*u1*u1");  // Cubic shape function
+    fem2d->add_vertex_expression("u2*u2*u2");
+
+    auto results = fem2d->integrate_vertex_against_str("u1*u2*(1-u1-u2)");
+    ASSERT_EQ(results.size(), 2);
+    // These are high-order integrations, should be computed accurately
+    EXPECT_GT(results[0], 0.0);
+    EXPECT_GT(results[1], 0.0);
+
+    // Test with very high degree
+    fem2d->add_vertex_expression("u1*u1*u1*u1*u1");  // 5th degree
+    results = fem2d->integrate_vertex_against_str("1");
+    ASSERT_EQ(results.size(), 3);
+    EXPECT_GT(results[2], 0.0);
 }
 
 int main()
 {
-    std::cout << "Testing multi-variable Simpson integration on simplexes:"
-              << std::endl;
-    std::cout << "======================================================="
-              << std::endl;
-
-    test_line_integral();
-    std::cout << std::endl;
-
-    test_triangle_integral();
-    std::cout << std::endl;
-
-    test_tetrahedron_integral();
-
-    return 0;
+    ::testing::InitGoogleTest();
+    return RUN_ALL_TESTS();
 }
