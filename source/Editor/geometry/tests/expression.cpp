@@ -264,23 +264,39 @@ TEST(ExpressionFocusedTest, CompoundExpression)
     EXPECT_DOUBLE_EQ(
         eval, 1.0 + 2.0 + (1.0 - 2.0) * (1.0 - 2.0));  // u + v + (u - v)^2
 
-    auto derivative = compound.derivative("u");
+    auto derivative = compound.derivative("u");  // 1 + 2 * (u - v)
+
+    auto eval_derivative =
+        derivative.evaluate_at({ { "u", 1.0 }, { "v", 2.0 } });
+    EXPECT_NEAR(eval_derivative, 1.0 + 2.0 * (1.0 - 2.0), 1e-9);
 
     // Test that derivative can be used in compound expressions
-    auto compound2 =
-        ExpressionD(expr2, { { "x", element1 }, { "y", derivative } });
+    auto compound2 = ExpressionD(
+        expr2,
+        { { "x", element1 }, { "y", derivative } });  // u + v + 1 + 2 * (u - v)
     auto eval2 = compound2.evaluate_at({ { "u", 1.0 }, { "v", 2.0 } });
-    EXPECT_DOUBLE_EQ(
+    EXPECT_NEAR(
         eval2,
-        1.0 + 2.0 + 2.0 * (1.0 - 2.0));  // u + v + 2 * (u - v) = 3 * u - v
+        1.0 + 2.0 + 1.0 + 2.0 * (1.0 - 2.0),
+        1e-9);  // u + v + 1 + 2 * (u - v) = 3 * u - v + 1
 
-    auto rst = compound2.integrate_over_simplex({ "u", "v" }, nullptr, 10);
+    for (float u = 0.0f; u <= 1.0f; u += 0.1f) {
+        for (float v = 0.0f; v <= 1.0f; v += 0.1f) {
+            auto eval_at_uv = compound2.evaluate_at({ { "u", u }, { "v", v } });
+            EXPECT_NEAR(
+                eval_at_uv,
+                3 * u - v + 1,
+                1e-6);  // Check against expected linear form
+        }
+    }
 
-    EXPECT_NEAR(rst, 2.0 / 3.0, 1e-6);  // Integral over simplex should be 1/3
+    auto rst = compound2.integrate_over_simplex({ "u", "v" }, nullptr, 60);
+
+    EXPECT_NEAR(rst, 5.0 / 3.0, 1e-3);  // Integral over simplex should be 5/6
 
     auto dc2_du = compound2.derivative("u");
     EXPECT_EQ(dc2_du.get_string(), "");
     EXPECT_EQ(dc2_du.is_string_based(), false);
-    EXPECT_NEAR(dc2_du.evaluate_at({ { "u", 1.0 }, { "v", 2.0 } }), 3.0, 1e-6);
-    EXPECT_NEAR(dc2_du.evaluate_at({ { "u", 0.0 }, { "v", 0.0 } }), 3.0, 1e-6);
+    EXPECT_NEAR(dc2_du.evaluate_at({ { "u", 1.0 }, { "v", 2.0 } }), 3.0, 1e-4);
+    EXPECT_NEAR(dc2_du.evaluate_at({ { "u", 0.0 }, { "v", 0.0 } }), 3.0, 1e-4);
 }

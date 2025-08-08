@@ -146,17 +146,18 @@ namespace fem_bem {
 
                     if (u1 + u2 <= T(1)) {
                         T weight = T(1);
-                        // Boundary correction for trapezoidal rule
-                        if (i == 0 || j == 0 || i + j == number_of_intervals)
-                            weight = T(0.5);
-                        if ((i == 0 && j == 0) ||
-                            (i == 0 && i + j == number_of_intervals) ||
-                            (j == 0 && i + j == number_of_intervals))
-                            weight = T(0.25);
+                        // Corner and edge corrections for trapezoidal rule
+                        int boundary_count = 0;
+                        if (i == 0) boundary_count++;
+                        if (j == 0) boundary_count++;
+                        if (i + j == number_of_intervals) boundary_count++;
+
+                        if (boundary_count == 1) weight = T(0.5);
+                        else if (boundary_count >= 2) weight = T(0.25);
 
                         total_integral += weight *
                                           evaluator(std::vector<T>{ u1, u2 }) *
-                                          h * h * T(2);
+                                          h * h * T(2.0);
                     }
                 }
             }

@@ -172,8 +172,7 @@ namespace fem_bem {
             // Handle compound expressions
             if (is_compound_ && outer_expression_) {
                 // Evaluate substitutions first
-                std::unordered_map<std::string, T> outer_values =
-                    variable_values;
+                std::unordered_map<std::string, T> outer_values;
 
                 for (const auto& [var_name, sub_expr] : substitution_map_) {
                     T sub_result = sub_expr.evaluate_at(variable_values);
@@ -354,6 +353,12 @@ namespace fem_bem {
                     };
                 auto derivative_func = create_compound_derivative_function<T>(
                     compound_evaluator, variable_name);
+                return DerivativeExpression<T>(derivative_func, variable_name);
+            }
+            // Handle derivative expressions (derivatives of derivatives)
+            else if (derivative_evaluator_) {
+                auto derivative_func = create_compound_derivative_function<T>(
+                    derivative_evaluator_, variable_name);
                 return DerivativeExpression<T>(derivative_func, variable_name);
             }
             else {

@@ -51,7 +51,7 @@ namespace fem_bem {
     inline T numerical_derivative(
         const exprtk::expression<T>& expr,
         exprtk::details::variable_node<T>* var,
-        const T& h = T(0.00000001))
+        const T& h = T(1e-8))
     {
         const T x_init = var->ref();
         const T _2h = T(2) * h;
@@ -75,7 +75,7 @@ namespace fem_bem {
     create_derivative_function(
         const std::string& expression_string,
         const std::string& variable_name,
-        const T& h = T(0.00000001))
+        const T& h = T(1e-8))
     {
         return [expression_string, variable_name, h](
                    const std::unordered_map<std::string, T>& values) -> T {
@@ -115,7 +115,7 @@ namespace fem_bem {
         const std::function<T(const std::unordered_map<std::string, T>&)>&
             compound_evaluator,
         const std::string& variable_name,
-        const T& h = T(0.00000001))
+        const T& h = T(1e-6))
     {
         return [compound_evaluator, variable_name, h](
                    const std::unordered_map<std::string, T>& values) -> T {
@@ -125,26 +125,19 @@ namespace fem_bem {
             }
 
             const T x_init = values_iter->second;
-            const T _2h = T(2) * h;
 
             // Create modified value maps for derivative computation
-            std::unordered_map<std::string, T> values_plus_2h = values;
             std::unordered_map<std::string, T> values_plus_h = values;
             std::unordered_map<std::string, T> values_minus_h = values;
-            std::unordered_map<std::string, T> values_minus_2h = values;
 
-            values_plus_2h[variable_name] = x_init + _2h;
             values_plus_h[variable_name] = x_init + h;
             values_minus_h[variable_name] = x_init - h;
-            values_minus_2h[variable_name] = x_init - _2h;
 
-            // 5-point stencil numerical derivative
-            const T y0 = compound_evaluator(values_plus_2h);
-            const T y1 = compound_evaluator(values_plus_h);
-            const T y2 = compound_evaluator(values_minus_h);
-            const T y3 = compound_evaluator(values_minus_2h);
+            // Use simple 2-point central difference for better numerical stability
+            const T y_plus = compound_evaluator(values_plus_h);
+            const T y_minus = compound_evaluator(values_minus_h);
 
-            return (-y0 + T(8) * (y1 - y2) + y3) / (T(12) * h);
+            return (y_plus - y_minus) / (T(2) * h);
         };
     }
 
