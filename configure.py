@@ -138,19 +138,25 @@ def process_usd(targets, dry_run=False, keep_original_files=True, copy_only=Fals
                 "RelWithDebInfo": "relwithdebuginfo",
             }
             build_variant = build_variant_map.get(target, target.lower())
-            if build_variant == "relwithdebuginfo":
-                openvdb_args = 'OpenVDB,"-DUSE_EXPLICIT_INSTANTIATION=OFF -DOPENVDB_BUILD_NANOVDB=ON -DCMAKE_MAP_IMPORTED_CONFIG_RELWITHDEBUGINFO="RelWithDebInfo;Release;"" '
-            else:
-                openvdb_args = 'OpenVDB,"-DUSE_EXPLICIT_INSTANTIATION=OFF -DOPENVDB_BUILD_NANOVDB=ON" '
+            generator_ninja = "--generator Ninja "
 
+            # if build_variant == "relwithdebuginfo":
+            #     openvdb_args = 'OpenVDB,"-DUSE_EXPLICIT_INSTANTIATION=OFF -DOPENVDB_BUILD_NANOVDB=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_MAP_IMPORTED_CONFIG_RELWITHDEBUGINFO=Release" '
+            # else:
+
+            openvdb_args = 'OpenVDB,"-DUSE_EXPLICIT_INSTANTIATION=OFF -DOPENVDB_BUILD_NANOVDB=ON" '
             no_tbb_linkage = "-DCMAKE_CXX_FLAGS=-D__TBB_NO_IMPLICIT_LINKAGE=1"
             openimageio_args = f"OpenImageIO,{no_tbb_linkage} "
-            build_command = f'python {build_script} --build-args USD,"-DPXR_ENABLE_GL_SUPPORT=ON" {openvdb_args}{openimageio_args}--openvdb {use_debug_python}--ptex --openimageio --opencolorio --no-examples --no-tutorials --generator Ninja --build-variant {build_variant} {os.path.dirname(__file__)}/SDK/OpenUSD/{target} -v'
+            build_command = f'python {build_script} --build-args USD,"-DPXR_ENABLE_GL_SUPPORT=ON" {openvdb_args}{openimageio_args}--openvdb {use_debug_python}--ptex --openimageio --opencolorio --no-examples --no-tutorials {generator_ninja}--build-variant {build_variant} {os.path.dirname(__file__)}/SDK/OpenUSD/{target} -v'
 
             if dry_run:
                 print(f"[DRY RUN] Would run: {build_command}")
             else:
+                # Apply FindTBB.cmake patch after building
+                if target == "RelWithDebInfo":  # Only patch once for RelWithDebInfo
+                    patch_findtbb_cmake(dry_run)
                 os.system(build_command)
+                
 
     # Copy the built binaries to the Binaries folder
     for target in targets:
@@ -380,6 +386,76 @@ def find_and_replace(file_path, replacements):
                 print(f"Found and replaced path in {file_path}")
     except (UnicodeDecodeError, IOError) as e:
         return
+
+
+def patch_findtbb_cmake(dry_run=False):
+    """Patch FindTBB.cmake to work better with single target configuration generators"""
+    findtbb_path = os.path.join(os.path.dirname(__file__), "SDK", "OpenUSD", "RelWithDebInfo", "src", "openvdb-9.1.0", "cmake", "FindTBB.cmake")
+    
+    if not os.path.exists(findtbb_path):
+        print(f"FindTBB.cmake not found at {findtbb_path}, skipping patch")
+        return
+    
+    # The original problematic code block
+    old_code = """  if(Tbb_${COMPONENT}_LIBRARY_DEBUG AND Tbb_${COMPONENT}_LIBRARY_RELEASE)
+    # if the generator is multi-config or if CMAKE_BUILD_TYPE is set for
+    # single-config generators, set optimized and debug libraries
+    get_property(_isMultiConfig GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+    if(_isMultiConfig OR CMAKE_BUILD_TYPE)
+      set(Tbb_${COMPONENT}_LIBRARY optimized ${Tbb_${COMPONENT}_LIBRARY_RELEASE} debug ${Tbb_${COMPONENT}_LIBRARY_DEBUG})
+    else()
+      # For single-config generators where CMAKE_BUILD_TYPE has no value,
+      # just use the release libraries
+      set(Tbb_${COMPONENT}_LIBRARY ${Tbb_${COMPONENT}_LIBRARY_RELEASE})
+    endif()
+    # FIXME: This probably should be set for both cases
+    set(Tbb_${COMPONENT}_LIBRARIES optimized ${Tbb_${COMPONENT}_LIBRARY_RELEASE} debug ${Tbb_${COMPONENT}_LIBRARY_DEBUG})
+  endif()"""
+    
+    # New code that works better with single target generators
+    new_code = """  if(Tbb_${COMPONENT}_LIBRARY_DEBUG AND Tbb_${COMPONENT}_LIBRARY_RELEASE)
+    # Check if we're using a multi-config generator or if CMAKE_BUILD_TYPE is set
+    get_property(_isMultiConfig GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+    if(_isMultiConfig)
+      # Multi-config generator: use optimized/debug keywords
+      set(Tbb_${COMPONENT}_LIBRARY optimized ${Tbb_${COMPONENT}_LIBRARY_RELEASE} debug ${Tbb_${COMPONENT}_LIBRARY_DEBUG})
+      set(Tbb_${COMPONENT}_LIBRARIES optimized ${Tbb_${COMPONENT}_LIBRARY_RELEASE} debug ${Tbb_${COMPONENT}_LIBRARY_DEBUG})
+    elseif(CMAKE_BUILD_TYPE)
+      # Single-config generator with CMAKE_BUILD_TYPE set
+      if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+        set(Tbb_${COMPONENT}_LIBRARY ${Tbb_${COMPONENT}_LIBRARY_DEBUG})
+        set(Tbb_${COMPONENT}_LIBRARIES ${Tbb_${COMPONENT}_LIBRARY_DEBUG})
+      else()
+        set(Tbb_${COMPONENT}_LIBRARY ${Tbb_${COMPONENT}_LIBRARY_RELEASE})
+        set(Tbb_${COMPONENT}_LIBRARIES ${Tbb_${COMPONENT}_LIBRARY_RELEASE})
+      endif()
+    else()
+      # Single-config generator without CMAKE_BUILD_TYPE: default to release but provide both options
+      set(Tbb_${COMPONENT}_LIBRARY ${Tbb_${COMPONENT}_LIBRARY_RELEASE})
+      set(Tbb_${COMPONENT}_LIBRARIES optimized ${Tbb_${COMPONENT}_LIBRARY_RELEASE} debug ${Tbb_${COMPONENT}_LIBRARY_DEBUG})
+    endif()
+  endif()"""
+    
+    if dry_run:
+        print(f"[DRY RUN] Would patch FindTBB.cmake at {findtbb_path}")
+        return
+        
+    try:
+        with open(findtbb_path, "r", encoding="utf-8") as file:
+            content = file.read()
+        
+        if old_code in content:
+            content = content.replace(old_code, new_code)
+            
+            with open(findtbb_path, "w", encoding="utf-8") as file:
+                file.write(content)
+            
+            print(f"Successfully patched FindTBB.cmake for single target configuration generators")
+        else:
+            print(f"FindTBB.cmake patch target not found - file may already be patched or have different content")
+            
+    except Exception as e:
+        print(f"Error patching FindTBB.cmake: {e}")
 
 
 def main():

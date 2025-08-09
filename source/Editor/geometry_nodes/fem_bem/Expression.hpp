@@ -199,28 +199,18 @@ namespace fem_bem {
             }
 
             // Store original values
-            ParameterMap<T> original_values;
+
             const exprtk::symbol_table<T>& sym_table =
                 compiled_expression_->get_symbol_table();
 
             for (const auto& pair : variable_values) {
-                auto* var_node = sym_table.get_variable(pair.first);
+                auto* var_node = sym_table.get_variable_unchecked(pair.first);
                 if (var_node) {
-                    original_values.insert_or_assign(
-                        pair.first, var_node->ref());
                     var_node->ref() = pair.second;
                 }
             }
 
             T result = compiled_expression_->value();
-
-            // Restore original values
-            for (const auto& pair : original_values) {
-                auto* var_node = sym_table.get_variable(pair.first);
-                if (var_node) {
-                    var_node->ref() = pair.second;
-                }
-            }
 
             return result;
         }
@@ -429,7 +419,8 @@ namespace fem_bem {
                 for (std::size_t i = 0;
                      i < coords.size() && i < barycentric_names.size();
                      ++i) {
-                    values.insert_or_assign(barycentric_names[i].c_str(), coords[i]);
+                    values.insert_or_assign(
+                        barycentric_names[i].c_str(), coords[i]);
                 }
 
                 // Apply mapping if provided

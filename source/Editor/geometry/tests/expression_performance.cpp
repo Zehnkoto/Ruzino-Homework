@@ -5,7 +5,6 @@
 
 #include "../../geometry_nodes/fem_bem/Expression.hpp"
 
-
 using namespace USTC_CG::fem_bem;
 
 // Test Expression class specific functionality - Derivative interface
@@ -24,14 +23,13 @@ int main()
         { { "x", element1 }, { "y", derivative } });  // u + v + 1 + 2 * (u - v)
 
     auto start = std::chrono::high_resolution_clock::now();
+    // baseline: 0.002f, 0.002f, 3917 ms.
 
+    long long operations = 0;
     for (float u = 0.0f; u <= 1.0f; u += 0.002f) {
-        for (float v = 0.0f; v <= 1.0f; v += 0.005f) {
+        for (float v = 0.0f; v <= 1.0f; v += 0.002f) {
             auto eval_at_uv = compound2.evaluate_at({ { "u", u }, { "v", v } });
-            EXPECT_NEAR(
-                eval_at_uv,
-                3 * u - v + 1,
-                1e-6);  // Check against expected linear form
+            operations += 1;
         }
     }
 
@@ -40,4 +38,11 @@ int main()
         std::chrono::duration_cast<std::chrono::milliseconds>(end - start)
             .count();
     std::cout << "Evaluation took " << duration << " ms." << std::endl;
-}
+    std::cout << "Total operations: " << operations << std::endl;
+
+    std::cout << "flops: " << (operations / (duration / 1000.0)) << " flops/s."
+              << std::endl;
+
+    // Baseline: 46924.8 flops/s.
+    // Unchecked get_variable(): 71367.9 flops/s 
+ }

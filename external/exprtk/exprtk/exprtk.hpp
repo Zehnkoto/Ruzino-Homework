@@ -20701,6 +20701,14 @@ namespace exprtk
             return local_data().variable_store.get(variable_name);
       }
 
+      inline variable_ptr get_variable_unchecked(const std::string& variable_name) const
+      {
+          if (!valid())
+              return reinterpret_cast<variable_ptr>(0);
+          else
+              return local_data().variable_store.get(variable_name);
+      }
+
       inline variable_ptr get_variable(const T& var_ref) const
       {
          if (!valid())
