@@ -9,7 +9,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include "GCore/Components/MeshOperand.h"
+#include "GCore/Components/MeshComponent.h"
 #include "GCore/util_openmesh_bind.h"
 #include "nodes/core/def/node_def.hpp"
 using Vec = Eigen::Vector3d;

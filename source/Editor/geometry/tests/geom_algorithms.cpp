@@ -5,7 +5,7 @@
 
 #include <memory>
 
-#include "GCore/Components/MeshOperand.h"
+#include "GCore/Components/MeshComponent.h"
 #include "GCore/algorithms/intersection.h"
 #include "RHI/rhi.hpp"
 

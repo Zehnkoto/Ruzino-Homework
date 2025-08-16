@@ -1,6 +1,6 @@
 #include "GCore/util_openmesh_bind.h"
 
-#include "GCore/Components/MeshOperand.h"
+#include "GCore/Components/MeshComponent.h"
 USTC_CG_NAMESPACE_OPEN_SCOPE
 std::shared_ptr<PolyMesh> operand_to_openmesh(Geometry* mesh_oeprand)
 {

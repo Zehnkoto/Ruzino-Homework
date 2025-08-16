@@ -1,5 +1,5 @@
 ﻿#include "GCore/Components/CurveComponent.h"
-#include "GCore/Components/MeshOperand.h"
+#include "GCore/Components/MeshComponent.h"
 #include "geom_node_base.h"
 #include "pxr/base/gf/matrix3f.h"
 #include "pxr/base/gf/rotation.h"

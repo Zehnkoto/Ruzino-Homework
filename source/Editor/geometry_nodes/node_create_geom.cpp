@@ -1,6 +1,6 @@
 // #define __GNUC__
 #include "GCore/Components/CurveComponent.h"
-#include "GCore/Components/MeshOperand.h"
+#include "GCore/Components/MeshComponent.h"
 #include "GCore/Components/PointsComponent.h"
 #include "geom_node_base.h"
 #include "nodes/core/socket.hpp"

@@ -2,7 +2,7 @@
 
 #include "GCore/Components/CurveComponent.h"
 #include "GCore/Components/MaterialComponent.h"
-#include "GCore/Components/MeshOperand.h"
+#include "GCore/Components/MeshComponent.h"
 #include "GCore/Components/PointsComponent.h"
 #include "GCore/Components/XformComponent.h"
 #include "GCore/GOP.h"

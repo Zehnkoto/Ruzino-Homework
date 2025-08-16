@@ -1,4 +1,4 @@
-#include "GCore/Components/MeshOperand.h"
+#include "GCore/Components/MeshComponent.h"
 
 #include "GCore/GOP.h"
 #include "global_stage.hpp"

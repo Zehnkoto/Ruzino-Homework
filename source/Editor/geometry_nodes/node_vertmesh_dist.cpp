@@ -2,7 +2,7 @@
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
 #include <Eigen/Core>
-#include "GCore/Components/MeshOperand.h"
+#include "GCore/Components/MeshComponent.h"
 #include "GCore/util_openmesh_bind.h"
 #include <float.h>
 #include <cmath>

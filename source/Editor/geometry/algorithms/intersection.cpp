@@ -2,7 +2,7 @@
 
 #include <GPUContext/raytracing_context.hpp>
 
-#include "GCore/Components/MeshOperand.h"
+#include "GCore/Components/MeshComponent.h"
 #include "GCore/Components/XformComponent.h"
 #include "GPUContext/program_vars.hpp"
 #include "RHI/ResourceManager/resource_allocator.hpp"

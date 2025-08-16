@@ -3,7 +3,7 @@
 #include <openvdb/tools/ParticlesToLevelSet.h>
 #include <openvdb/tools/VolumeToMesh.h>
 
-#include "GCore/Components/MeshOperand.h"
+#include "GCore/Components/MeshComponent.h"
 #include "GCore/Components/PointsComponent.h"
 #include "geom_node_base.h"
 

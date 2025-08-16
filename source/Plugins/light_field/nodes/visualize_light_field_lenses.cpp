@@ -2,7 +2,7 @@
 #include "nodes/core/def/node_def.hpp"'
 #include <GCore/Components/PointsComponent.h>
 
-#include "GCore/Components/MeshOperand.h"
+#include "GCore/Components/MeshComponent.h"
 #include "light_field/light_field.h"
 
 NODE_DEF_OPEN_SCOPE

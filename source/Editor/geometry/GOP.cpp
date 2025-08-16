@@ -1,7 +1,7 @@
 #include "GCore/GOP.h"
 
 #include "GCore/Components.h"
-#include "GCore/Components/MeshOperand.h"
+#include "GCore/Components/MeshComponent.h"
 #include "GCore/Components/VolumeComponent.h"
 #include "GCore/Components/XformComponent.h"
 #include <spdlog/spdlog.h>

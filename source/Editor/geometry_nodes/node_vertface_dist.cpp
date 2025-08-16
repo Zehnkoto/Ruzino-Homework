@@ -1,4 +1,4 @@
-#include "GCore/Components/MeshOperand.h"
+#include "GCore/Components/MeshComponent.h"
 #include "GCore/util_openmesh_bind.h"
 #include "geom_node_base.h"
 #include <Eigen/Dense>

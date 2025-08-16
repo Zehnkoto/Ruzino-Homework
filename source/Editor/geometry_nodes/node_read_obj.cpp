@@ -6,7 +6,7 @@
 #include <filesystem>
 #include <iostream>
 
-#include "GCore/Components/MeshOperand.h"
+#include "GCore/Components/MeshComponent.h"
 #include "igl/readOBJ.h"
 #include "nodes/core/def/node_def.hpp"
 #include "pxr/base/arch/fileSystem.h"

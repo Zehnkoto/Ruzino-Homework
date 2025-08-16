@@ -1,4 +1,4 @@
-#include "GCore/Components/MeshOperand.h"
+#include "GCore/Components/MeshComponent.h"
 #include "geom_node_base.h"
 
 NODE_DEF_OPEN_SCOPE

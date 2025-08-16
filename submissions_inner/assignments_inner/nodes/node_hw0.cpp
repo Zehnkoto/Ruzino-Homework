@@ -9,7 +9,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "GCore/Components/MeshOperand.h"
+#include "GCore/Components/MeshComponent.h"
 #include "GCore/GOP.h"
 #include "nodes/core/def/node_def.hpp"
 #include "Eigen/Dense"
