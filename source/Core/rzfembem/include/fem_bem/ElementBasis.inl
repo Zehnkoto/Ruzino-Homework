@@ -151,33 +151,36 @@ auto ElementBasisWrapper<ProblemDim, Type>::create_linear_mapping(
         std::vector<double> u_vec = { static_cast<double>(u_values)... };
         std::vector<double> result(2, 0.0);  // x, y coordinates
 
-        // For 1D elements (BEM2D), we have 2 vertices and 1 barycentric
-        // coordinate u1 The second coordinate is u2 = 1 - u1
+        if (world_vertices.empty()) {
+            return result;
+        }
+
+        // For 1D elements (BEM2D), we have 2 vertices and 1 barycentric coordinate u1
+        // The second coordinate is u2 = 1 - u1
         if (u_vec.size() == 1 && world_vertices.size() >= 2) {
             double u1 = u_vec[0];
             double u2 = 1.0 - u1;
-            result[0] =
-                u1 * world_vertices[0][0] + u2 * world_vertices[1][0];  // x
-            result[1] =
-                u1 * world_vertices[0][1] + u2 * world_vertices[1][1];  // y
+            result[0] = u2 * world_vertices[0][0] + u1 * world_vertices[1][0];  // x
+            result[1] = u2 * world_vertices[0][1] + u1 * world_vertices[1][1];  // y
         }
-        // For 2D elements (FEM2D), we have 3 vertices and 2 barycentric
-        // coordinates u1, u2 The third coordinate is u3 = 1 - u1 - u2
+        // For 2D elements (FEM2D), we have 3 vertices and 2 barycentric coordinates u1, u2
+        // The third coordinate is u3 = 1 - u1 - u2
         else if (u_vec.size() == 2 && world_vertices.size() >= 3) {
             double u1 = u_vec[0];
             double u2 = u_vec[1];
             double u3 = 1.0 - u1 - u2;
-            result[0] = u1 * world_vertices[0][0] + u2 * world_vertices[1][0] +
-                        u3 * world_vertices[2][0];  // x
-            result[1] = u1 * world_vertices[0][1] + u2 * world_vertices[1][1] +
-                        u3 * world_vertices[2][1];  // y
+            result[0] = u3 * world_vertices[0][0] + u1 * world_vertices[1][0] + u2 * world_vertices[2][0];  // x
+            result[1] = u3 * world_vertices[0][1] + u1 * world_vertices[1][1] + u2 * world_vertices[2][1];  // y
         }
         else {
-            // Fallback for other cases
-            for (size_t i = 0; i < world_vertices.size() && i < u_vec.size();
-                 ++i) {
-                result[0] += u_vec[i] * world_vertices[i][0];  // x
-                result[1] += u_vec[i] * world_vertices[i][1];  // y
+            // Fallback: use first vertex as base
+            result[0] = world_vertices[0][0];
+            result[1] = world_vertices[0][1];
+            
+            // Add contributions from barycentric coordinates
+            for (size_t i = 0; i < u_vec.size() && i + 1 < world_vertices.size(); ++i) {
+                result[0] += u_vec[i] * (world_vertices[i + 1][0] - world_vertices[0][0]);
+                result[1] += u_vec[i] * (world_vertices[i + 1][1] - world_vertices[0][1]);
             }
         }
         return result;
@@ -191,55 +194,48 @@ auto ElementBasisWrapper<ProblemDim, Type>::create_linear_mapping(
         std::vector<double> u_vec = { static_cast<double>(u_values)... };
         std::vector<double> result(3, 0.0);  // x, y, z coordinates
 
-        // For 1D elements (BEM2D), we have 2 vertices and 1 barycentric
-        // coordinate u1
+        if (world_vertices.empty()) {
+            return result;
+        }
+
+        // For 1D elements (BEM2D), we have 2 vertices and 1 barycentric coordinate u1
         if (u_vec.size() == 1 && world_vertices.size() >= 2) {
             double u1 = u_vec[0];
             double u2 = 1.0 - u1;
-            result[0] =
-                u1 * world_vertices[0][0] + u2 * world_vertices[1][0];  // x
-            result[1] =
-                u1 * world_vertices[0][1] + u2 * world_vertices[1][1];  // y
-            result[2] =
-                u1 * world_vertices[0][2] + u2 * world_vertices[1][2];  // z
+            result[0] = u2 * world_vertices[0][0] + u1 * world_vertices[1][0];  // x
+            result[1] = u2 * world_vertices[0][1] + u1 * world_vertices[1][1];  // y
+            result[2] = u2 * world_vertices[0][2] + u1 * world_vertices[1][2];  // z
         }
-        // For 2D elements (BEM3D), we have 3 vertices and 2 barycentric
-        // coordinates u1, u2
+        // For 2D elements (BEM3D), we have 3 vertices and 2 barycentric coordinates u1, u2
         else if (u_vec.size() == 2 && world_vertices.size() >= 3) {
             double u1 = u_vec[0];
             double u2 = u_vec[1];
             double u3 = 1.0 - u1 - u2;
-            result[0] = u1 * world_vertices[0][0] + u2 * world_vertices[1][0] +
-                        u3 * world_vertices[2][0];  // x
-            result[1] = u1 * world_vertices[0][1] + u2 * world_vertices[1][1] +
-                        u3 * world_vertices[2][1];  // y
-            result[2] = u1 * world_vertices[0][2] + u2 * world_vertices[1][2] +
-                        u3 * world_vertices[2][2];  // z
+            result[0] = u3 * world_vertices[0][0] + u1 * world_vertices[1][0] + u2 * world_vertices[2][0];  // x
+            result[1] = u3 * world_vertices[0][1] + u1 * world_vertices[1][1] + u2 * world_vertices[2][1];  // y
+            result[2] = u3 * world_vertices[0][2] + u1 * world_vertices[1][2] + u2 * world_vertices[2][2];  // z
         }
-        // For 3D elements (FEM3D), we have 4 vertices and 3 barycentric
-        // coordinates u1, u2, u3
+        // For 3D elements (FEM3D), we have 4 vertices and 3 barycentric coordinates u1, u2, u3
         else if (u_vec.size() == 3 && world_vertices.size() >= 4) {
             double u1 = u_vec[0];
             double u2 = u_vec[1];
             double u3 = u_vec[2];
             double u4 = 1.0 - u1 - u2 - u3;
-            result[0] = u1 * world_vertices[0][0] + u2 * world_vertices[1][0] +
-                        u3 * world_vertices[2][0] +
-                        u4 * world_vertices[3][0];  // x
-            result[1] = u1 * world_vertices[0][1] + u2 * world_vertices[1][1] +
-                        u3 * world_vertices[2][1] +
-                        u4 * world_vertices[3][1];  // y
-            result[2] = u1 * world_vertices[0][2] + u2 * world_vertices[1][2] +
-                        u3 * world_vertices[2][2] +
-                        u4 * world_vertices[3][2];  // z
+            result[0] = u4 * world_vertices[0][0] + u1 * world_vertices[1][0] + u2 * world_vertices[2][0] + u3 * world_vertices[3][0];  // x
+            result[1] = u4 * world_vertices[0][1] + u1 * world_vertices[1][1] + u2 * world_vertices[2][1] + u3 * world_vertices[3][1];  // y
+            result[2] = u4 * world_vertices[0][2] + u1 * world_vertices[1][2] + u2 * world_vertices[2][2] + u3 * world_vertices[3][2];  // z
         }
         else {
-            // Fallback for other cases
-            for (size_t i = 0; i < world_vertices.size() && i < u_vec.size();
-                 ++i) {
-                result[0] += u_vec[i] * world_vertices[i][0];  // x
-                result[1] += u_vec[i] * world_vertices[i][1];  // y
-                result[2] += u_vec[i] * world_vertices[i][2];  // z
+            // Fallback: use first vertex as base
+            result[0] = world_vertices[0][0];
+            result[1] = world_vertices[0][1];
+            result[2] = world_vertices[0][2];
+            
+            // Add contributions from barycentric coordinates
+            for (size_t i = 0; i < u_vec.size() && i + 1 < world_vertices.size(); ++i) {
+                result[0] += u_vec[i] * (world_vertices[i + 1][0] - world_vertices[0][0]);
+                result[1] += u_vec[i] * (world_vertices[i + 1][1] - world_vertices[0][1]);
+                result[2] += u_vec[i] * (world_vertices[i + 1][2] - world_vertices[0][2]);
             }
         }
         return result;

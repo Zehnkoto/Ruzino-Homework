@@ -236,8 +236,17 @@ namespace fem_bem {
                 compose_with_mapping(expr, mapping_expr, barycentric_names);
         }
 
-        // Handle compound expressions or derivatives using numerical
-        // integration
+        // Always use numerical integration for mapped expressions or complex expressions
+        if constexpr (!std::is_same_v<MappingExpr, std::nullptr_t>) {
+            // For mapped expressions, always use numerical integration
+            auto evaluator = [&final_expr](const ParameterMap<real>& values) {
+                return final_expr.evaluate_at(values);
+            };
+            return integrate_numerical_generic(
+                evaluator, barycentric_names, intervals);
+        }
+
+        // Handle compound expressions or derivatives using numerical integration
         if (final_expr.derivative_evaluator_ ||
             (final_expr.is_compound_ && final_expr.outer_expression_) ||
             final_expr.has_bound_variables()) {
@@ -272,9 +281,7 @@ namespace fem_bem {
                 expr, mapping_expr, barycentric_names);
         }
         else {
-            // Create a compound expression that applies mapping then evaluates
-            // expr This will be implemented based on the mapping expression
-            // type
+            // For other mapping types, use template specialization
             return create_mapped_expression(
                 expr, mapping_expr, barycentric_names);
         }
@@ -329,6 +336,21 @@ namespace fem_bem {
                  ++i) {
                 values.insert_or_assign(
                     barycentric_names[i].c_str(), coords[i]);
+            }
+
+            // For missing barycentric coordinates, ensure they are set to 0
+            if (barycentric_names.size() == 1) {
+                // 1D case: u1, and u2 = 1-u1 (implicitly)
+                values.insert_or_assign("u1", coords.size() > 0 ? coords[0] : real(0));
+            } else if (barycentric_names.size() == 2) {
+                // 2D case: u1, u2, and u3 = 1-u1-u2 (implicitly)  
+                values.insert_or_assign("u1", coords.size() > 0 ? coords[0] : real(0));
+                values.insert_or_assign("u2", coords.size() > 1 ? coords[1] : real(0));
+            } else if (barycentric_names.size() == 3) {
+                // 3D case: u1, u2, u3, and u4 = 1-u1-u2-u3 (implicitly)
+                values.insert_or_assign("u1", coords.size() > 0 ? coords[0] : real(0));
+                values.insert_or_assign("u2", coords.size() > 1 ? coords[1] : real(0));
+                values.insert_or_assign("u3", coords.size() > 2 ? coords[2] : real(0));
             }
 
             return evaluator(values);
