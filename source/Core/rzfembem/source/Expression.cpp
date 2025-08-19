@@ -220,6 +220,30 @@ namespace fem_bem {
         }
         return *this;
     }
+    Expression Expression::from_string(const std::string& expr_str)
+    {
+        return Expression(expr_str);
+    }
+    Expression Expression::constant(real value)
+    {
+        return Expression(std::to_string(value));
+    }
+    Expression Expression::zero()
+    {
+        return Expression("0");
+    }
+    Expression Expression::one()
+    {
+        return Expression("1");
+    }
+    const std::string& Expression::get_string() const
+    {
+        return expression_string_;
+    }
+    bool Expression::is_string_based() const
+    {
+        return true;  // Regular expressions are always string-based
+    }
     Expression Expression::bind_variables(
         const ParameterMap<real>& bound_values) const
     {
@@ -242,6 +266,25 @@ namespace fem_bem {
         Expression closure = *this;
         closure.bound_variables_.insert_or_assign(var_name.c_str(), value);
         return closure;
+    }
+    bool Expression::has_bound_variables() const
+    {
+        return !bound_variables_.empty();
+    }
+    const ParameterMap<real>& Expression::get_bound_variables() const
+    {
+        return bound_variables_;
+    }
+    const Expression::expression_type* Expression::get_compiled_expression()
+        const
+    {
+        ensure_parsed();
+        return compiled_expression_.get();
+    }
+    const Expression::symbol_table_type* Expression::get_symbol_table() const
+    {
+        ensure_parsed();
+        return symbol_table_.get();
     }
 
     real Expression::evaluate_at(
@@ -409,6 +452,12 @@ namespace fem_bem {
             auto derivative_func = create_derivative_function(
                 expression_string_, variable_name, h);
             return DerivativeExpression(derivative_func, variable_name);
+        }
+    }
+    void Expression::ensure_parsed() const
+    {
+        if (!is_parsed_ || !compiled_expression_) {
+            parse_expression();
         }
     }
     void Expression::parse_expression() const
@@ -954,24 +1003,6 @@ namespace fem_bem {
         // Create compound expression that substitutes physical coordinates
         return Expression(expr, substitutions);
     }
-
-    // Create template function that is missing
-    template<typename MappingExpr>
-    Expression create_mapped_expression(
-        const Expression& expr,
-        const MappingExpr& mapping_expr,
-        const std::vector<std::string>& barycentric_names)
-    {
-        // For now, return the original expression as fallback
-        // This would need specific implementation based on MappingExpr type
-        return expr;
-    }
-
-    // Explicit instantiation for ParameterMap<Expression>
-    template Expression create_mapped_expression<ParameterMap<Expression>>(
-        const Expression& expr,
-        const ParameterMap<Expression>& mapping_expr,
-        const std::vector<std::string>& barycentric_names);
 
 }  // namespace fem_bem
 }  // namespace USTC_CG

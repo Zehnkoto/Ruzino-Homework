@@ -148,18 +148,21 @@ class FEMSolver2D : public ElementSolver {
                 // Now we assemble the stiffness matrix and load vector for the
                 // triangle
 
-                auto expressions = basis_->get_vertex_expression_strings();
+                // auto expressions = basis_->get_vertex_expression_strings();
 
-                auto triangle_area = compute_triangle_area(tri_verts);
+                // auto triangle_area = compute_triangle_area(tri_verts);
 
-                auto integral = basis_->integrate_vertex_against_with_mapping(
-                    "1-u1-u2", tri_verts);
-                triplets.emplace_back(
-                    vertex_id, vertex_id, integral[0] * triangle_area);
-                triplets.emplace_back(
-                    vertex_id, face_vertex_ids[0], integral[1] * triangle_area);
-                triplets.emplace_back(
-                    vertex_id, face_vertex_ids[1], integral[2] * triangle_area);
+                // auto integral =
+                // basis_->integrate_vertex_against_with_mapping(
+                //     "1-u1-u2", tri_verts);
+                // triplets.emplace_back(
+                //     vertex_id, vertex_id, integral[0] * triangle_area);
+                // triplets.emplace_back(
+                //     vertex_id, face_vertex_ids[0], integral[1] *
+                //     triangle_area);
+                // triplets.emplace_back(
+                //     vertex_id, face_vertex_ids[1], integral[2] *
+                //     triangle_area);
             }
         }
 

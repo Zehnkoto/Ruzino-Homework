@@ -53,51 +53,18 @@ namespace fem_bem {
         virtual ~Expression() = default;
 
         // Factory methods
-        static Expression from_string(const std::string& expr_str)
-        {
-            return Expression(expr_str);
-        }
-
-        static Expression constant(real value)
-        {
-            return Expression(std::to_string(value));
-        }
-
-        static Expression zero()
-        {
-            return Expression("0");
-        }
-
-        static Expression one()
-        {
-            return Expression("1");
-        }
+        static Expression from_string(const std::string& expr_str);
+        static Expression constant(real value);
+        static Expression zero();
+        static Expression one();
 
         // Basic properties
-        const std::string& get_string() const
-        {
-            return expression_string_;
-        }
+        const std::string& get_string() const;
 
         // Method to check if this is a string-based expression
-        virtual bool is_string_based() const
-        {
-            return true;  // Regular expressions are always string-based
-        }
+        virtual bool is_string_based() const;
 
         real evaluate_at(const ParameterMap<real>& variable_values) const;
-        // Arithmetic operations
-        Expression operator+(const Expression& other) const;
-
-        Expression operator-(const Expression& other) const;
-
-        Expression operator*(const Expression& other) const;
-
-        Expression operator/(const Expression& other) const;
-
-        Expression operator*(real scalar) const;
-
-        Expression operator-() const;
 
         // Derivative methods
         DerivativeExpression derivative(const std::string& variable_name) const;
@@ -111,28 +78,22 @@ namespace fem_bem {
         Expression bind_variable(const std::string& var_name, real value) const;
 
         // Check if expression has bound variables (is a closure)
-        bool has_bound_variables() const
-        {
-            return !bound_variables_.empty();
-        }
+        bool has_bound_variables() const;
 
-        const ParameterMap<real>& get_bound_variables() const
-        {
-            return bound_variables_;
-        }
+        const ParameterMap<real>& get_bound_variables() const;
 
         // Access to underlying exprtk objects (for advanced use)
-        const expression_type* get_compiled_expression() const
-        {
-            ensure_parsed();
-            return compiled_expression_.get();
-        }
+        const expression_type* get_compiled_expression() const;
 
-        const symbol_table_type* get_symbol_table() const
-        {
-            ensure_parsed();
-            return symbol_table_.get();
-        }
+        const symbol_table_type* get_symbol_table() const;
+
+        // Arithmetic operations
+        Expression operator+(const Expression& other) const;
+        Expression operator-(const Expression& other) const;
+        Expression operator*(const Expression& other) const;
+        Expression operator/(const Expression& other) const;
+        Expression operator*(real scalar) const;
+        Expression operator-() const;
 
        protected:
         // Protected members for derived classes to access
@@ -158,12 +119,7 @@ namespace fem_bem {
         // Closure support - pre-bound variables
         ParameterMap<real> bound_variables_;
 
-        void ensure_parsed() const
-        {
-            if (!is_parsed_ || !compiled_expression_) {
-                parse_expression();
-            }
-        }
+        void ensure_parsed() const;
 
        private:
         void parse_expression() const;
@@ -237,7 +193,8 @@ namespace fem_bem {
                 compose_with_mapping(expr, mapping_expr, barycentric_names);
         }
 
-        // Always use numerical integration for mapped expressions or complex expressions
+        // Always use numerical integration for mapped expressions or complex
+        // expressions
         if constexpr (!std::is_same_v<MappingExpr, std::nullptr_t>) {
             // For mapped expressions, always use numerical integration
             auto evaluator = [&final_expr](const ParameterMap<real>& values) {
@@ -247,7 +204,8 @@ namespace fem_bem {
                 evaluator, barycentric_names, intervals);
         }
 
-        // Handle compound expressions or derivatives using numerical integration
+        // Handle compound expressions or derivatives using numerical
+        // integration
         if (final_expr.derivative_evaluator_ ||
             (final_expr.is_compound_ && final_expr.outer_expression_) ||
             final_expr.has_bound_variables()) {
@@ -318,7 +276,12 @@ namespace fem_bem {
     Expression create_mapped_expression(
         const Expression& expr,
         const MappingExpr& mapping_expr,
-        const std::vector<std::string>& barycentric_names);
+        const std::vector<std::string>& barycentric_names)
+    {
+        // For now, return the original expression as fallback
+        // This would need specific implementation based on MappingExpr type
+        return expr;
+    }
 
     // Numerical integration for any expression type
     template<typename EvaluatorFunc>
@@ -342,16 +305,24 @@ namespace fem_bem {
             // For missing barycentric coordinates, ensure they are set to 0
             if (barycentric_names.size() == 1) {
                 // 1D case: u1, and u2 = 1-u1 (implicitly)
-                values.insert_or_assign("u1", coords.size() > 0 ? coords[0] : real(0));
-            } else if (barycentric_names.size() == 2) {
-                // 2D case: u1, u2, and u3 = 1-u1-u2 (implicitly)  
-                values.insert_or_assign("u1", coords.size() > 0 ? coords[0] : real(0));
-                values.insert_or_assign("u2", coords.size() > 1 ? coords[1] : real(0));
-            } else if (barycentric_names.size() == 3) {
+                values.insert_or_assign(
+                    "u1", coords.size() > 0 ? coords[0] : real(0));
+            }
+            else if (barycentric_names.size() == 2) {
+                // 2D case: u1, u2, and u3 = 1-u1-u2 (implicitly)
+                values.insert_or_assign(
+                    "u1", coords.size() > 0 ? coords[0] : real(0));
+                values.insert_or_assign(
+                    "u2", coords.size() > 1 ? coords[1] : real(0));
+            }
+            else if (barycentric_names.size() == 3) {
                 // 3D case: u1, u2, u3, and u4 = 1-u1-u2-u3 (implicitly)
-                values.insert_or_assign("u1", coords.size() > 0 ? coords[0] : real(0));
-                values.insert_or_assign("u2", coords.size() > 1 ? coords[1] : real(0));
-                values.insert_or_assign("u3", coords.size() > 2 ? coords[2] : real(0));
+                values.insert_or_assign(
+                    "u1", coords.size() > 0 ? coords[0] : real(0));
+                values.insert_or_assign(
+                    "u2", coords.size() > 1 ? coords[1] : real(0));
+                values.insert_or_assign(
+                    "u3", coords.size() > 2 ? coords[2] : real(0));
             }
 
             return evaluator(values);
