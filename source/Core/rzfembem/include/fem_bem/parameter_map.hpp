@@ -1,7 +1,11 @@
 #pragma once
+#include <atomic>
+#include <cassert>
 #include <cstring>
 #include <initializer_list>
 #include <utility>
+
+#include "api.h"
 
 // Compiler optimization hints
 #ifdef __GNUC__
@@ -23,6 +27,11 @@
 
 namespace USTC_CG {
 namespace fem_bem {
+
+    // Global counters for profiling
+    RZFEMBEM_API extern std::atomic<std::size_t> g_insert_or_assign_calls;
+    RZFEMBEM_API extern std::atomic<std::size_t> g_insert_unchecked_calls;
+    RZFEMBEM_API extern std::atomic<std::size_t> g_evaluate_calls;
 
     // Stack-based parameter map using fixed-size array
     // Ultra-lightweight optimized for small parameter lists with no dynamic
@@ -76,8 +85,35 @@ namespace fem_bem {
         {
             entries_[0].name[0] = '\0';
             for (const auto& pair : init) {
-                insert_or_assign(pair.first, pair.second);
+                insert_unchecked(pair.first, pair.second);
             }
+        }
+
+        ParameterMap<T>& operator=(const ParameterMap<T>& other) noexcept
+        {
+            if (!(this->size() == other.size() || this->empty() ||
+                  other.empty())) {
+                assert(false && "Incompatible ParameterMap assignment");
+            }
+
+            if (this != &other) {
+                size_ = other.size_;
+                for (std::size_t i = 0; i < size_; ++i) {
+                    entries_[i] = other.entries_[i];
+                }
+            }
+            return *this;
+        }
+
+        FORCE_INLINE void insert_unchecked(
+            const char* RESTRICT name,
+            const T& value) noexcept
+        {
+            ++g_insert_unchecked_calls;
+            Entry& entry = entries_[size_];
+            std::memcpy(entry.name, name, NameBufferSize);
+            entry.value = value;
+            ++size_;
         }
 
         // Ultra-fast insert or update - optimized for hot path
@@ -85,6 +121,7 @@ namespace fem_bem {
             const char* RESTRICT name,
             const T& value) noexcept
         {
+            ++g_insert_or_assign_calls;
             // Fast path for single character names (most common case)
             if (LIKELY(name[1] == '\0')) {
                 const char ch = name[0];
@@ -102,6 +139,31 @@ namespace fem_bem {
                     Entry& entry = entries_[size_];
                     entry.name[0] = ch;
                     entry.name[1] = '\0';
+                    entry.value = value;
+                    ++size_;
+                    return;
+                }
+            }
+            else if (name[2] == '\0') {
+                // Fast path for two-character names
+                const char ch1 = name[0];
+                const char ch2 = name[1];
+                for (std::size_t i = 0; LIKELY(i < size_); ++i) {
+                    Entry& entry = entries_[i];
+                    if (LIKELY(
+                            entry.name[0] == ch1 && entry.name[1] == ch2 &&
+                            entry.name[2] == '\0')) {
+                        entry.value = value;
+                        return;
+                    }
+                }
+
+                // Insert new two-char entry
+                if (LIKELY(size_ < MaxSize)) {
+                    Entry& entry = entries_[size_];
+                    entry.name[0] = ch1;
+                    entry.name[1] = ch2;
+                    entry.name[2] = '\0';
                     entry.value = value;
                     ++size_;
                     return;

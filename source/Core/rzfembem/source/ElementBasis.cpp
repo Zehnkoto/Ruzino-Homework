@@ -234,29 +234,8 @@ const std::vector<std::string>& ElementBasis::get_barycentric_names() const
 }
 Expression ElementBasis::create_expression(const std::string& expr_str) const
 {
-    // Collect all possible variable names that might be needed
-    std::vector<std::string> all_vars;
-
-    // Add barycentric variables for this element
-    for (const auto& name : barycentric_names_) {
-        all_vars.push_back(name);
-    }
-
-    // Add physical coordinate variables for mapping support
-    all_vars.push_back("x");
-    all_vars.push_back("y");
-    all_vars.push_back("z");
-
-    // Add ALL possible barycentric coordinates (u1, u2, u3)
-    all_vars.push_back("u1");
-    all_vars.push_back("u2");
-    all_vars.push_back("u3");
-
-    // Add test-specific variables for compatibility
-    all_vars.push_back("undefined_var");
-
     // Create expression with pre-defined variables
-    return Expression(expr_str, all_vars);
+    return Expression(expr_str);
 }
 void ElementBasis::setup_barycentric_variables()
 {

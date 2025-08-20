@@ -78,7 +78,6 @@ namespace fem_bem {
         unsigned element_dimension_;
         ElementBasisType type_;
 
-        // Barycentric variables for expression parsing
         std::vector<std::string> barycentric_names_;
 
         // Expression storage

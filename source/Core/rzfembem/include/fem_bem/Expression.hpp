@@ -73,9 +73,8 @@ namespace fem_bem {
             const std::vector<std::string>& variable_names) const;
 
         // Closure methods - bind specific variables to values
-        Expression bind_variables(const ParameterMap<real>& bound_values) const;
-
-        Expression bind_variable(const std::string& var_name, real value) const;
+        void bind_variables(const ParameterMap<real>& bound_values);
+        void bind_variable(const std::string& var_name, real value);
 
         // Check if expression has bound variables (is a closure)
         bool has_bound_variables() const;
@@ -98,6 +97,8 @@ namespace fem_bem {
        protected:
         // Protected members for derived classes to access
         std::string expression_string_;
+
+        bool has_bound_variable_ = false;
 
         // Parsed expression components
         mutable std::unique_ptr<symbol_table_type> symbol_table_;
@@ -296,32 +297,32 @@ namespace fem_bem {
             for (std::size_t i = 0;
                  i < coords.size() && i < barycentric_names.size();
                  ++i) {
-                values.insert_or_assign(
+                values.insert_unchecked(
                     barycentric_names[i].c_str(), coords[i]);
             }
 
-            // For missing barycentric coordinates, ensure they are set to 0
-            if (barycentric_names.size() == 1) {
-                // 1D case: u1, and u2 = 1-u1 (implicitly)
-                values.insert_or_assign(
-                    "u1", coords.size() > 0 ? coords[0] : real(0));
-            }
-            else if (barycentric_names.size() == 2) {
-                // 2D case: u1, u2, and u3 = 1-u1-u2 (implicitly)
-                values.insert_or_assign(
-                    "u1", coords.size() > 0 ? coords[0] : real(0));
-                values.insert_or_assign(
-                    "u2", coords.size() > 1 ? coords[1] : real(0));
-            }
-            else if (barycentric_names.size() == 3) {
-                // 3D case: u1, u2, u3, and u4 = 1-u1-u2-u3 (implicitly)
-                values.insert_or_assign(
-                    "u1", coords.size() > 0 ? coords[0] : real(0));
-                values.insert_or_assign(
-                    "u2", coords.size() > 1 ? coords[1] : real(0));
-                values.insert_or_assign(
-                    "u3", coords.size() > 2 ? coords[2] : real(0));
-            }
+            //// For missing barycentric coordinates, ensure they are set to 0
+            //if (barycentric_names.size() == 1) {
+            //    // 1D case: u1, and u2 = 1-u1 (implicitly)
+            //    values.insert_unchecked(
+            //        "u1", coords.size() > 0 ? coords[0] : real(0));
+            //}
+            //else if (barycentric_names.size() == 2) {
+            //    // 2D case: u1, u2, and u3 = 1-u1-u2 (implicitly)
+            //    values.insert_unchecked(
+            //        "u1", coords.size() > 0 ? coords[0] : real(0));
+            //    values.insert_unchecked(
+            //        "u2", coords.size() > 1 ? coords[1] : real(0));
+            //}
+            //else if (barycentric_names.size() == 3) {
+            //    // 3D case: u1, u2, u3, and u4 = 1-u1-u2-u3 (implicitly)
+            //    values.insert_unchecked(
+            //        "u1", coords.size() > 0 ? coords[0] : real(0));
+            //    values.insert_unchecked(
+            //        "u2", coords.size() > 1 ? coords[1] : real(0));
+            //    values.insert_unchecked(
+            //        "u3", coords.size() > 2 ? coords[2] : real(0));
+            //}
 
             return evaluator(values);
         };

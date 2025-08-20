@@ -77,10 +77,16 @@ namespace fem_bem {
           is_compound_(true)
     {
         // Build compound expression string for display
-        expression_string_ = outer_expr.get_string();
+        expression_string_ = outer_expr.get_string() +
+                             " with "
+                             "substitutions: ";
+        for (const auto& pair : substitution_map_) {
+            expression_string_ += std::string(pair.first) + " = " +
+                                  pair.second.get_string() + ", ";
+        }
 
         // Apply recursive substitution logic
-        apply_recursive_substitution();
+        // apply_recursive_substitution();
     }
     Expression::Expression(
         const Expression& outer_expr,
@@ -90,10 +96,16 @@ namespace fem_bem {
           is_compound_(true)
     {
         // Build compound expression string for display
-        expression_string_ = outer_expr.get_string();
+        expression_string_ = outer_expr.get_string() +
+                             " with "
+                             "substitutions: ";
+        for (const auto& pair : substitution_map_) {
+            expression_string_ += std::string(pair.first) + " = " +
+                                  pair.second.get_string() + ", ";
+        }
 
         // Apply recursive substitution logic
-        apply_recursive_substitution();
+        // apply_recursive_substitution();
     }
 
     Expression::Expression(const Expression& other)
@@ -107,8 +119,11 @@ namespace fem_bem {
           substitution_map_(other.substitution_map_),
           derivative_evaluator_(other.derivative_evaluator_),
           has_derivative_evaluator_(other.has_derivative_evaluator_),
-          variables_(other.variables_)
+          has_bound_variable_(other.has_bound_variable_)
     {
+        if (has_bound_variable_) {
+            variables_ = other.variables_;
+        }
     }
     Expression& Expression::operator=(const Expression& other)
     {
@@ -125,7 +140,9 @@ namespace fem_bem {
             substitution_map_ = other.substitution_map_;
             derivative_evaluator_ = other.derivative_evaluator_;
             has_derivative_evaluator_ = other.has_derivative_evaluator_;
-            variables_ = other.variables_;
+            has_bound_variable_ = other.has_bound_variable_;
+            if (has_bound_variable_)
+                variables_ = other.variables_;
         }
         return *this;
     }
@@ -153,32 +170,26 @@ namespace fem_bem {
     {
         return true;  // Regular expressions are always string-based
     }
-    Expression Expression::bind_variables(
-        const ParameterMap<real>& bound_values) const
+    void Expression::bind_variables(const ParameterMap<real>& bound_values)
     {
-        Expression closure = *this;
-
         // Merge bound values with existing ones
         for (std::size_t i = 0; i < bound_values.size(); ++i) {
             const char* name = bound_values.get_name_at(i);
             const real& value = bound_values.get_value_at(i);
-            closure.variables_.insert_or_assign(name, value);
+            variables_.insert_or_assign(name, value);
         }
 
-        return closure;
+        has_bound_variable_ = true;
     }
 
-    Expression Expression::bind_variable(
-        const std::string& var_name,
-        real value) const
+    void Expression::bind_variable(const std::string& var_name, real value)
     {
-        Expression closure = *this;
-        closure.variables_.insert_or_assign(var_name.c_str(), value);
-        return closure;
+        variables_.insert_or_assign(var_name.c_str(), value);
+        has_bound_variable_ = true;
     }
     bool Expression::has_bound_variables() const
     {
-        return !variables_.empty();
+        return has_bound_variable_;
     }
     const ParameterMap<real>& Expression::get_bound_variables() const
     {
@@ -199,33 +210,29 @@ namespace fem_bem {
     real Expression::evaluate_at(
         const ParameterMap<real>& variable_values) const
     {
-        // Handle expressions created from DerivativeExpression
-        if (has_derivative_evaluator_) {
-            // Merge bound variables with provided values
-            ParameterMap<real> merged_values = variables_;
-            for (std::size_t i = 0; i < variable_values.size(); ++i) {
-                const char* name = variable_values.get_name_at(i);
-                const real& value = variable_values.get_value_at(i);
-                merged_values.insert_or_assign(name, value);
-            }
-            return derivative_evaluator_(merged_values);
-        }
+        ++g_evaluate_calls;
 
         // Handle compound expressions
         if (is_compound_ && outer_expression_) {
             // Merge bound variables with provided values for substitution
             // evaluation
-            if (variables_.empty())
-                variables_ = variable_values;
-            else
-                for (std::size_t i = 0; i < variable_values.size(); ++i) {
-                    const char* name = variable_values.get_name_at(i);
+
+            for (std::size_t i = 0; i < variable_values.size(); ++i) {
+                const char* name = variable_values.get_name_at(i);
+
+                if (std::find_if(
+                        substitution_map_.begin(),
+                        substitution_map_.end(),
+                        [&name](const auto& pair) {
+                            return std::strcmp(pair.first, name) == 0;
+                        }) == substitution_map_.end()) {
                     const real& value = variable_values.get_value_at(i);
-                    variables_.insert_or_assign(name, value);
+                    outer_expression_->bind_variable(name, value);
                 }
+            }
 
             // Evaluate substitutions
-            ParameterMap<real> outer_values;
+            ParameterMap<real> outer_values = variables_;
             for (std::size_t i = 0; i < substitution_map_.size(); ++i) {
                 const auto& pair = substitution_map_[i];
                 real sub_result = pair.second.evaluate_at(variable_values);
@@ -235,14 +242,20 @@ namespace fem_bem {
             return outer_expression_->evaluate_at(outer_values);
         }
 
-        if (variables_.empty())
+        if (variables_.empty() || !has_bound_variable_) {
             variables_ = variable_values;
+        }
         else
             for (std::size_t i = 0; i < variable_values.size(); ++i) {
                 const char* name = variable_values.get_name_at(i);
                 const real& value = variable_values.get_value_at(i);
                 variables_.insert_or_assign(name, value);
             }
+
+        // Handle expressions created from DerivativeExpression
+        if (has_derivative_evaluator_) {
+            return derivative_evaluator_(variables_);
+        }
 
         // Standard evaluation for non-compound expressions
         if (!is_parsed_ || !compiled_expression_) {

@@ -40,7 +40,7 @@ namespace fem_bem {
                 "x0", static_cast<real>(world_vertices[0][0]));
             x_bindings.insert_or_assign(
                 "x1", static_cast<real>(world_vertices[1][0]));
-            x_expr = x_expr.bind_variables(x_bindings);
+            x_expr.bind_variables(x_bindings);
 
             // Create y mapping: (1-u1)*y0 + u1*y1
             std::vector<std::string> y_vars = { "u1", "y0", "y1" };
@@ -50,7 +50,7 @@ namespace fem_bem {
                 "y0", static_cast<real>(world_vertices[0][1]));
             y_bindings.insert_or_assign(
                 "y1", static_cast<real>(world_vertices[1][1]));
-            y_expr = y_expr.bind_variables(y_bindings);
+            y_expr.bind_variables(y_bindings);
 
             coord_mapping.insert_or_assign("x", x_expr);
             coord_mapping.insert_or_assign("y", y_expr);
@@ -70,7 +70,7 @@ namespace fem_bem {
                 "x1", static_cast<real>(world_vertices[1][0]));
             x_bindings.insert_or_assign(
                 "x2", static_cast<real>(world_vertices[2][0]));
-            x_expr = x_expr.bind_variables(x_bindings);
+            x_expr.bind_variables(x_bindings);
 
             // Create y mapping: (1-u1-u2)*y0 + u1*y1 + u2*y2
             std::vector<std::string> y_vars = { "u1", "u2", "y0", "y1", "y2" };
@@ -82,7 +82,7 @@ namespace fem_bem {
                 "y1", static_cast<real>(world_vertices[1][1]));
             y_bindings.insert_or_assign(
                 "y2", static_cast<real>(world_vertices[2][1]));
-            y_expr = y_expr.bind_variables(y_bindings);
+            y_expr.bind_variables(y_bindings);
 
             coord_mapping.insert_or_assign("x", x_expr);
             coord_mapping.insert_or_assign("y", y_expr);
@@ -120,7 +120,7 @@ namespace fem_bem {
                 ("x" + std::to_string(i)).c_str(),
                 static_cast<real>(world_vertices[i][0]));
         }
-        x_expr = x_expr.bind_variables(x_bindings);
+        x_expr.bind_variables(x_bindings);
 
         // Build the base expression string for y coordinate
         std::string y_base = "(1";
@@ -149,7 +149,7 @@ namespace fem_bem {
                 ("y" + std::to_string(i)).c_str(),
                 static_cast<real>(world_vertices[i][1]));
         }
-        y_expr = y_expr.bind_variables(y_bindings);
+        y_expr.bind_variables(y_bindings);
 
         coord_mapping.insert_or_assign("x", x_expr);
         coord_mapping.insert_or_assign("y", y_expr);
@@ -192,7 +192,7 @@ namespace fem_bem {
                 "x0", static_cast<real>(world_vertices[0][0]));
             x_bindings.insert_or_assign(
                 "x1", static_cast<real>(world_vertices[1][0]));
-            x_expr = x_expr.bind_variables(x_bindings);
+            x_expr.bind_variables(x_bindings);
 
             // Create y mapping
             std::vector<std::string> y_vars = { "u1", "y0", "y1" };
@@ -202,7 +202,7 @@ namespace fem_bem {
                 "y0", static_cast<real>(world_vertices[0][1]));
             y_bindings.insert_or_assign(
                 "y1", static_cast<real>(world_vertices[1][1]));
-            y_expr = y_expr.bind_variables(y_bindings);
+            y_expr.bind_variables(y_bindings);
 
             // Create z mapping
             std::vector<std::string> z_vars = { "u1", "z0", "z1" };
@@ -212,7 +212,7 @@ namespace fem_bem {
                 "z0", static_cast<real>(world_vertices[0][2]));
             z_bindings.insert_or_assign(
                 "z1", static_cast<real>(world_vertices[1][2]));
-            z_expr = z_expr.bind_variables(z_bindings);
+            z_expr.bind_variables(z_bindings);
 
             coord_mapping.insert_or_assign("x", x_expr);
             coord_mapping.insert_or_assign("y", y_expr);
@@ -233,7 +233,7 @@ namespace fem_bem {
                 "x1", static_cast<real>(world_vertices[1][0]));
             x_bindings.insert_or_assign(
                 "x2", static_cast<real>(world_vertices[2][0]));
-            x_expr = x_expr.bind_variables(x_bindings);
+            x_expr.bind_variables(x_bindings);
 
             // Create y mapping
             std::vector<std::string> y_vars = { "u1", "u2", "y0", "y1", "y2" };
@@ -245,7 +245,7 @@ namespace fem_bem {
                 "y1", static_cast<real>(world_vertices[1][1]));
             y_bindings.insert_or_assign(
                 "y2", static_cast<real>(world_vertices[2][1]));
-            y_expr = y_expr.bind_variables(y_bindings);
+            y_expr.bind_variables(y_bindings);
 
             // Create z mapping
             std::vector<std::string> z_vars = { "u1", "u2", "z0", "z1", "z2" };
@@ -257,7 +257,7 @@ namespace fem_bem {
                 "z1", static_cast<real>(world_vertices[1][2]));
             z_bindings.insert_or_assign(
                 "z2", static_cast<real>(world_vertices[2][2]));
-            z_expr = z_expr.bind_variables(z_bindings);
+            z_expr.bind_variables(z_bindings);
 
             coord_mapping.insert_or_assign("x", x_expr);
             coord_mapping.insert_or_assign("y", y_expr);
@@ -283,7 +283,7 @@ namespace fem_bem {
                 "x2", static_cast<real>(world_vertices[2][0]));
             x_bindings.insert_or_assign(
                 "x3", static_cast<real>(world_vertices[3][0]));
-            x_expr = x_expr.bind_variables(x_bindings);
+            x_expr.bind_variables(x_bindings);
 
             // Similar for y and z
             std::vector<std::string> y_vars = { "u1", "u2", "u3", "y0",
@@ -300,7 +300,7 @@ namespace fem_bem {
                 "y2", static_cast<real>(world_vertices[2][1]));
             y_bindings.insert_or_assign(
                 "y3", static_cast<real>(world_vertices[3][1]));
-            y_expr = y_expr.bind_variables(y_bindings);
+            y_expr.bind_variables(y_bindings);
 
             std::vector<std::string> z_vars = { "u1", "u2", "u3", "z0",
                                                 "z1", "z2", "z3" };
@@ -316,7 +316,7 @@ namespace fem_bem {
                 "z2", static_cast<real>(world_vertices[2][2]));
             z_bindings.insert_or_assign(
                 "z3", static_cast<real>(world_vertices[3][2]));
-            z_expr = z_expr.bind_variables(z_bindings);
+            z_expr.bind_variables(z_bindings);
 
             coord_mapping.insert_or_assign("x", x_expr);
             coord_mapping.insert_or_assign("y", y_expr);
@@ -365,7 +365,7 @@ namespace fem_bem {
                 coord_bindings.insert_or_assign(
                     (var_prefix + std::to_string(i)).c_str(), coord_value);
             }
-            coord_expr = coord_expr.bind_variables(coord_bindings);
+            coord_expr.bind_variables(coord_bindings);
 
             coord_mapping.insert_or_assign(coord_name.c_str(), coord_expr);
         }
