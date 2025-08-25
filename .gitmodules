@@ -16,18 +16,12 @@
 [submodule "external/nanobind"]
 	path = external/nanobind
 	url = https://github.com/wjakob/nanobind.git
-[submodule "external/libigl"]
-	path = external/libigl
-	url = https://github.com/libigl/libigl.git
 [submodule "external/autodiff"]
 	path = external/autodiff
 	url = https://github.com/autodiff/autodiff.git
 [submodule "external/eigen"]
 	path = external/eigen
 	url = https://gitlab.com/libeigen/eigen.git
-[submodule "external/OpenMesh"]
-	path = external/OpenMesh
-	url = https://gitlab.vci.rwth-aachen.de:9000/OpenMesh/OpenMesh.git
 [submodule "source/Core/rznode"]
 	path = source/Core/rznode
 	url = https://github.com/Jerry-Shen0527/rznode.git
