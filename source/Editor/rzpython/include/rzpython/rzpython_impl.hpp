@@ -3,6 +3,7 @@
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/vector.h>
 #include <nanobind/stl/string.h>
+#include <nanobind/ndarray.h>
 
 #include <stdexcept>
 #include <unordered_map>
@@ -76,6 +77,29 @@ template<typename T>
 void bind_object(const std::string& name, T* obj)
 {
     reference(name, obj);
+}
+
+template<typename T>
+void send(const std::string& name, const T& value)
+{
+    if (!initialized) {
+        throw std::runtime_error("Python interpreter not initialized");
+    }
+
+    try {
+        // Create nanobind object from the C++ value
+        nb::object py_obj = nb::cast(value);
+
+        // Store in our map to keep it alive
+        bound_objects[name] = py_obj;
+
+        // Add to Python's main dict
+        PyDict_SetItemString(main_dict, name.c_str(), py_obj.ptr());
+    }
+    catch (const std::exception& e) {
+        throw std::runtime_error(
+            "Failed to send value to Python variable '" + name + "': " + e.what());
+    }
 }
 
 }  // namespace python
