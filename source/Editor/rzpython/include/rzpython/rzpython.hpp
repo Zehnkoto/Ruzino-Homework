@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Python.h>
+
 #include "api.h"
 
 USTC_CG_NAMESPACE_OPEN_SCOPE
