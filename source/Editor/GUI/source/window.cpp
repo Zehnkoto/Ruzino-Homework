@@ -247,9 +247,8 @@ void DockingImguiRenderer::buildUI()
     // Temporarily restore normal padding for menu bar
     ImGui::PopStyleVar(1); // Pop the WindowPadding
     drawMenuBar();
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f)); // Push it back
 
-    ImGui::PopStyleVar(3);
+    ImGui::PopStyleVar(2);
     ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
 
     ImGui::DockSpace(
@@ -257,9 +256,7 @@ void DockingImguiRenderer::buildUI()
         ImVec2(0.0f, 0.0f),
         ImGuiDockNodeFlags_PassthruCentralNode);    std::vector<IWidget*> widget_to_remove;
     for (auto& widget : widgets_) {
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
         if (widget->Begin()) {
-            ImGui::PopStyleVar(1);
 
             // Draw widget-specific menu bar if it has one
             if (widget->HasMenuBar()) {
@@ -275,9 +272,6 @@ void DockingImguiRenderer::buildUI()
 
             widget->BuildUI();
             widget->SetStatus();
-        }
-        else {
-            ImGui::PopStyleVar(1);
         }
 
         widget->End();

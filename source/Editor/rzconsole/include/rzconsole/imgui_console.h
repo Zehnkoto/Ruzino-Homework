@@ -94,6 +94,8 @@ class RZCONSOLE_API ImGui_Console : public IWidget {
 
     void Print(std::string_view line);
 
+    void PrintWithSeverity(const char* text, LogSeverity severity);
+
     void ClearLog();
 
     void ClearHistory();

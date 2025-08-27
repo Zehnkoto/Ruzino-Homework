@@ -22,8 +22,16 @@ void console_sink<Mutex>::sink_it_(const spdlog::details::log_msg& msg) {
             formatted_str.pop_back();
         }
         
-        // Forward to console - using direct Print method
-        console_->Print(formatted_str.c_str());
+        // Forward to console with severity - create LogItem directly
+        LogSeverity severity = LogSeverity::Info;
+        switch (msg.level) {
+            case spdlog::level::warn: severity = LogSeverity::Warning; break;
+            case spdlog::level::err: 
+            case spdlog::level::critical: severity = LogSeverity::Error; break;
+            default: severity = LogSeverity::Info; break;
+        }
+        
+        console_->PrintWithSeverity(formatted_str.c_str(), severity);
     }
 }
 
@@ -40,17 +48,14 @@ void setup_console_logging(ImGui_Console* console) {
     auto sink = get_global_console_sink();
     sink->set_console(console);
     
-    // Create logger with console sink
+    // Create logger with console sink only
     auto logger = std::make_shared<spdlog::logger>("console", sink);
     logger->set_level(spdlog::level::trace);
+    logger->flush_on(spdlog::level::trace);
     
-    // Set as default logger if the function exists
-    try {
-        spdlog::set_default_logger(logger);
-    } catch (...) {
-        // Fallback: just use the logger directly
-        // Users can manually call spdlog::get("console")->info(...) etc.
-    }
+    // Set as default logger
+    spdlog::set_default_logger(logger);
+    spdlog::flush_every(std::chrono::seconds(1));
 }
 
 std::shared_ptr<spdlog::logger> create_console_logger(

@@ -120,6 +120,15 @@ void ImGui_Console::Print(std::string_view line)
     m_ItemsLog.push_back(item);
 }
 
+void ImGui_Console::PrintWithSeverity(const char* text, LogSeverity severity)
+{
+    LogItem item;
+    item.severity = severity;
+    item.textColor = getSeverityColor(severity);
+    item.text = text;
+    m_ItemsLog.push_back(item);
+}
+
 void ImGui_Console::ClearLog()
 {
     m_ItemsLog.clear();

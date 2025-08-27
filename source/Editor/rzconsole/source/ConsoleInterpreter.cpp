@@ -22,11 +22,10 @@
 
 #include <rzconsole/ConsoleInterpreter.h>
 #include <rzconsole/ConsoleObjects.h>
-#include <spdlog/spdlog.h>
 #include <rzconsole/string_utils.h>
+#include <spdlog/spdlog.h>
 
 #include <cassert>
-
 
 USTC_CG_NAMESPACE_OPEN_SCOPE
 namespace console {
@@ -214,8 +213,7 @@ Interpreter::Result Interpreter::Execute(std::string_view const cmdline)
     }
     else
         spdlog::error(
-            "no console object with name '{}' found",
-            std::string(args[0]));
+            "no console object with name '{}' found", std::string(args[0]));
 
     return { false };
 }

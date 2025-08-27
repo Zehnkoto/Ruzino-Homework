@@ -4,6 +4,7 @@
 #include <rzconsole/ConsoleInterpreter.h>
 #include <rzconsole/ConsoleObjects.h>
 #include <rzconsole/imgui_console.h>
+#include <rzconsole/spdlog_console_sink.h>
 #include <spdlog/spdlog.h>
 
 #include <memory>
@@ -47,6 +48,9 @@ class ConsoleWidgetFactory : public IWidgetFactory {
 
         auto console = std::make_unique<ImGui_Console>(interpreter, opts);
 
+        // Setup spdlog integration AFTER creating console
+        setup_console_logging(console.get());
+
         // Add some initial messages
         console->Print("Console initialized successfully!");
         console->Print("Type 'help' for available commands");
@@ -59,20 +63,9 @@ class ConsoleWidgetFactory : public IWidgetFactory {
 
 int main()
 {
-    Window window;
-    window.register_openable_widget(
-        std::make_unique<ConsoleWidgetFactory>(), { "Tools", "Console" });
-
-    // For testing, we'll run for a short time
-    // In practice, this would run until the window is closed
-    window.run();
-}
-
-TEST(Console, DirectWidget)
-{
     // Create console directly
     auto interpreter = std::make_shared<console::Interpreter>();
-    
+
     // Register a simple test command
     console::CommandDesc echo_cmd = {
         "echo",
@@ -89,13 +82,12 @@ TEST(Console, DirectWidget)
 
     ImGui_Console::Options opts;
     auto console = std::make_unique<ImGui_Console>(interpreter, opts);
-    
-    console->Print("Direct widget console test");
-    
-    Window window;
-    window.register_widget(std::move(console));
 
-    // For testing, we'll run for a short time
-    // In practice, this would run until the window is closed
-    // window.run();
+    console->Print("Direct widget console test");
+
+    Window window;
+    setup_console_logging(console.get());
+
+    window.register_widget(std::move(console));
+    window.run();
 }
