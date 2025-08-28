@@ -88,12 +88,16 @@ int main()
     auto console = std::make_unique<ImGui_Console>(interpreter, opts);
 
     console->Print("Python Interactive Console Test");
-    console->Print("Available commands:");
-    console->Print("  help - Show help");
-    console->Print("  test - Python integration test");
-    console->Print("  math_test - Math operations test");
-    console->Print("  python <code> - Execute Python code");
-    console->Print("Direct Python: x = 10; print(x)");
+    console->Print("Python commands are handled directly:");
+    console->Print("  x = 10        # Assignment");
+    console->Print("  x             # Variable lookup");  
+    console->Print("  print('hi')   # Function calls");
+    console->Print("  2 + 3         # Expressions");
+    console->Print("");
+    console->Print("Console commands:");
+    console->Print("  help          # Show help");
+    console->Print("  math_test     # Math operations test");
+    console->Print("  python <code> # Explicit Python execution");
 
     Window window;
     setup_console_logging(console.get());

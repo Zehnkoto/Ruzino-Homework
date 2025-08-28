@@ -174,7 +174,7 @@ Interpreter::Result Interpreter::Execute(std::string_view const cmdline)
     if (cmdline.empty())
         return { false };
 
-    // Check if derived class wants to handle this command directly
+    // Check if derived class wants to handle this command directly FIRST
     if (ShouldHandleCommand(cmdline)) {
         return HandleDirectExecution(cmdline);
     }
@@ -208,9 +208,15 @@ Interpreter::Result Interpreter::Execute(std::string_view const cmdline)
             return { status, output };
         }
     }
-    else
+    else {
+        // If no console command found, let derived class try to handle it
+        if (ShouldHandleCommand(cmdline)) {
+            return HandleDirectExecution(cmdline);
+        }
+        
         spdlog::error(
             "no console object with name '{}' found", std::string(args[0]));
+    }
 
     return { false };
 }

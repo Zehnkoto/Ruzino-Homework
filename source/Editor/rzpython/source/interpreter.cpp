@@ -2,12 +2,12 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
-#include <cctype>
 #include <rzpython/interpreter.hpp>
 #include <rzpython/rzpython.hpp>
 
-USTC_CG_NAMESPACE_OPEN_SCOPE
+#include "rzconsole/string_utils.h"
 
+USTC_CG_NAMESPACE_OPEN_SCOPE
 namespace python {
 
 PythonInterpreter::PythonInterpreter() : python_initialized_(false)
@@ -74,7 +74,31 @@ PythonInterpreter::~PythonInterpreter()
 
 bool PythonInterpreter::ShouldHandleCommand(std::string_view command) const
 {
-    return python_initialized_ && IsPythonCode(command);
+    // Changed logic: Handle as Python unless it's a registered console command
+    if (!python_initialized_) {
+        return false;
+    }
+
+    // Parse the command to get the first token
+    auto tokens = ds::split(command);
+    if (tokens.empty()) {
+        return false;
+    }
+
+    std::string first_token(tokens[0]);
+
+    // Check if it's a registered console command first
+    if (console::FindCommand(first_token)) {
+        return false;  // Let console handle it
+    }
+
+    // Check if it's our Python-specific commands
+    if (first_token == "python" || first_token == "exec") {
+        return false;  // Let console handle it
+    }
+
+    // Everything else should be handled as Python
+    return true;
 }
 
 PythonInterpreter::Result PythonInterpreter::HandleDirectExecution(
@@ -143,37 +167,9 @@ bool PythonInterpreter::IsValidCommand(std::string_view command) const
 
 bool PythonInterpreter::IsPythonCode(std::string_view code) const
 {
-    if (code.empty())
-        return false;
-
-    // Simple heuristics to detect Python code
-    // Look for Python keywords or syntax
-    static const std::vector<std::string> python_keywords = {
-        "import", "from",  "def",   "class", "if",     "else",
-        "elif",   "for",   "while", "try",   "except", "finally",
-        "with",   "print", "len",   "range", "lambda"
-    };
-
-    // Check for assignment operator
-    if (code.find('=') != std::string_view::npos &&
-        code.find("==") == std::string_view::npos) {
-        return true;
-    }
-
-    // Check for function calls with parentheses
-    if (code.find('(') != std::string_view::npos &&
-        code.find(')') != std::string_view::npos) {
-        return true;
-    }
-
-    // Check for Python keywords
-    for (const auto& keyword : python_keywords) {
-        if (code.find(keyword) != std::string_view::npos) {
-            return true;
-        }
-    }
-
-    return false;
+    // This method is now mainly for suggestion purposes
+    // The main detection is handled in ShouldHandleCommand
+    return true;  // Simplified since detection logic moved
 }
 
 PythonInterpreter::Result PythonInterpreter::ExecutePythonCode(
@@ -184,19 +180,59 @@ PythonInterpreter::Result PythonInterpreter::ExecutePythonCode(
     }
 
     try {
-        // Try to execute as expression first (for immediate results)
+        // Capture Python output by redirecting stdout
+        python::call<void>(
+            "import sys\n"
+            "from io import StringIO\n"
+            "_old_stdout = sys.stdout\n"
+            "sys.stdout = StringIO()");
+
+        bool is_expression = false;
+        std::string result_output;
+
         try {
-            std::string result_code = "str(" + std::string(code) + ")";
-            std::string result = python::call<std::string>(result_code);
-            return { true, result + "\n" };
+            // First try as expression to get immediate result
+            std::string expr_code = "(" + std::string(code) + ")";
+            PyObject* result = PyRun_String(
+                expr_code.c_str(), Py_eval_input, main_dict, main_dict);
+
+            if (result && result != Py_None) {
+                // Successfully evaluated as expression
+                python::call<void>("_expr_result = " + expr_code);
+                python::call<void>("print(repr(_expr_result))");
+                is_expression = true;
+                Py_DECREF(result);
+            }
+            else {
+                // Clear the error and try as statement
+                PyErr_Clear();
+                if (result)
+                    Py_DECREF(result);
+                throw std::runtime_error("Not an expression");
+            }
         }
         catch (...) {
-            // If expression fails, try as statement
+            // Execute as statement
             python::call<void>(std::string(code));
-            return { true, "" };
         }
+
+        // Get captured output
+        std::string captured_output =
+            python::call<std::string>("sys.stdout.getvalue()");
+
+        // Restore stdout
+        python::call<void>("sys.stdout = _old_stdout");
+
+        return { true, captured_output };
     }
     catch (const std::exception& e) {
+        // Make sure to restore stdout even on error
+        try {
+            python::call<void>("sys.stdout = _old_stdout");
+        }
+        catch (...) {
+            // Ignore cleanup errors
+        }
         return { false, std::string("Python error: ") + e.what() + "\n" };
     }
 }

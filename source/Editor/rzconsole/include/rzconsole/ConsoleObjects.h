@@ -132,6 +132,8 @@ struct CommandDesc {
 
 RZCONSOLE_API bool RegisterCommand(CommandDesc const& desc);
 
+RZCONSOLE_API bool UnregisterCommand(std::string_view name);
+
 Object* FindObject(std::string_view name);
 
 std::vector<std::string_view> MatchObjectNames(char const* regex = ".*");
