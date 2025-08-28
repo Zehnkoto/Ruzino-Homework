@@ -3,7 +3,6 @@
 #include "api.h"
 #include "nvrhi/nvrhi.h"
 #include "program_vars.hpp"
-#include "pxr/base/gf/vec2f.h"
 
 USTC_CG_NAMESPACE_OPEN_SCOPE
 

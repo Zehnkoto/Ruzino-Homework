@@ -1,9 +1,9 @@
 #pragma once
 
 #include <nanobind/nanobind.h>
-#include <nanobind/stl/vector.h>
-#include <nanobind/stl/string.h>
 #include <nanobind/ndarray.h>
+#include <nanobind/stl/string.h>
+#include <nanobind/stl/vector.h>
 
 #include <stdexcept>
 #include <type_traits>
@@ -74,10 +74,12 @@ T call_safe(const std::string& code)
     }
     catch (const std::exception& e) {
         // If regular nanobind conversion fails, we can't do much more
-        // in the core library since we don't link to specific external libraries
+        // in the core library since we don't link to specific external
+        // libraries
         throw std::runtime_error(
             "Mixed binding conversion failed: " + std::string(e.what()) +
-            ". Consider using specialized conversion functions for external libraries.");
+            ". Consider using specialized conversion functions for external "
+            "libraries.");
     }
 }
 
