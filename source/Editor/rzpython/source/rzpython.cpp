@@ -40,6 +40,35 @@ void initialize()
         // Ignore setup errors
     }
 
+    // Setup USD DLL path for Windows to resolve Boost.Python import issues
+    try {
+        PyRun_SimpleString(
+            "import os\n"
+            "import sys\n"
+            "# Setup PXR_USD_WINDOWS_DLL_PATH for USD imports\n"
+            "current_dir = os.getcwd()\n"
+            "pxr_dll_path = os.environ.get('PXR_USD_WINDOWS_DLL_PATH', '')\n"
+            "if current_dir not in pxr_dll_path:\n"
+            "    if pxr_dll_path:\n"
+            "        os.environ['PXR_USD_WINDOWS_DLL_PATH'] = current_dir + "
+            "os.pathsep + pxr_dll_path\n"
+            "    else:\n"
+            "        os.environ['PXR_USD_WINDOWS_DLL_PATH'] = current_dir\n"
+            "# Also add to system PATH as backup\n"
+            "system_path = os.environ.get('PATH', '')\n"
+            "if current_dir not in system_path:\n"
+            "    os.environ['PATH'] = current_dir + os.pathsep + system_path\n"
+            "# Add ./python to sys.path for module imports\n"
+            "python_path = os.path.join(current_dir, 'python')\n"
+            "if python_path not in sys.path:\n"
+            "    sys.path.append(python_path)\n"
+            "print(f'USD DLL Path setup: "
+            "{os.environ.get(\"PXR_USD_WINDOWS_DLL_PATH\", \"Not set\")}')\n");
+    }
+    catch (...) {
+        // Ignore USD setup errors - USD might not be available
+    }
+
     main_module = PyImport_AddModule("__main__");
     if (!main_module) {
         throw std::runtime_error("Failed to get __main__ module");
@@ -95,6 +124,71 @@ void import(const std::string& module_name)
     // Add module to main dict so it can be accessed
     PyDict_SetItemString(main_dict, module_name.c_str(), module);
     Py_DECREF(module);
+}
+
+bool is_boost_python_module(const std::string& module_name)
+{
+    // Check if this is a known Boost.Python module
+    static const std::vector<std::string> boost_modules = {
+        "pxr", "Vt", "Gf", "Tf", "Sdf", "Usd"
+    };
+
+    for (const auto& boost_mod : boost_modules) {
+        if (module_name.find(boost_mod) != std::string::npos) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void safe_import(const std::string& module_name)
+{
+    if (!initialized) {
+        throw std::runtime_error("Python interpreter not initialized");
+    }
+
+    try {
+        // For Boost.Python modules, we need special handling
+        if (is_boost_python_module(module_name)) {
+            // Try to import with error suppression and compatibility mode
+            std::string safe_code =
+                "try:\n"
+                "    import " +
+                module_name +
+                "\n"
+                "    _import_success = True\n"
+                "except Exception as e:\n"
+                "    print(f'Warning: Failed to import " +
+                module_name +
+                ": {e}')\n"
+                "    _import_success = False\n";
+
+            PyObject* result = PyRun_String(
+                safe_code.c_str(), Py_file_input, main_dict, main_dict);
+            if (!result) {
+                PyErr_Print();
+                throw std::runtime_error(
+                    "Failed to safely import module: " + module_name);
+            }
+            Py_DECREF(result);
+
+            // Check if import was successful
+            PyObject* success =
+                PyDict_GetItemString(main_dict, "_import_success");
+            if (!success || !PyObject_IsTrue(success)) {
+                throw std::runtime_error(
+                    "Module import failed: " + module_name);
+            }
+        }
+        else {
+            // Use regular import for non-Boost.Python modules
+            import(module_name);
+        }
+    }
+    catch (const std::exception& e) {
+        throw std::runtime_error(
+            "Safe import failed for " + module_name + ": " + e.what());
+    }
 }
 
 // Internal helper for raw Python object return

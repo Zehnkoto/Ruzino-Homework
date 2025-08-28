@@ -1,6 +1,9 @@
 #pragma once
 
 #include <nanobind/nanobind.h>
+#include <nanobind/stl/vector.h>
+#include <nanobind/stl/string.h>
+#include <nanobind/ndarray.h>
 
 #include <stdexcept>
 #include <type_traits>
@@ -20,6 +23,12 @@ RZPYTHON_EXTERN RZPYTHON_API bool initialized;
 RZPYTHON_EXTERN RZPYTHON_API std::unordered_map<std::string, nb::object>
     bound_objects;
 RZPYTHON_API PyObject* call_raw(const std::string& code);
+
+// Helper to check if a Python module uses Boost.Python
+RZPYTHON_API bool is_boost_python_module(const std::string& module_name);
+
+// Safe import function that handles Boost.Python conflicts
+RZPYTHON_API void safe_import(const std::string& module_name);
 
 // Helper to determine if we should use eval or file input mode
 template<typename T>
@@ -53,6 +62,22 @@ T call(const std::string& code)
         throw std::runtime_error(
             "Failed to convert Python result to C++ type: " +
             std::string(e.what()));
+    }
+}
+
+// Specialized version for handling potentially mixed binding types
+template<typename T>
+T call_safe(const std::string& code)
+{
+    try {
+        return call<T>(code);
+    }
+    catch (const std::exception& e) {
+        // If regular nanobind conversion fails, we can't do much more
+        // in the core library since we don't link to specific external libraries
+        throw std::runtime_error(
+            "Mixed binding conversion failed: " + std::string(e.what()) +
+            ". Consider using specialized conversion functions for external libraries.");
     }
 }
 

@@ -43,12 +43,22 @@ RZPYTHON_API void finalize();
 // Import a Python module
 RZPYTHON_API void import(const std::string& module_name);
 
+// Safe import that handles Boost.Python conflicts
+RZPYTHON_API void safe_import(const std::string& module_name);
+
+// Check if module uses Boost.Python
+RZPYTHON_API bool is_boost_python_module(const std::string& module_name);
+
 // Internal helper for dynamic type conversion
 RZPYTHON_API PyObject* call_raw(const std::string& code);
 
 // Generic call function - implemented in header for template instantiation
 template<typename T>
 T call(const std::string& code);
+
+// Safe call function for mixed binding environments
+template<typename T>
+T call_safe(const std::string& code);
 
 // Only void needs special handling (different PyRun_String mode)
 template<>
