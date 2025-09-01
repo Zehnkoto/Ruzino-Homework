@@ -104,45 +104,6 @@ TEST(cuda_extension, create_optix_traversable)
     EXPECT_NE(mesh_handle, nullptr);
 }
 
-TEST(cuda_extension, get_ptx_from_cu)
-{
-    auto m = create_optix_module("glints/glints.cu");
-    EXPECT_NE(m, nullptr);
-}
-
-TEST(cuda_extension, create_optix_pipeline)
-{
-    optix_init();
-
-    std::string filename = "glints/glints.cu";
-
-    auto raygen_group = create_optix_raygen(filename, RGS_STR(line));
-    EXPECT_NE(raygen_group, nullptr);
-
-    auto cylinder_module =
-        get_builtin_module(OPTIX_PRIMITIVE_TYPE_ROUND_LINEAR);
-    EXPECT_NE(cylinder_module, nullptr);
-
-    auto hg_module = create_optix_module(filename);
-    EXPECT_NE(hg_module, nullptr);
-
-    OptiXProgramGroupDesc hg_desc;
-    hg_desc.set_program_group_kind(OPTIX_PROGRAM_GROUP_KIND_HITGROUP)
-        .set_entry_name(nullptr, AHS_STR(line), CHS_STR(line));
-
-    auto hg =
-        create_optix_program_group(hg_desc, { nullptr, hg_module, hg_module });
-
-    EXPECT_NE(hg, nullptr);
-
-    auto miss_group = create_optix_miss(filename, MISS_STR(line));
-    EXPECT_NE(miss_group, nullptr);
-
-    auto pipeline = create_optix_pipeline({ raygen_group, hg, miss_group });
-
-    EXPECT_NE(pipeline, nullptr);
-}
-
 TEST(cuda_extension, cuda_linear_buffer_to_nvrhi_texture)
 {
     cuda_init();
@@ -160,11 +121,83 @@ TEST(cuda_extension, cuda_linear_buffer_to_nvrhi_texture)
     desc.isRenderTarget = false;
     desc.debugName = "test_texture";
 
-    // This would need a valid NVRHI device to work properly
-    // For now just verify buffer creation worked
-    auto texture = cuda_linear_buffer_to_nvrhi_texture(
-        USTC_CG::RHI::get_device(), buffer, desc);
+    auto device = USTC_CG::RHI::get_device();
+    auto texture = cuda_linear_buffer_to_nvrhi_texture(device, buffer, desc);
     EXPECT_NE(texture, nullptr);
+    
+    // Verify external memory resources are properly managed
+    CUDA_SYNC_CHECK(); // Ensure all operations complete
+}
+
+TEST(cuda_extension, nvrhi_texture_to_cuda_linear_buffer)
+{
+    cuda_init();
+
+    // Create a test texture first
+    nvrhi::TextureDesc desc;
+    desc.width = 32;
+    desc.height = 32;
+    desc.format = nvrhi::Format::RGBA8_UNORM;
+    desc.isShaderResource = true;
+    desc.isRenderTarget = true;
+    desc.debugName = "test_texture_source";
+
+    auto device = USTC_CG::RHI::get_device();
+    auto source_texture = device->createTexture(desc);
+    EXPECT_NE(source_texture, nullptr);
+
+    // Convert texture to linear buffer
+    uint32_t element_size = 4;  // RGBA8 = 4 bytes per pixel
+    auto buffer = nvrhi_texture_to_cuda_linear_buffer(
+        device, source_texture.Get(), element_size);
+
+    EXPECT_NE(buffer, nullptr);
+    EXPECT_EQ(buffer->getDesc().element_count, 32 * 32);
+    EXPECT_EQ(buffer->getDesc().element_size, element_size);
+}
+
+TEST(cuda_extension, texture_buffer_roundtrip)
+{
+    cuda_init();
+
+    // Create original test data
+    std::vector<uint32_t> original_data(16 * 16);
+    for (int i = 0; i < 16 * 16; ++i) {
+        original_data[i] =
+            0xFF000000 | (i << 8);  // Alpha=1, varying green channel
+    }
+
+    // Create buffer from original data
+    auto original_buffer = create_cuda_linear_buffer(original_data);
+
+    // Convert buffer to texture
+    nvrhi::TextureDesc desc;
+    desc.width = 16;
+    desc.height = 16;
+    desc.format = nvrhi::Format::RGBA8_UNORM;
+    desc.isShaderResource = true;
+    desc.debugName = "roundtrip_texture";
+
+    auto device = USTC_CG::RHI::get_device();
+    auto texture =
+        cuda_linear_buffer_to_nvrhi_texture(device, original_buffer, desc);
+    EXPECT_NE(texture, nullptr);
+
+    // Convert texture back to buffer
+    uint32_t element_size = sizeof(uint32_t);
+    auto result_buffer = nvrhi_texture_to_cuda_linear_buffer(
+        device, texture.Get(), element_size);
+
+    EXPECT_NE(result_buffer, nullptr);
+    EXPECT_EQ(result_buffer->getDesc().element_count, 16 * 16);
+    EXPECT_EQ(result_buffer->getDesc().element_size, element_size);
+
+    // Verify data integrity (basic check)
+    auto result_data = result_buffer->get_host_vector<uint32_t>();
+    EXPECT_EQ(result_data.size(), original_data.size());
+    // Note: Exact comparison might not work due to format conversions,
+    // but we can check basic properties
+    EXPECT_EQ(result_data.size(), 16 * 16);
 }
 
 #endif

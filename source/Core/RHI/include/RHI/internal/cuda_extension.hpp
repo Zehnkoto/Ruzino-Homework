@@ -457,6 +457,34 @@ RHI_API nvrhi::TextureHandle cuda_linear_buffer_to_nvrhi_texture(
     CUDALinearBufferHandle buffer,
     nvrhi::TextureDesc desc);
 
+RHI_API CUDALinearBufferHandle nvrhi_texture_to_cuda_linear_buffer(
+    nvrhi::IDevice* device,
+    nvrhi::ITexture* texture,
+    uint32_t element_size);
+
+// External memory management structure
+struct ExternalMemoryResources {
+    cudaExternalMemory_t externalMemory = nullptr;
+    CUsurfObject surface = 0;
+    
+    ~ExternalMemoryResources() {
+        cleanup();
+    }
+    
+    void cleanup() {
+        if (surface != 0) {
+            cudaDestroySurfaceObject(surface);
+            surface = 0;
+        }
+        if (externalMemory != nullptr) {
+            cudaDestroyExternalMemory(externalMemory);
+            externalMemory = nullptr;
+        }
+    }
+};
+
+using ExternalMemoryResourcesHandle = std::unique_ptr<ExternalMemoryResources>;
+
 void copy_linear_buffer_to_surface(
     CUdeviceptr src_ptr,
     CUsurfObject surface,
@@ -464,6 +492,30 @@ void copy_linear_buffer_to_surface(
     uint32_t height,
     uint32_t element_size,
     uint32_t row_pitch);
+
+void copy_surface_to_linear_buffer(
+    CUsurfObject surface,
+    CUdeviceptr dst_ptr,
+    uint32_t width,
+    uint32_t height,
+    uint32_t element_size,
+    uint32_t row_pitch);
+
+// Enhanced functions that return external memory resources for proper cleanup
+RHI_API ExternalMemoryResourcesHandle create_external_memory_surface(
+    nvrhi::IDevice* device,
+    nvrhi::ITexture* texture,
+    uint32_t cudaUsageFlags = 0);
+
+RHI_API void copy_linear_buffer_to_texture_with_cleanup(
+    nvrhi::IDevice* device,
+    CUDALinearBufferHandle buffer,
+    nvrhi::ITexture* texture);
+
+RHI_API CUDALinearBufferHandle copy_texture_to_linear_buffer_with_cleanup(
+    nvrhi::IDevice* device,
+    nvrhi::ITexture* texture,
+    uint32_t element_size);
 
 }  // namespace cuda
 

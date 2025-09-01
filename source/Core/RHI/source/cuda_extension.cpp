@@ -1485,6 +1485,131 @@ CUsurfObject mapTextureToSurface(
 //    return (CUdeviceptr)devicePtr;
 //}
 
+ExternalMemoryResourcesHandle create_external_memory_surface(
+    nvrhi::IDevice* device,
+    nvrhi::ITexture* texture,
+    uint32_t cudaUsageFlags)
+{
+    auto resources = std::make_unique<ExternalMemoryResources>();
+    
+    HANDLE sharedHandle = getSharedApiHandle(device, texture);
+    if (sharedHandle == NULL) {
+        throw std::runtime_error(
+            "create_external_memory_surface - texture shared handle creation failed");
+    }
+
+    size_t actualSize;
+    resources->externalMemory = FetchExternalTextureMemory(
+        texture, device, actualSize, sharedHandle);
+
+    // Create a mipmapped array from the external memory
+    cudaMipmappedArray_t mipmap;
+    if (!importTextureToMipmappedArray(
+            texture, mipmap, cudaUsageFlags, device)) {
+        throw std::runtime_error(
+            "Failed to import texture into a mipmapped array");
+    }
+
+    // Grab level 0
+    cudaArray_t cudaArray;
+    CUDA_CHECK(cudaGetMipmappedArrayLevel(&cudaArray, mipmap, 0));
+
+    // Create cudaSurfObject_t from CUDA array
+    cudaResourceDesc resDesc;
+    memset(&resDesc, 0, sizeof(resDesc));
+    resDesc.res.array.array = cudaArray;
+    resDesc.resType = cudaResourceTypeArray;
+
+    CUDA_CHECK(cudaCreateSurfaceObject(&resources->surface, &resDesc));
+    
+    return resources;
+}
+
+void copy_linear_buffer_to_texture_with_cleanup(
+    nvrhi::IDevice* device,
+    CUDALinearBufferHandle buffer,
+    nvrhi::ITexture* texture)
+{
+    auto desc = texture->getDesc();
+    
+    // Create external memory surface
+    auto external_resources = create_external_memory_surface(device, texture, 0);
+    
+    // Copy data from linear buffer to texture using GPU parallel for
+    CUdeviceptr src_ptr = buffer->get_device_ptr();
+    uint32_t width = desc.width;
+    uint32_t height = desc.height;
+    uint32_t element_size = buffer->getDesc().element_size;
+    uint32_t row_pitch = width * element_size;
+
+    // Launch CUDA kernel to copy data
+    copy_linear_buffer_to_surface(
+        src_ptr, external_resources->surface, width, height, element_size, row_pitch);
+    
+    // Synchronize to ensure copy is complete before cleanup
+    CUDA_SYNC_CHECK();
+    
+    // external_resources will be automatically destroyed when going out of scope
+}
+
+CUDALinearBufferHandle copy_texture_to_linear_buffer_with_cleanup(
+    nvrhi::IDevice* device,
+    nvrhi::ITexture* texture,
+    uint32_t element_size)
+{
+    auto desc = texture->getDesc();
+
+    // Check if the texture is already shared, if not create a shared copy
+    nvrhi::ITexture* source_texture = texture;
+    nvrhi::TextureHandle shared_texture = nullptr;
+
+    if (!(desc.sharedResourceFlags & nvrhi::SharedResourceFlags::Shared)) {
+        // Create a shared copy of the texture
+        nvrhi::TextureDesc shared_desc = desc;
+        shared_desc.sharedResourceFlags = nvrhi::SharedResourceFlags::Shared;
+        shared_desc.initialState = nvrhi::ResourceStates::CopyDest;
+
+        shared_texture = device->createTexture(shared_desc);
+
+        // Copy the original texture to the shared texture
+        nvrhi::CommandListHandle cmd = device->createCommandList();
+        cmd->open();
+        cmd->copyTexture(
+            shared_texture,
+            nvrhi::TextureSlice(),
+            texture,
+            nvrhi::TextureSlice());
+        cmd->close();
+        device->executeCommandList(cmd);
+
+        source_texture = shared_texture.Get();
+    }
+
+    // Create linear buffer to hold the texture data
+    uint32_t width = desc.width;
+    uint32_t height = desc.height;
+    uint32_t pixel_count = width * height;
+
+    CUDALinearBufferDesc buffer_desc(pixel_count, element_size);
+    auto buffer = create_cuda_linear_buffer(buffer_desc);
+
+    // Create external memory surface
+    auto external_resources = create_external_memory_surface(device, source_texture, 0);
+
+    // Copy data from surface to linear buffer using GPU parallel for
+    CUdeviceptr dst_ptr = buffer->get_device_ptr();
+    uint32_t row_pitch = width * element_size;
+
+    // Launch CUDA kernel to copy data
+    copy_surface_to_linear_buffer(
+        external_resources->surface, dst_ptr, width, height, element_size, row_pitch);
+    
+    // Synchronize to ensure copy is complete before cleanup
+    CUDA_SYNC_CHECK();
+    
+    // external_resources will be automatically destroyed when going out of scope
+    return buffer;
+}
 nvrhi::TextureHandle cuda_linear_buffer_to_nvrhi_texture(
     nvrhi::IDevice* device,
     CUDALinearBufferHandle buffer,
@@ -1493,22 +1618,19 @@ nvrhi::TextureHandle cuda_linear_buffer_to_nvrhi_texture(
     desc.sharedResourceFlags = nvrhi::SharedResourceFlags::Shared;
     auto texture = device->createTexture(desc);
 
-    // Map the texture to a CUDA surface for writing
-    CUsurfObject surface = mapTextureToSurface(texture.Get(), 0, device);
-
-    // Copy data from linear buffer to texture using GPU parallel for
-    CUdeviceptr src_ptr = buffer->get_device_ptr();
-    uint32_t width = desc.width;
-    uint32_t height = desc.height;
-    uint32_t element_size = buffer->getDesc().element_size;
-
-    auto row_pitch = width * element_size;
-
-    // Launch CUDA kernel to copy data
-    copy_linear_buffer_to_surface(
-        src_ptr, surface, width, height, element_size, row_pitch);
+    // Use the cleanup-enabled copy function
+    copy_linear_buffer_to_texture_with_cleanup(device, buffer, texture.Get());
 
     return texture;
+}
+
+CUDALinearBufferHandle nvrhi_texture_to_cuda_linear_buffer(
+    nvrhi::IDevice* device,
+    nvrhi::ITexture* texture,
+    uint32_t element_size)
+{
+    // Use the cleanup-enabled copy function
+    return copy_texture_to_linear_buffer_with_cleanup(device, texture, element_size);
 }
 }  // namespace cuda
 

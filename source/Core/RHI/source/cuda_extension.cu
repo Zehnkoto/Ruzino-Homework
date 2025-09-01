@@ -36,13 +36,13 @@ CUDALinearBuffer::CUDALinearBuffer(const cuda::CUDALinearBufferDesc& in_desc)
 {
     spdlog::info(
         "Allocating vMem of size(MB) : {}",
-        desc.element_size * desc.element_count / 1024 / 1024);
+        desc.element_size * desc.element_count / 1024 / 1024.f);
     d_vec.resize(desc.element_size * desc.element_count);
 }
 
 CUDALinearBuffer::~CUDALinearBuffer()
 {
-    spdlog::info("Freeing vMem of size(MB) : {}", d_vec.size() / 1024 / 1024);
+    spdlog::info("Freeing vMem of size(MB) : {}", d_vec.size() / 1024 / 1024.f);
     d_vec.clear();
 }
 
@@ -149,6 +149,73 @@ void copy_linear_buffer_to_surface(
 #else
     throw std::runtime_error(
         "CUDA compilation required for copy_linear_buffer_to_surface");
+#endif
+}
+
+void copy_surface_to_linear_buffer(
+    CUsurfObject surface,
+    CUdeviceptr dst_ptr,
+    uint32_t width,
+    uint32_t height,
+    uint32_t element_size,
+    uint32_t row_pitch)
+{
+#ifdef __CUDACC__
+    GPUParallelFor2D(
+        "copy_surface_to_linear_buffer",
+        make_int2(width, height),
+        GPU_LAMBDA_Ex(int y, int x) {
+            if (x >= width || y >= height)
+                return;
+
+            // Calculate destination offset
+            uint32_t dst_offset = y * row_pitch + x * element_size;
+            uint8_t* dst_data = reinterpret_cast<uint8_t*>(dst_ptr);
+
+            // Read data based on element size
+            if (element_size == 1) {
+                uint8_t value;
+                surf2Dread(&value, surface, x * sizeof(uint8_t), y);
+                dst_data[dst_offset] = value;
+            }
+            else if (element_size == 2) {
+                uint16_t value;
+                surf2Dread(&value, surface, x * sizeof(uint16_t), y);
+                *reinterpret_cast<uint16_t*>(&dst_data[dst_offset]) = value;
+            }
+            else if (element_size == 4) {
+                uint32_t value;
+                surf2Dread(&value, surface, x * sizeof(uint32_t), y);
+                *reinterpret_cast<uint32_t*>(&dst_data[dst_offset]) = value;
+            }
+            else if (element_size == 8) {
+                uint64_t value;
+                surf2Dread(&value, surface, x * sizeof(uint64_t), y);
+                *reinterpret_cast<uint64_t*>(&dst_data[dst_offset]) = value;
+            }
+            else if (element_size == 12) {
+                // Handle 3-component data (RGB float, etc.)
+                // Read as 3 consecutive 32-bit values
+                uint32_t* dst_data32 =
+                    reinterpret_cast<uint32_t*>(&dst_data[dst_offset]);
+                surf2Dread(&dst_data32[0], surface, (x * 3 + 0) * sizeof(uint32_t), y);
+                surf2Dread(&dst_data32[1], surface, (x * 3 + 1) * sizeof(uint32_t), y);
+                surf2Dread(&dst_data32[2], surface, (x * 3 + 2) * sizeof(uint32_t), y);
+            }
+            else if (element_size == 16) {
+                // Handle 4-component data (RGBA float, etc.)
+                // Read as 4 consecutive 32-bit values
+                uint32_t* dst_data32 =
+                    reinterpret_cast<uint32_t*>(&dst_data[dst_offset]);
+                surf2Dread(&dst_data32[0], surface, (x * 4 + 0) * sizeof(uint32_t), y);
+                surf2Dread(&dst_data32[1], surface, (x * 4 + 1) * sizeof(uint32_t), y);
+                surf2Dread(&dst_data32[2], surface, (x * 4 + 2) * sizeof(uint32_t), y);
+                surf2Dread(&dst_data32[3], surface, (x * 4 + 3) * sizeof(uint32_t), y);
+            }
+        });
+#else
+    throw std::runtime_error(
+        "CUDA compilation required for copy_surface_to_linear_buffer");
 #endif
 }
 }  // namespace cuda
