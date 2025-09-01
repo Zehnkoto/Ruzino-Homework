@@ -82,6 +82,16 @@ void initialize()
     initialized = true;
 
     import("GUI_py");
+    // Simple and robust output capture
+    python::call<void>(
+        "import sys\n"
+        "from io import StringIO\n"
+        "_console_stdout = StringIO()\n"
+        "_console_stderr = StringIO()\n"
+        "_original_stdout = sys.stdout\n"
+        "_original_stderr = sys.stderr\n"
+        "sys.stdout = _console_stdout\n"
+        "sys.stderr = _console_stderr\n");
 }
 
 void finalize()

@@ -13,7 +13,7 @@ namespace python {
 PythonInterpreter::PythonInterpreter() : python_initialized_(false)
 {
     try {
-        python::initialize();
+        initialize();
         python_initialized_ = true;
 
         // Register Python-specific commands
@@ -187,18 +187,6 @@ PythonInterpreter::Result PythonInterpreter::ExecutePythonCode(
     try {
         std::string code_str(code);
 
-        // Simple and robust output capture
-        python::call<void>(
-            "import sys\n"
-            "from io import StringIO\n"
-            "_console_stdout = StringIO()\n"
-            "_console_stderr = StringIO()\n"
-            "_original_stdout = sys.stdout\n"
-            "_original_stderr = sys.stderr\n"
-            "sys.stdout = _console_stdout\n"
-            "sys.stderr = _console_stderr\n");
-
-        bool is_expression = false;
         std::string captured_output;
         std::string error_output;
 
@@ -211,7 +199,6 @@ PythonInterpreter::Result PythonInterpreter::ExecutePythonCode(
                 python::main_dict);
 
             if (result) {
-                is_expression = true;
                 // If it's not None, print the result
                 if (result != Py_None) {
                     PyObject* repr_result = PyObject_Repr(result);
