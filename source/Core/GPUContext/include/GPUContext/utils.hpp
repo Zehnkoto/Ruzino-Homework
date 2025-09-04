@@ -124,7 +124,7 @@ inline unsigned counter_read_out(
 
 inline TextureHandle create_default_render_target(
     ResourceAllocator& resource_allocator,
-    pxr::GfVec2i size,
+    glm::ivec2 size,
     nvrhi::Format format = nvrhi::Format::RGBA16_FLOAT)
 {
     // Output texture
