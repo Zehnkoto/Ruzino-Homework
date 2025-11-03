@@ -1,0 +1,401 @@
+name: Build and Test (Advanced)
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check-sdk:
+    name: Check if SDK needs rebuild
+    runs-on: self-hosted
+    outputs:
+      needs-rebuild: ${{ steps.check.outputs.needs-rebuild }}
+      configure-hash: ${{ steps.check.outputs.configure-hash }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Check SDK status
+        id: check
+        shell: pwsh
+        run: |
+          $configureHash = (Get-FileHash configure.py).Hash
+          Write-Output "configure-hash=$configureHash" >> $env:GITHUB_OUTPUT
+          
+          $sdkDir = "SDK"
+          $hashFile = Join-Path $sdkDir ".configure_hash"
+          $sdkZip = Join-Path $sdkDir "SDK.zip"
+          
+          $needsRebuild = $false
+          
+          # Check if hash file exists and matches
+          if (Test-Path -Path $hashFile) {
+            $storedHash = Get-Content $hashFile
+            if ($storedHash -ne $configureHash) {
+              Write-Output "configure.py changed, SDK rebuild required"
+              $needsRebuild = $true
+            } else {
+              Write-Output "configure.py unchanged"
+            }
+          } else {
+            Write-Output "No hash file found"
+            $needsRebuild = $true
+          }
+          
+          # Check if SDK files exist
+          $binariesDir = "Binaries"
+          $hasDebugBinaries = Test-Path -Path (Join-Path $binariesDir "Debug/bin")
+          $hasReleaseBinaries = Test-Path -Path (Join-Path $binariesDir "Release/bin")
+          
+          if (-not $hasDebugBinaries -or -not $hasReleaseBinaries) {
+            Write-Output "Missing binaries"
+            $needsRebuild = $true
+          }
+          
+          if ($needsRebuild) {
+            Write-Output "needs-rebuild=true" >> $env:GITHUB_OUTPUT
+            Write-Output "SDK rebuild needed"
+          } else {
+            Write-Output "needs-rebuild=false" >> $env:GITHUB_OUTPUT
+            Write-Output "SDK is up to date"
+          }
+
+  build-sdk:
+    name: Build SDK - ${{ matrix.build-variant }}
+    needs: check-sdk
+    if: needs.check-sdk.outputs.needs-rebuild == 'true'
+    runs-on: self-hosted
+    strategy:
+      matrix:
+        build-variant: [Debug, Release]
+      max-parallel: 2
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Clean previous build artifacts
+        shell: pwsh
+        run: |
+          $variantDir = "Binaries/${{ matrix.build-variant }}"
+          if (Test-Path -Path $variantDir) {
+            Write-Output "Cleaning $variantDir"
+            Remove-Item -Recurse -Force $variantDir
+          }
+
+      - name: Build SDK - ${{ matrix.build-variant }}
+        shell: pwsh
+        run: |
+          Write-Output "Building OpenUSD SDK with variant: ${{ matrix.build-variant }}"
+          python configure.py --library openusd --build_variant ${{ matrix.build-variant }}
+
+      - name: Verify build output
+        shell: pwsh
+        run: |
+          $binDir = "Binaries/${{ matrix.build-variant }}"
+          if (Test-Path -Path $binDir) {
+            $fileCount = (Get-ChildItem -Path $binDir -Recurse).Count
+            Write-Output "Build successful - $fileCount files in $binDir"
+          } else {
+            Write-Output "ERROR: Build directory not found!"
+            exit 1
+          }
+
+  pack-and-upload-sdk:
+    name: Pack SDK and upload
+    needs: build-sdk
+    if: success()
+    runs-on: self-hosted
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Verify all binaries are present
+        shell: pwsh
+        run: |
+          $debugBin = Test-Path -Path "Binaries/Debug/bin"
+          $releaseBin = Test-Path -Path "Binaries/Release/bin"
+          
+          Write-Output "Debug binaries present: $debugBin"
+          Write-Output "Release binaries present: $releaseBin"
+          
+          if (-not $debugBin -or -not $releaseBin) {
+            Write-Output "ERROR: Missing binaries!"
+            exit 1
+          }
+
+      - name: Pack SDK
+        shell: pwsh
+        run: |
+          Write-Output "Packing SDK..."
+          python configure.py --pack
+          
+          if (Test-Path -Path "SDK/SDK.zip") {
+            $size = (Get-Item "SDK/SDK.zip").Length / 1GB
+            Write-Output "SDK.zip packed successfully - Size: $([Math]::Round($size, 2)) GB"
+          } else {
+            Write-Output "ERROR: SDK.zip not created!"
+            exit 1
+          }
+
+      - name: Store configure hash
+        shell: pwsh
+        run: |
+          $configureHash = (Get-FileHash configure.py).Hash
+          $hashFile = "SDK/.configure_hash"
+          if (-not (Test-Path -Path "SDK")) {
+            New-Item -ItemType Directory -Path "SDK" -Force | Out-Null
+          }
+          $configureHash | Out-File -FilePath $hashFile -Encoding UTF8
+          Write-Output "Hash saved: $configureHash"
+
+      - name: Create release artifacts
+        shell: pwsh
+        run: |
+          Write-Output "Creating archive for release..."
+          $archivePath = "SDK-${{ github.sha }}.zip"
+          
+          # Since SDK.zip is already compressed, just copy it
+          Copy-Item -Path "SDK/SDK.zip" -Destination $archivePath
+          
+          if (Test-Path -Path $archivePath) {
+            $size = (Get-Item $archivePath).Length / 1GB
+            Write-Output "Archive created - Size: $([Math]::Round($size, 2)) GB"
+          }
+
+      - name: Upload SDK to GitHub release (if tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-release
+          path: SDK-*.zip
+          retention-days: 90
+
+      - name: Upload SDK for workflow
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-build
+          path: SDK/SDK.zip
+          retention-days: 7
+
+  restore-sdk:
+    name: Restore or build SDK
+    needs: [check-sdk, pack-and-upload-sdk]
+    if: always()
+    runs-on: self-hosted
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Download SDK if rebuilt
+        if: needs.check-sdk.outputs.needs-rebuild == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: sdk-build
+          path: SDK/
+
+      - name: Restore SDK from cache
+        shell: pwsh
+        run: |
+          $sdkZip = "SDK/SDK.zip"
+          if (Test-Path -Path $sdkZip) {
+            Write-Output "Extracting SDK.zip..."
+            Expand-Archive -Path $sdkZip -DestinationPath "SDK/" -Force
+            Write-Output "SDK restored successfully"
+          } else {
+            Write-Output "SDK.zip not found, checking for existing binaries..."
+            if ((Test-Path -Path "Binaries/Debug/bin") -and (Test-Path -Path "Binaries/Release/bin")) {
+              Write-Output "Existing binaries found, no extraction needed"
+            } else {
+              Write-Output "ERROR: No SDK available"
+              exit 1
+            }
+          }
+
+  build-without-cuda:
+    name: Build Project (No CUDA)
+    needs: restore-sdk
+    if: success()
+    runs-on: self-hosted
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          if (Test-Path -Path "requirements.txt") {
+            pip install -r requirements.txt
+          }
+
+      - name: Configure CMake (No CUDA)
+        shell: pwsh
+        run: |
+          $buildDir = "build_nocuda"
+          if (Test-Path -Path $buildDir) {
+            Remove-Item -Recurse -Force $buildDir
+          }
+          New-Item -ItemType Directory -Path $buildDir -Force | Out-Null
+          
+          Push-Location $buildDir
+          cmake -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DENABLE_CUDA=OFF `
+            -DCMAKE_INSTALL_PREFIX="../install_nocuda" `
+            ..
+          Pop-Location
+
+      - name: Build (No CUDA)
+        shell: pwsh
+        run: |
+          Push-Location build_nocuda
+          cmake --build . --config Release -j
+          Pop-Location
+
+      - name: Install (No CUDA)
+        shell: pwsh
+        run: |
+          Push-Location build_nocuda
+          cmake --install .
+          Pop-Location
+
+      - name: Upload build artifacts (No CUDA)
+        uses: actions/upload-artifact@v4
+        with:
+          name: project-build-nocuda
+          path: install_nocuda/
+          retention-days: 7
+
+  build-with-cuda:
+    name: Build Project (With CUDA)
+    needs: restore-sdk
+    if: success()
+    runs-on: self-hosted
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          if (Test-Path -Path "requirements.txt") {
+            pip install -r requirements.txt
+          }
+
+      - name: Check CUDA availability
+        id: cuda-check
+        shell: pwsh
+        run: |
+          if (Test-Path -Env:CUDA_PATH) {
+            Write-Output "cuda-available=true" >> $env:GITHUB_OUTPUT
+            Write-Output "CUDA_PATH: $env:CUDA_PATH"
+            & "$env:CUDA_PATH\bin\nvcc.exe" --version
+          } else {
+            Write-Output "cuda-available=false" >> $env:GITHUB_OUTPUT
+            Write-Output "CUDA_PATH not found"
+          }
+
+      - name: Configure CMake (With CUDA)
+        if: steps.cuda-check.outputs.cuda-available == 'true'
+        shell: pwsh
+        run: |
+          $buildDir = "build_cuda"
+          if (Test-Path -Path $buildDir) {
+            Remove-Item -Recurse -Force $buildDir
+          }
+          New-Item -ItemType Directory -Path $buildDir -Force | Out-Null
+          
+          Push-Location $buildDir
+          cmake -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DENABLE_CUDA=ON `
+            -DCMAKE_CUDA_ARCHITECTURES=75;86;89 `
+            -DCMAKE_INSTALL_PREFIX="../install_cuda" `
+            ..
+          Pop-Location
+
+      - name: Build (With CUDA)
+        if: steps.cuda-check.outputs.cuda-available == 'true'
+        shell: pwsh
+        run: |
+          Push-Location build_cuda
+          cmake --build . --config Release -j
+          Pop-Location
+
+      - name: Install (With CUDA)
+        if: steps.cuda-check.outputs.cuda-available == 'true'
+        shell: pwsh
+        run: |
+          Push-Location build_cuda
+          cmake --install .
+          Pop-Location
+
+      - name: CUDA not available
+        if: steps.cuda-check.outputs.cuda-available == 'false'
+        shell: pwsh
+        run: |
+          Write-Output "CUDA is not available on this runner"
+          Write-Output "Skipping CUDA build"
+
+      - name: Upload build artifacts (With CUDA)
+        if: steps.cuda-check.outputs.cuda-available == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: project-build-cuda
+          path: install_cuda/
+          retention-days: 7
+
+  summary:
+    name: Build Summary
+    needs: [build-without-cuda, build-with-cuda]
+    if: always()
+    runs-on: self-hosted
+    steps:
+      - name: Print summary
+        shell: pwsh
+        run: |
+          Write-Output ""
+          Write-Output "======================================"
+          Write-Output "           BUILD SUMMARY"
+          Write-Output "======================================"
+          Write-Output "No CUDA build: ${{ needs.build-without-cuda.result }}"
+          Write-Output "CUDA build:    ${{ needs.build-with-cuda.result }}"
+          Write-Output "======================================"
+          Write-Output ""
+          
+          if ("${{ needs.build-without-cuda.result }}" -eq "success" -and "${{ needs.build-with-cuda.result }}" -eq "success") {
+            Write-Output "✓ Both builds completed successfully"
+            exit 0
+          } else {
+            Write-Output "✗ Some builds failed"
+            exit 1
+          }

@@ -1,0 +1,304 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  SDK_CACHE_KEY: sdk-cache-${{ github.sha }}
+  SDK_BASE_KEY: sdk-cache
+
+jobs:
+  check-sdk:
+    name: Check if SDK needs rebuild
+    runs-on: self-hosted
+    outputs:
+      needs-rebuild: ${{ steps.check.outputs.needs-rebuild }}
+      configure-hash: ${{ steps.check.outputs.configure-hash }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Check SDK status
+        id: check
+        shell: pwsh
+        run: |
+          $configureHash = (Get-FileHash configure.py).Hash
+          Write-Output "configure-hash=$configureHash" >> $env:GITHUB_OUTPUT
+          
+          # Check if SDK exists
+          $sdkExists = Test-Path -Path "SDK\SDK.zip"
+          
+          # Try to get the stored hash from previous run
+          if (Test-Path -Path "SDK\.configure_hash") {
+            $storedHash = Get-Content "SDK\.configure_hash"
+            if ($storedHash -eq $configureHash -and $sdkExists) {
+              Write-Output "needs-rebuild=false" >> $env:GITHUB_OUTPUT
+              Write-Output "SDK is up to date"
+            } else {
+              Write-Output "needs-rebuild=true" >> $env:GITHUB_OUTPUT
+              Write-Output "configure.py has changed or SDK missing, needs rebuild"
+            }
+          } else {
+            if ($sdkExists) {
+              Write-Output "needs-rebuild=false" >> $env:GITHUB_OUTPUT
+              Write-Output "SDK exists, configure hash will be stored"
+              $configureHash | Out-File -FilePath "SDK\.configure_hash" -Encoding UTF8
+            } else {
+              Write-Output "needs-rebuild=true" >> $env:GITHUB_OUTPUT
+              Write-Output "No SDK found, needs rebuild"
+            }
+          }
+
+  build-sdk:
+    name: Build SDK
+    needs: check-sdk
+    if: needs.check-sdk.outputs.needs-rebuild == 'true'
+    runs-on: self-hosted
+    strategy:
+      matrix:
+        build-variant: [Debug, Release]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build SDK - ${{ matrix.build-variant }}
+        shell: pwsh
+        run: |
+          Write-Output "Building SDK with variant: ${{ matrix.build-variant }}"
+          python configure.py --library openusd --build_variant ${{ matrix.build-variant }}
+
+      - name: Upload SDK artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-${{ matrix.build-variant }}
+          path: SDK/
+          retention-days: 1
+
+  pack-sdk:
+    name: Pack and upload SDK
+    needs: build-sdk
+    runs-on: self-hosted
+    if: success()
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Download SDK artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: sdk-artifacts
+
+      - name: Organize SDK
+        shell: pwsh
+        run: |
+          # Copy downloaded artifacts back to SDK folder
+          if (Test-Path -Path "sdk-artifacts") {
+            Get-ChildItem -Path "sdk-artifacts" -Directory | ForEach-Object {
+              Copy-Item -Path "$($_.FullName)/*" -Destination "SDK/" -Recurse -Force
+            }
+          }
+
+      - name: Pack SDK
+        shell: pwsh
+        run: |
+          Write-Output "Packing SDK..."
+          python configure.py --pack
+
+      - name: Store configure hash
+        shell: pwsh
+        run: |
+          $configureHash = (Get-FileHash configure.py).Hash
+          $configureHash | Out-File -FilePath "SDK\.configure_hash" -Encoding UTF8
+
+      - name: Upload SDK to release
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-packed
+          path: SDK/SDK.zip
+          retention-days: 30
+
+  download-or-build:
+    name: Prepare SDK
+    needs: [check-sdk, pack-sdk]
+    if: always()
+    runs-on: self-hosted
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Download packed SDK
+        if: needs.check-sdk.outputs.needs-rebuild == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: sdk-packed
+          path: SDK/
+
+      - name: Check existing SDK
+        shell: pwsh
+        run: |
+          if (Test-Path -Path "SDK/SDK.zip") {
+            Write-Output "SDK.zip found"
+            Write-Output "SDK size: $(Get-Item SDK/SDK.zip).Length bytes"
+          }
+
+  build-with-cmake-nocuda:
+    name: Build (No CUDA)
+    needs: download-or-build
+    runs-on: self-hosted
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          if (Test-Path -Path "requirements.txt") {
+            pip install -r requirements.txt
+          }
+
+      - name: Configure with CMake (No CUDA)
+        shell: pwsh
+        run: |
+          $buildDir = "build_nocuda"
+          if (Test-Path -Path $buildDir) {
+            Remove-Item -Recurse -Force $buildDir
+          }
+          mkdir $buildDir
+          cd $buildDir
+          cmake -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DENABLE_CUDA=OFF `
+            -DCMAKE_INSTALL_PREFIX="../install_nocuda" `
+            ..
+
+      - name: Build with CMake (No CUDA)
+        shell: pwsh
+        run: |
+          cd build_nocuda
+          cmake --build . --config Release -j
+
+      - name: Install (No CUDA)
+        shell: pwsh
+        run: |
+          cd build_nocuda
+          cmake --install .
+
+      - name: Upload build artifacts (No CUDA)
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-nocuda
+          path: install_nocuda/
+          retention-days: 7
+
+  build-with-cmake-cuda:
+    name: Build (With CUDA)
+    needs: download-or-build
+    runs-on: self-hosted
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          if (Test-Path -Path "requirements.txt") {
+            pip install -r requirements.txt
+          }
+
+      - name: Check CUDA installation
+        shell: pwsh
+        run: |
+          if (Test-Path -Env:CUDA_PATH) {
+            Write-Output "CUDA_PATH: $env:CUDA_PATH"
+            & "$env:CUDA_PATH\bin\nvcc.exe" --version
+          } else {
+            Write-Output "CUDA not found, CUDA build may fail"
+          }
+
+      - name: Configure with CMake (With CUDA)
+        shell: pwsh
+        run: |
+          $buildDir = "build_cuda"
+          if (Test-Path -Path $buildDir) {
+            Remove-Item -Recurse -Force $buildDir
+          }
+          mkdir $buildDir
+          cd $buildDir
+          
+          # Only enable CUDA if it's available
+          if (Test-Path -Env:CUDA_PATH) {
+            cmake -G Ninja `
+              -DCMAKE_BUILD_TYPE=Release `
+              -DENABLE_CUDA=ON `
+              -DCMAKE_CUDA_ARCHITECTURES=75;86;89 `
+              -DCMAKE_INSTALL_PREFIX="../install_cuda" `
+              ..
+          } else {
+            Write-Output "CUDA not available, skipping CUDA build"
+            exit 0
+          }
+
+      - name: Build with CMake (With CUDA)
+        shell: pwsh
+        run: |
+          if (Test-Path -Path "build_cuda") {
+            cd build_cuda
+            cmake --build . --config Release -j
+          }
+
+      - name: Install (With CUDA)
+        shell: pwsh
+        run: |
+          if (Test-Path -Path "build_cuda") {
+            cd build_cuda
+            cmake --install .
+          }
+
+      - name: Upload build artifacts (With CUDA)
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: build-cuda
+          path: install_cuda/
+          retention-days: 7
+
+  report:
+    name: Build Report
+    needs: [build-with-cmake-nocuda, build-with-cmake-cuda]
+    if: always()
+    runs-on: self-hosted
+    steps:
+      - name: Check build status
+        shell: pwsh
+        run: |
+          Write-Output "====== Build Summary ======"
+          Write-Output "No CUDA build: ${{ needs.build-with-cmake-nocuda.result }}"
+          Write-Output "CUDA build: ${{ needs.build-with-cmake-cuda.result }}"
+          Write-Output "=========================="
