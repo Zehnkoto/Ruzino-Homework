@@ -297,9 +297,9 @@ jobs:
           fail_on_unmatched_files: false
           token: ${{ secrets.GH_PAT }}
 
-  restore-sdk:
-    name: Restore or build SDK
-    needs: [verify-credentials, check-sdk, build-sdk]
+  build-without-cuda:
+    name: Build Project (No CUDA)
+    needs: [check-sdk, build-sdk]
     if: always()
     runs-on: self-hosted
     steps:
@@ -343,85 +343,14 @@ jobs:
           }
 
       - name: Extract SDK and setup structure for builds
-        shell: powershell
+        shell: cmd
         run: |
-          try {
-            $sdkZip = "SDK/SDK.zip"
-            if (Test-Path -Path $sdkZip) {
-              Write-Output "Extracting SDK.zip..."
-              Expand-Archive -Path $sdkZip -DestinationPath "SDK/" -Force
-              Write-Output "SDK extracted successfully"
-            } else {
-              Write-Output "ERROR: SDK.zip not found"
-              exit 1
-            }
-            
-            Write-Output ""
-            Write-Output "Setting up SDK structure for builds..."
-            
-            # Ensure Binaries folder exists
-            $binariesDir = "Binaries"
-            if (-not (Test-Path -Path $binariesDir)) {
-              New-Item -ItemType Directory -Path $binariesDir -Force | Out-Null
-            }
-            
-            # Copy SDK content to Binaries for build compatibility
-            # This mimics what configure.py does when building SDK
-            $sdkBin = "SDK/OpenUSD/bin"
-            $sdkLib = "SDK/OpenUSD/lib"
-            $sdkInclude = "SDK/OpenUSD/include"
-            
-            foreach ($buildType in @("Debug", "Release")) {
-              $targetDir = Join-Path $binariesDir $buildType
-              if (-not (Test-Path -Path $targetDir)) {
-                New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
-              }
-              
-              # Copy bin folder if it exists
-              if (Test-Path -Path $sdkBin) {
-                $destBin = Join-Path $targetDir "bin"
-                if (-not (Test-Path -Path $destBin)) {
-                  Copy-Item -Path $sdkBin -Destination $destBin -Recurse -Force
-                  Write-Output "Copied bin to Binaries/$buildType"
-                }
-              }
-              
-              # Copy lib folder if it exists (for linking)
-              if (Test-Path -Path $sdkLib) {
-                $destLib = Join-Path $targetDir "lib"
-                if (-not (Test-Path -Path $destLib)) {
-                  Copy-Item -Path $sdkLib -Destination $destLib -Recurse -Force
-                  Write-Output "Copied lib to Binaries/$buildType"
-                }
-              }
-              
-              # Copy include folder if it exists
-              if (Test-Path -Path $sdkInclude) {
-                $destInclude = Join-Path $targetDir "include"
-                if (-not (Test-Path -Path $destInclude)) {
-                  Copy-Item -Path $sdkInclude -Destination $destInclude -Recurse -Force
-                  Write-Output "Copied include to Binaries/$buildType"
-                }
-              }
-            }
-            
-            Write-Output "✓ SDK structure setup complete"
-          } catch {
-            Write-Error "Error extracting/setting up SDK: $_"
-            exit 1
-          }
-
-  build-without-cuda:
-    name: Build Project (No CUDA)
-    needs: restore-sdk
-    if: always()
-    runs-on: self-hosted
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          fetch-depth: 1
+          REM Extract SDK and setup Binaries structure using configure.py
+          python configure.py --extract-sdk SDK/SDK.zip
+          if %ERRORLEVEL% neq 0 (
+            echo Failed to extract SDK
+            exit /b %ERRORLEVEL%
+          )
 
       - name: Setup MSVC Build Tools
         shell: cmd
@@ -519,7 +448,7 @@ jobs:
 
   build-with-cuda:
     name: Build Project (With CUDA)
-    needs: restore-sdk
+    needs: [check-sdk, build-sdk]
     if: always()
     runs-on: self-hosted
     steps:
@@ -528,6 +457,49 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 1
+
+      - name: Download SDK from workflow artifact (if rebuilt)
+        if: needs.check-sdk.outputs.needs-rebuild == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: sdk-build
+          path: SDK/
+
+      - name: Download SDK from GitHub Release (if not rebuilt)
+        if: needs.check-sdk.outputs.needs-rebuild == 'false'
+        shell: powershell
+        run: |
+          try {
+            $configureHash = "${{ needs.check-sdk.outputs.configure-hash }}"
+            $tagName = "sdk-$configureHash"
+            $sdkZip = "SDK/SDK.zip"
+            
+            Write-Output "Attempting to download SDK from release with tag: $tagName"
+            New-Item -ItemType Directory -Path "SDK" -Force -ErrorAction SilentlyContinue | Out-Null
+            
+            # Use GH CLI with personal token
+            $env:GH_TOKEN = "${{ secrets.GH_PAT }}"
+            & gh release download $tagName --repo ${{ github.repository }} -p "SDK.zip" -O $sdkZip
+            
+            if ($LASTEXITCODE -eq 0 -and (Test-Path -Path $sdkZip)) {
+              $size = (Get-Item $sdkZip).Length / 1GB
+              Write-Output "SDK downloaded successfully - Size: $([Math]::Round($size, 2)) GB"
+            } else {
+              Write-Output "WARNING: Failed to download SDK from Release, will use existing binaries if available"
+            }
+          } catch {
+            Write-Output "WARNING: Download error - $_"
+          }
+
+      - name: Extract SDK and setup structure for builds
+        shell: cmd
+        run: |
+          REM Extract SDK and setup Binaries structure using configure.py
+          python configure.py --extract-sdk SDK/SDK.zip
+          if %ERRORLEVEL% neq 0 (
+            echo Failed to extract SDK
+            exit /b %ERRORLEVEL%
+          )
 
       - name: Check CUDA availability
         id: cuda-check

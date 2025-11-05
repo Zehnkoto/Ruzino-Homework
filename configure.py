@@ -27,6 +27,42 @@ def copytree_common_to_binaries(folder, target="Debug", dst=None, dry_run=False)
         print(f"Copied {folder} to {dst_path}")
 
 
+def copy_python_dlls_to_binaries(targets, dry_run=False):
+    """Copy Python DLLs from SDK/python to Binaries/{target}/bin for each target"""
+    sdk_python_dir = os.path.join(os.path.dirname(__file__), "SDK", "python")
+    if not os.path.exists(sdk_python_dir):
+        return
+    
+    for target in targets:
+        bin_dir = os.path.join(os.getcwd(), "Binaries", target)
+        os.makedirs(bin_dir, exist_ok=True)
+        
+        # Copy Python DLLs from SDK python directory
+        for file in os.listdir(sdk_python_dir):
+            if file.endswith(".dll"):
+                src_file = os.path.join(sdk_python_dir, file)
+                dst_file = os.path.join(bin_dir, file)
+                if dry_run:
+                    print(f"  [DRY RUN] Would copy Python DLL: {file}")
+                else:
+                    shutil.copy2(src_file, dst_file)
+        
+        # Also copy DLLs from SDK python/DLLs directory if exists
+        dlls_dir = os.path.join(sdk_python_dir, "DLLs")
+        if os.path.exists(dlls_dir):
+            for file in os.listdir(dlls_dir):
+                if file.endswith(".dll"):
+                    src_file = os.path.join(dlls_dir, file)
+                    dst_file = os.path.join(bin_dir, file)
+                    if dry_run:
+                        print(f"  [DRY RUN] Would copy Python DLL: {file}")
+                    else:
+                        shutil.copy2(src_file, dst_file)
+    
+    if not dry_run:
+        print(f"  Copied Python DLLs from SDK to Binaries for targets: {targets}")
+
+
 def download_with_progress(url, zip_path, dry_run=False):
     if dry_run:
         print(f"[DRY RUN] Would download from {url} to {zip_path}")
@@ -197,6 +233,92 @@ def process_usd(targets, dry_run=False, keep_original_files=True, copy_only=Fals
 
 import concurrent.futures
 import subprocess
+
+
+def extract_and_setup_sdk(sdk_zip_path, targets=None, dry_run=False):
+    """
+    Extract SDK.zip and copy its contents to Binaries folder for each build type.
+    
+    Args:
+        sdk_zip_path: Path to SDK.zip file (relative to project root)
+        targets: List of build targets (Debug, Release). Defaults to both.
+        dry_run: If True, print actions without executing them
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    if targets is None:
+        targets = ["Debug", "Release"]
+    
+    project_root = os.path.dirname(__file__)
+    sdk_zip = os.path.join(project_root, sdk_zip_path)
+    
+    if not os.path.exists(sdk_zip):
+        print(f"ERROR: SDK.zip not found at {sdk_zip}")
+        return False
+    
+    try:
+        # Extract SDK.zip to SDK/ folder
+        sdk_dir = os.path.join(project_root, "SDK")
+        print(f"Extracting {sdk_zip} to {sdk_dir}...")
+        
+        if not dry_run:
+            os.makedirs(sdk_dir, exist_ok=True)
+            with zipfile.ZipFile(sdk_zip, "r") as zip_ref:
+                zip_ref.extractall(sdk_dir)
+            print("✓ SDK extracted successfully")
+        else:
+            print(f"[DRY RUN] Would extract {sdk_zip} to {sdk_dir}")
+        
+        # Copy SDK content to Binaries for each target
+        print("\nSetting up SDK structure for builds...")
+        
+        sdk_bin = os.path.join(sdk_dir, "OpenUSD", "bin")
+        sdk_lib = os.path.join(sdk_dir, "OpenUSD", "lib")
+        sdk_include = os.path.join(sdk_dir, "OpenUSD", "include")
+        sdk_plugin = os.path.join(sdk_dir, "OpenUSD", "plugin")
+        sdk_libraries = os.path.join(sdk_dir, "OpenUSD", "libraries")
+        sdk_resources = os.path.join(sdk_dir, "OpenUSD", "resources")
+        
+        binaries_dir = os.path.join(project_root, "Binaries")
+        
+        for target in targets:
+            target_dir = os.path.join(binaries_dir, target)
+            
+            if not dry_run:
+                os.makedirs(target_dir, exist_ok=True)
+            
+            # Copy each component
+            components = [
+                (sdk_bin, "bin"),
+                (sdk_lib, "lib"),
+                (sdk_include, "include"),
+                (sdk_plugin, "plugin"),
+                (sdk_libraries, "libraries"),
+                (sdk_resources, "resources"),
+            ]
+            
+            for src_path, dst_name in components:
+                if os.path.exists(src_path):
+                    dest_path = os.path.join(target_dir, dst_name)
+                    
+                    if not dry_run:
+                        if os.path.exists(dest_path):
+                            shutil.rmtree(dest_path)
+                        shutil.copytree(src_path, dest_path)
+                        print(f"  Copied {dst_name} to Binaries/{target}")
+                    else:
+                        print(f"  [DRY RUN] Would copy {dst_name} to Binaries/{target}")
+        
+        # Copy Python DLLs using the shared function (same as copy_only mode)
+        copy_python_dlls_to_binaries(targets, dry_run=dry_run)
+        
+        print("✓ SDK structure setup complete")
+        return True
+        
+    except Exception as e:
+        print(f"ERROR: Failed to extract/setup SDK: {e}")
+        return False
 
 
 def pack_sdk(dry_run=False):
@@ -524,6 +646,12 @@ def main():
         action="store_true",
         help="Pack SDK files to SDK_temp, skipping pdb files and build/cache directories.",
     )
+    parser.add_argument(
+        "--extract-sdk",
+        type=str,
+        metavar="SDK_ZIP_PATH",
+        help="Extract SDK.zip and setup structure for builds (e.g., --extract-sdk SDK/SDK.zip)",
+    )
     args = parser.parse_args()
 
     targets = args.build_variant
@@ -534,6 +662,16 @@ def main():
     if args.pack:
         pack_sdk(dry_run)
         return
+    
+    if args.extract_sdk:
+        # Extract and setup SDK from zip file
+        success = extract_and_setup_sdk(args.extract_sdk, targets=targets, dry_run=dry_run)
+        if success:
+            print("\n✓ SDK ready for building")
+            return
+        else:
+            print("\n✗ Failed to extract SDK")
+            exit(1)
 
     if args.all:
         args.library = ["openusd", "slang", "d3d12", "dxc"]
@@ -678,36 +816,7 @@ def main():
 
     # Copy Python DLLs from SDK to Binaries for each target in copy-only mode
     if copy_only:
-        sdk_python_dir = os.path.join(os.path.dirname(__file__), "SDK", "python")
-        if os.path.exists(sdk_python_dir):
-            for target in targets:
-                bin_dir = os.path.join(os.getcwd(), "Binaries", target)
-                os.makedirs(bin_dir, exist_ok=True)
-                
-                # Copy Python DLLs from SDK python directory
-                for file in os.listdir(sdk_python_dir):
-                    if file.endswith(".dll"):
-                        src_file = os.path.join(sdk_python_dir, file)
-                        dst_file = os.path.join(bin_dir, file)
-                        if dry_run:
-                            print(f"[DRY RUN] Would copy {src_file} to {dst_file}")
-                        else:
-                            shutil.copy2(src_file, dst_file)
-                
-                # Also copy DLLs from SDK python/DLLs directory if exists
-                dlls_dir = os.path.join(sdk_python_dir, "DLLs")
-                if os.path.exists(dlls_dir):
-                    for file in os.listdir(dlls_dir):
-                        if file.endswith(".dll"):
-                            src_file = os.path.join(dlls_dir, file)
-                            dst_file = os.path.join(bin_dir, file)
-                            if dry_run:
-                                print(f"[DRY RUN] Would copy {src_file} to {dst_file}")
-                            else:
-                                shutil.copy2(src_file, dst_file)
-            print(f"Copied Python DLLs from SDK to Binaries for targets: {targets}")
-        else:
-            print(f"SDK Python directory not found at {sdk_python_dir}")
+        copy_python_dlls_to_binaries(targets, dry_run=dry_run)
 
 
 if __name__ == "__main__":
