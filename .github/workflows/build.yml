@@ -504,13 +504,40 @@ jobs:
         shell: powershell
         run: |
           try {
+            $cuda_available = $false
+            
+            # Check CUDA_PATH environment variable
             if (Test-Path -Env:CUDA_PATH) {
+              Write-Output "Found CUDA_PATH: $env:CUDA_PATH"
+              $cuda_available = $true
+            }
+            
+            # Also check common CUDA installation locations
+            if (-not $cuda_available) {
+              $common_paths = @(
+                "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6",
+                "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.5",
+                "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4",
+                "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.3"
+              )
+              
+              foreach ($path in $common_paths) {
+                if (Test-Path -Path "$path\bin\nvcc.exe") {
+                  Write-Output "Found CUDA at: $path"
+                  $env:CUDA_PATH = $path
+                  $cuda_available = $true
+                  break
+                }
+              }
+            }
+            
+            if ($cuda_available) {
               Write-Output "cuda-available=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-              Write-Output "CUDA_PATH: $env:CUDA_PATH"
+              Write-Output "CUDA is available"
               & "$env:CUDA_PATH\bin\nvcc.exe" --version
             } else {
               Write-Output "cuda-available=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-              Write-Output "CUDA_PATH not found"
+              Write-Output "CUDA not found"
             }
           } catch {
             Write-Output "cuda-available=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
