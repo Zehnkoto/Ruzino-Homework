@@ -570,6 +570,12 @@ jobs:
               exit 1
             }
             
+            $nvrtc_dll = Join-Path $cudaPath "bin\nvrtc64_120_0.dll"
+            if (-not (Test-Path -Path $nvrtc_dll)) {
+              Write-Output "ERROR: nvrtc64_120_0.dll not found at: $nvrtc_dll"
+              exit 1
+            }
+            
             $destDir = "Binaries\Release"
             if (-not (Test-Path -Path $destDir)) {
               New-Item -ItemType Directory -Path $destDir -Force | Out-Null
@@ -578,13 +584,20 @@ jobs:
             Copy-Item -Path $runtime_dll -Destination $destDir -Force
             Write-Output "✓ Copied cudart64_12.dll to $destDir"
             
-            # Verify the copy
-            $copied = Join-Path $destDir "cudart64_12.dll"
-            if (Test-Path -Path $copied) {
-              $size = (Get-Item $copied).Length / 1MB
-              Write-Output "✓ Verified: cudart64_12.dll ($('{0:N2}' -f $size) MB)"
+            Copy-Item -Path $nvrtc_dll -Destination $destDir -Force
+            Write-Output "✓ Copied nvrtc64_120_0.dll to $destDir"
+            
+            # Verify the copies
+            $copied_runtime = Join-Path $destDir "cudart64_12.dll"
+            $copied_nvrtc = Join-Path $destDir "nvrtc64_120_0.dll"
+            
+            if ((Test-Path -Path $copied_runtime) -and (Test-Path -Path $copied_nvrtc)) {
+              $size_runtime = (Get-Item $copied_runtime).Length / 1MB
+              $size_nvrtc = (Get-Item $copied_nvrtc).Length / 1MB
+              Write-Output "✓ Verified: cudart64_12.dll ($('{0:N2}' -f $size_runtime) MB)"
+              Write-Output "✓ Verified: nvrtc64_120_0.dll ($('{0:N2}' -f $size_nvrtc) MB)"
             } else {
-              Write-Output "ERROR: Failed to copy cudart64_12.dll"
+              Write-Output "ERROR: Failed to copy one or both DLL files"
               exit 1
             }
           } catch {
