@@ -553,6 +553,45 @@ jobs:
             echo Continuing anyway - system PATH may have compiler
           )
 
+      - name: Copy cublas64_12.dll to Binaries/Release (before build)
+        if: steps.cuda-check.outputs.cuda-available == 'true'
+        shell: powershell
+        run: |
+          try {
+            $cudaPath = $env:CUDA_PATH
+            if (-not $cudaPath) {
+              Write-Output "ERROR: CUDA_PATH not set"
+              exit 1
+            }
+            
+            $cublas_dll = Join-Path $cudaPath "bin\cublas64_12.dll"
+            if (-not (Test-Path -Path $cublas_dll)) {
+              Write-Output "ERROR: cublas64_12.dll not found at: $cublas_dll"
+              exit 1
+            }
+            
+            $destDir = "Binaries\Release"
+            if (-not (Test-Path -Path $destDir)) {
+              New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+            }
+            
+            Copy-Item -Path $cublas_dll -Destination $destDir -Force
+            Write-Output "✓ Copied cublas64_12.dll to $destDir"
+            
+            # Verify the copy
+            $copied = Join-Path $destDir "cublas64_12.dll"
+            if (Test-Path -Path $copied) {
+              $size = (Get-Item $copied).Length / 1MB
+              Write-Output "✓ Verified: cublas64_12.dll ($('{0:N2}' -f $size) MB)"
+            } else {
+              Write-Output "ERROR: Failed to copy cublas64_12.dll"
+              exit 1
+            }
+          } catch {
+            Write-Output "ERROR: $_"
+            exit 1
+          }
+
       - name: Configure CMake (With CUDA)
         if: steps.cuda-check.outputs.cuda-available == 'true'
         shell: cmd
@@ -605,45 +644,6 @@ jobs:
             echo Build failed with error code %ERRORLEVEL%
             exit /b %ERRORLEVEL%
           )
-
-      - name: Copy cublas64_12.dll to Binaries/Release
-        if: steps.cuda-check.outputs.cuda-available == 'true'
-        shell: powershell
-        run: |
-          try {
-            $cudaPath = $env:CUDA_PATH
-            if (-not $cudaPath) {
-              Write-Output "ERROR: CUDA_PATH not set"
-              exit 1
-            }
-            
-            $cublas_dll = Join-Path $cudaPath "bin\cublas64_12.dll"
-            if (-not (Test-Path -Path $cublas_dll)) {
-              Write-Output "ERROR: cublas64_12.dll not found at: $cublas_dll"
-              exit 1
-            }
-            
-            $destDir = "Binaries\Release"
-            if (-not (Test-Path -Path $destDir)) {
-              New-Item -ItemType Directory -Path $destDir -Force | Out-Null
-            }
-            
-            Copy-Item -Path $cublas_dll -Destination $destDir -Force
-            Write-Output "✓ Copied cublas64_12.dll to $destDir"
-            
-            # Verify the copy
-            $copied = Join-Path $destDir "cublas64_12.dll"
-            if (Test-Path -Path $copied) {
-              $size = (Get-Item $copied).Length / 1MB
-              Write-Output "✓ Verified: cublas64_12.dll ($('{0:N2}' -f $size) MB)"
-            } else {
-              Write-Output "ERROR: Failed to copy cublas64_12.dll"
-              exit 1
-            }
-          } catch {
-            Write-Output "ERROR: $_"
-            exit 1
-          }
 
       - name: CUDA not available
         if: steps.cuda-check.outputs.cuda-available == 'false'
