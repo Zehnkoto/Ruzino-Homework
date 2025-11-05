@@ -4,6 +4,7 @@ import os
 import requests
 from tqdm import tqdm
 import argparse
+import hashlib
 
 
 def copytree_common_to_binaries(folder, target="Debug", dst=None, dry_run=False):
@@ -491,6 +492,59 @@ def patch_findtbb_cmake(dry_run=False):
         print(f"Error patching FindTBB.cmake: {e}")
 
 
+def check_sdk_status(gh_token=None):
+    """Check if SDK needs rebuild based on configure.py hash"""
+    import json
+    
+    configureHash = None
+    try:
+        with open("configure.py", "rb") as f:
+            configureHash = hashlib.sha256(f.read()).hexdigest()
+    except Exception as e:
+        print(f"Error getting configure.py hash: {e}")
+        return
+    
+    print(f"configure-hash={configureHash}")
+    
+    sdkDir = "SDK"
+    hashFile = os.path.join(sdkDir, ".configure_hash")
+    
+    if os.path.exists(hashFile):
+        try:
+            with open(hashFile, "r") as f:
+                storedHash = f.read().strip()
+            if storedHash != configureHash:
+                print("needs-rebuild=true")
+                print("configure.py changed, SDK rebuild required")
+                return
+        except:
+            pass
+    
+    # Check if SDK exists in GitHub Release
+    tagName = f"sdk-{configureHash}"
+    
+    if gh_token:
+        import subprocess
+        try:
+            env = os.environ.copy()
+            env["GH_TOKEN"] = gh_token
+            result = subprocess.run(
+                ["gh", "release", "view", tagName, "--repo", "Jerry-Shen0527/USTC_CG_24"],
+                capture_output=True,
+                text=True,
+                env=env
+            )
+            if result.returncode == 0:
+                print("needs-rebuild=false")
+                print(f"SDK exists in release {tagName}")
+                return
+        except Exception as e:
+            print(f"Warning: Could not check GitHub release: {e}")
+    
+    print("needs-rebuild=true")
+    print("SDK not found in release, will rebuild")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Download and configure libraries.")
     parser.add_argument(
@@ -524,7 +578,21 @@ def main():
         action="store_true",
         help="Pack SDK files to SDK_temp, skipping pdb files and build/cache directories.",
     )
+    parser.add_argument(
+        "--check-sdk",
+        action="store_true",
+        help="Check if SDK needs rebuild and output status.",
+    )
+    parser.add_argument(
+        "--gh-token",
+        type=str,
+        help="GitHub token for checking releases.",
+    )
     args = parser.parse_args()
+
+    if args.check_sdk:
+        check_sdk_status(args.gh_token)
+        return
 
     targets = args.build_variant
     dry_run = args.dry_run

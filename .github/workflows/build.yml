@@ -18,46 +18,12 @@ jobs:
       - name: Check GH_PAT token
         shell: powershell
         run: |
-          try {
-            $token = "${{ secrets.GH_PAT }}"
-            if ([string]::IsNullOrEmpty($token)) {
-              Write-Output "ERROR: GH_PAT secret is not set"
-              exit 1
-            }
-            
-            Write-Output "✓ GH_PAT token is configured"
-            
-            # Test token validity and permissions using gh CLI
-            $env:GH_TOKEN = $token
-            
-            try {
-              # Try to get current user info - this tests token validity
-              $output = & gh auth status --show-token 2>&1
-              if ($LASTEXITCODE -eq 0) {
-                Write-Output "✓ Token authentication successful"
-                Write-Output $output
-              } else {
-                Write-Output "⚠ Token validation returned: $output"
-              }
-            } catch {
-              Write-Output "⚠ Could not validate token with gh CLI, but it may still be valid"
-            }
-            
-            # Try to get repo info as additional test
-            try {
-              & gh api user --jq '.login' 2>$null
-              if ($LASTEXITCODE -eq 0) {
-                Write-Output "✓ Token has valid permissions"
-              }
-            } catch {
-              Write-Output "⚠ Could not verify API permissions"
-            }
-            
-            Write-Output "✓ Credentials check passed"
-          } catch {
-            Write-Output "ERROR: Failed to verify credentials - $_"
+          $token = "${{ secrets.GH_PAT }}"
+          if ([string]::IsNullOrEmpty($token)) {
+            Write-Output "ERROR: GH_PAT secret is not set"
             exit 1
           }
+          Write-Output "✓ GH_PAT token is configured"
 
   check-sdk:
     name: Check if SDK needs rebuild
@@ -77,86 +43,17 @@ jobs:
         id: check
         shell: powershell
         run: |
-          $ErrorActionPreference = "Continue"
-          $WarningPreference = "SilentlyContinue"
-          $VerbosePreference = "SilentlyContinue"
+          $token = "${{ secrets.GH_PAT }}"
+          $output = python configure.py --check-sdk --gh-token $token
+          Write-Output $output
           
-          $configureHash = (Get-FileHash configure.py).Hash
-          Write-Output "configure-hash=$configureHash" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          
-          $needsRebuild = $false
-          
-          # First check if configure.py changed
-          $sdkDir = "SDK"
-          $hashFile = Join-Path $sdkDir ".configure_hash"
-          
-          if (Test-Path -Path $hashFile) {
-            $storedHash = (Get-Content $hashFile -Raw).Trim()
-            if ($storedHash -ne $configureHash) {
-              Write-Output "configure.py changed, SDK rebuild required"
-              $needsRebuild = $true
-            } else {
-              Write-Output "configure.py unchanged, checking if SDK exists in remote Release..."
-              
-              # Check if SDK exists in GitHub Release
-              $tagName = "sdk-$configureHash"
-              $releaseExists = $false
-              
-              # Try to view the release
-              $output = & gh release view $tagName --repo ${{ github.repository }} 2>$null
-              $exitCode = $?
-              if ($exitCode) {
-                Write-Output "Found release with tag: $tagName"
-                $releaseExists = $true
-              } else {
-                Write-Output "Release not found with tag: $tagName"
-              }
-              
-              if ($releaseExists) {
-                Write-Output "SDK exists in remote Release, no rebuild needed"
-                $needsRebuild = $false
-              } else {
-                Write-Output "SDK not found in remote Release, will rebuild and upload"
-                $needsRebuild = $true
-              }
-            }
-          } else {
-            Write-Output "No hash file found, will check if SDK exists in remote Release..."
-            
-            # Check if SDK exists in GitHub Release with current hash
-            $tagName = "sdk-$configureHash"
-            $releaseExists = $false
-            
-            # Try to view the release
-            $output = & gh release view $tagName --repo ${{ github.repository }} 2>$null
-            $exitCode = $?
-            if ($exitCode) {
-              Write-Output "Found release with tag: $tagName"
-              $releaseExists = $true
-            } else {
-              Write-Output "Release not found with tag: $tagName"
-            }
-            
-            if ($releaseExists) {
-              Write-Output "SDK exists in remote Release, will download instead of rebuild"
-              $needsRebuild = $false
-            } else {
-              Write-Output "SDK not found in remote Release, will rebuild and upload"
-              $needsRebuild = $true
+          foreach ($line in $output -split "`n") {
+            if ($line -match "^([a-z-]+)=(.+)$") {
+              $key = $matches[1]
+              $value = $matches[2]
+              Write-Output "$key=$value" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
             }
           }
-          
-          if ($needsRebuild) {
-            Write-Output "needs-rebuild=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-            Write-Output "SDK rebuild needed"
-          } else {
-            Write-Output "needs-rebuild=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-            Write-Output "SDK is up to date, will restore from Release"
-          }
-          
-          exit 0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
 
   build-sdk:
     name: Build SDK
@@ -173,19 +70,8 @@ jobs:
           fetch-depth: 1
 
       - name: Setup MSVC Build Tools
-        shell: cmd
-        run: |
-          REM Try to find and initialize Visual Studio environment
-          if exist "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" (
-            call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
-          ) else if exist "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvars64.bat" (
-            call "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvars64.bat"
-          ) else if exist "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat" (
-            call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          ) else (
-            echo Visual Studio not found at expected locations
-            exit /b 1
-          )
+        shell: powershell
+        run: & .github/scripts/init-msvc.ps1
 
       - name: Enable Windows long path support
         shell: powershell
@@ -205,18 +91,6 @@ jobs:
       - name: Build SDK - All libraries (except OpenUSD for debugging)
         shell: cmd
         run: |
-          REM Initialize Visual Studio environment
-          if exist "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" (
-            call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
-          ) else if exist "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvars64.bat" (
-            call "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvars64.bat"
-          ) else if exist "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat" (
-            call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          )
-          
-          REM Enable Git long path support
-          git config --global core.longpaths true
-          
           REM Build SDK - All libraries
           echo Building SDK with all libraries
           python configure.py --all
@@ -348,15 +222,68 @@ jobs:
           try {
             $sdkZip = "SDK/SDK.zip"
             if (Test-Path -Path $sdkZip) {
-              Write-Output "Extracting SDK.zip..."
-              Expand-Archive -Path $sdkZip -DestinationPath "SDK/" -Force
+              Write-Output "Extracting SDK.zip to SDK/ directory..."
+              # Extract to a temp folder first
+              $tempExtract = "SDK/SDK_temp_extract"
+              if (Test-Path $tempExtract) {
+                Remove-Item $tempExtract -Recurse -Force
+              }
+              Expand-Archive -Path $sdkZip -DestinationPath $tempExtract -Force
+              
+              # Move all contents from temp folder to SDK/ (this preserves SDK structure)
+              Get-ChildItem -Path $tempExtract -Force | ForEach-Object {
+                if (Test-Path "SDK/$($_.Name)") {
+                  Remove-Item "SDK/$($_.Name)" -Recurse -Force
+                }
+                Move-Item -Path $_.FullName -Destination "SDK/$($_.Name)" -Force
+              }
+              
+              # Clean up temp folder
+              Remove-Item $tempExtract -Force -ErrorAction SilentlyContinue
+              
               Write-Output "SDK extracted successfully"
+              Write-Output "SDK structure restored"
             } else {
               Write-Output "ERROR: SDK.zip not found"
               exit 1
             }
           } catch {
             Write-Error "Error extracting SDK: $_"
+            exit 1
+          }
+
+      - name: Copy SDK to Binaries (for CMake build)
+        shell: powershell
+        run: |
+          try {
+            # The SDK folder should now be properly extracted
+            # We need to copy the necessary parts to Binaries/ so CMake can find them
+            
+            $buildVariants = @("Debug", "Release")
+            foreach ($variant in $buildVariants) {
+              $binariesDir = "Binaries/$variant"
+              if (-not (Test-Path $binariesDir)) {
+                New-Item -ItemType Directory -Path $binariesDir -Force | Out-Null
+              }
+              
+              # Copy bin, lib, plugin, libraries, resources folders from SDK
+              $itemsToCopy = @("bin", "lib", "plugin", "libraries", "resources")
+              foreach ($item in $itemsToCopy) {
+                $srcPath = "SDK/$item"
+                $dstPath = "$binariesDir/$item"
+                if (Test-Path $srcPath) {
+                  Write-Output "Copying SDK/$item to Binaries/$variant/"
+                  if (Test-Path $dstPath) {
+                    Remove-Item $dstPath -Recurse -Force
+                  }
+                  Copy-Item -Path $srcPath -Destination $dstPath -Recurse -Force
+                }
+              }
+            }
+            
+            Write-Output "✓ SDK copied to Binaries/ for CMake build"
+          } catch {
+            Write-Error "Error copying SDK to Binaries: $_"
             exit 1
           }
 
@@ -372,18 +299,58 @@ jobs:
           submodules: recursive
           fetch-depth: 1
 
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
+      - name: Setup Python from SDK
+        shell: powershell
+        run: |
+          try {
+            $sdkPythonExe = "SDK/python/python.exe"
+            if (Test-Path -Path $sdkPythonExe) {
+              Write-Output "Found Python in SDK: $sdkPythonExe"
+              
+              # Add SDK python to PATH
+              $env:PATH = "$(Get-Item 'SDK/python').FullName;$env:PATH"
+              Write-Output "Added SDK Python to PATH"
+              
+              # Verify Python works
+              & $sdkPythonExe --version
+              if ($LASTEXITCODE -ne 0) {
+                Write-Output "ERROR: Python from SDK not working"
+                exit 1
+              }
+              Write-Output "✓ Python from SDK is ready"
+            } else {
+              Write-Output "ERROR: Python not found in SDK at $sdkPythonExe"
+              Write-Output "SDK contents:"
+              Get-ChildItem -Path "SDK" -Force
+              exit 1
+            }
+          } catch {
+            Write-Error "Error setting up Python: $_"
+            exit 1
+          }
 
       - name: Install dependencies
         shell: powershell
         run: |
           try {
-            python -m pip install --upgrade pip
-            if (Test-Path -Path "requirements.txt") {
-              pip install -r requirements.txt
+            $sdkPythonExe = "SDK/python/python.exe"
+            $sdkPipExe = "SDK/python/Scripts/pip.exe"
+            
+            # Make sure Python is in PATH
+            $env:PATH = "$(Get-Item 'SDK/python').FullName;$env:PATH"
+            
+            if (Test-Path -Path $sdkPipExe) {
+              Write-Output "Using pip from SDK"
+              & $sdkPipExe install --upgrade pip
+              if (Test-Path -Path "requirements.txt") {
+                & $sdkPipExe install -r requirements.txt
+              }
+            } else {
+              Write-Output "WARNING: pip not found in SDK, trying python -m pip"
+              & $sdkPythonExe -m pip install --upgrade pip
+              if (Test-Path -Path "requirements.txt") {
+                & $sdkPythonExe -m pip install -r requirements.txt
+              }
             }
           } catch {
             Write-Error "Error installing dependencies: $_"
@@ -391,36 +358,12 @@ jobs:
           }
 
       - name: Setup MSVC Build Tools
-        shell: cmd
-        run: |
-          REM Try to find and initialize Visual Studio environment
-          if exist "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" (
-            call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
-            echo MSVC environment initialized from Community edition
-          ) else if exist "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvars64.bat" (
-            call "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvars64.bat"
-            echo MSVC environment initialized from Professional edition
-          ) else if exist "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat" (
-            call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-            echo MSVC environment initialized from Enterprise edition
-          ) else (
-            echo WARNING: Visual Studio not found at expected locations
-            echo Continuing anyway - system PATH may have compiler
-          )
+        shell: powershell
+        run: & .github/scripts/init-msvc.ps1
 
       - name: Configure CMake (No CUDA)
         shell: cmd
         run: |
-          REM Initialize MSVC environment first
-          if exist "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" (
-            call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
-          ) else if exist "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvars64.bat" (
-            call "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvars64.bat"
-          ) else if exist "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat" (
-            call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          )
-          
-          REM Configure CMake
           set buildDir=build_nocuda
           if exist "%buildDir%" (
             rmdir /s /q "%buildDir%"
@@ -442,15 +385,6 @@ jobs:
       - name: Build (No CUDA)
         shell: cmd
         run: |
-          REM Initialize MSVC environment
-          if exist "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" (
-            call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
-          ) else if exist "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvars64.bat" (
-            call "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvars64.bat"
-          ) else if exist "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat" (
-            call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          )
-          
           cd /d build_nocuda
           cmake --build . --config Release -j
           if %ERRORLEVEL% neq 0 (
@@ -461,21 +395,8 @@ jobs:
       - name: Install (No CUDA)
         shell: cmd
         run: |
-          REM Initialize MSVC environment
-          if exist "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" (
-            call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
-          ) else if exist "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvars64.bat" (
-            call "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvars64.bat"
-          ) else if exist "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat" (
-            call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          )
-          
           cd /d build_nocuda
           cmake --install .
-          if %ERRORLEVEL% neq 0 (
-            echo Install failed
-            exit /b %ERRORLEVEL%
-          )
 
       - name: Upload build artifacts (No CUDA)
         uses: actions/upload-artifact@v4
@@ -496,18 +417,58 @@ jobs:
           submodules: recursive
           fetch-depth: 1
 
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
+      - name: Setup Python from SDK
+        shell: powershell
+        run: |
+          try {
+            $sdkPythonExe = "SDK/python/python.exe"
+            if (Test-Path -Path $sdkPythonExe) {
+              Write-Output "Found Python in SDK: $sdkPythonExe"
+              
+              # Add SDK python to PATH
+              $env:PATH = "$(Get-Item 'SDK/python').FullName;$env:PATH"
+              Write-Output "Added SDK Python to PATH"
+              
+              # Verify Python works
+              & $sdkPythonExe --version
+              if ($LASTEXITCODE -ne 0) {
+                Write-Output "ERROR: Python from SDK not working"
+                exit 1
+              }
+              Write-Output "✓ Python from SDK is ready"
+            } else {
+              Write-Output "ERROR: Python not found in SDK at $sdkPythonExe"
+              Write-Output "SDK contents:"
+              Get-ChildItem -Path "SDK" -Force
+              exit 1
+            }
+          } catch {
+            Write-Error "Error setting up Python: $_"
+            exit 1
+          }
 
       - name: Install dependencies
         shell: powershell
         run: |
           try {
-            python -m pip install --upgrade pip
-            if (Test-Path -Path "requirements.txt") {
-              pip install -r requirements.txt
+            $sdkPythonExe = "SDK/python/python.exe"
+            $sdkPipExe = "SDK/python/Scripts/pip.exe"
+            
+            # Make sure Python is in PATH
+            $env:PATH = "$(Get-Item 'SDK/python').FullName;$env:PATH"
+            
+            if (Test-Path -Path $sdkPipExe) {
+              Write-Output "Using pip from SDK"
+              & $sdkPipExe install --upgrade pip
+              if (Test-Path -Path "requirements.txt") {
+                & $sdkPipExe install -r requirements.txt
+              }
+            } else {
+              Write-Output "WARNING: pip not found in SDK, trying python -m pip"
+              & $sdkPythonExe -m pip install --upgrade pip
+              if (Test-Path -Path "requirements.txt") {
+                & $sdkPythonExe -m pip install -r requirements.txt
+              }
             }
           } catch {
             Write-Error "Error installing dependencies: $_"
@@ -533,36 +494,13 @@ jobs:
           }
 
       - name: Setup MSVC Build Tools
-        shell: cmd
-        run: |
-          REM Try to find and initialize Visual Studio environment
-          if exist "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" (
-            call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
-            echo MSVC environment initialized from Community edition
-          ) else if exist "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvars64.bat" (
-            call "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvars64.bat"
-            echo MSVC environment initialized from Professional edition
-          ) else if exist "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat" (
-            call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-            echo MSVC environment initialized from Enterprise edition
-          ) else (
-            echo WARNING: Visual Studio not found at expected locations
-            echo Continuing anyway - system PATH may have compiler
-          )
+        shell: powershell
+        run: & .github/scripts/init-msvc.ps1
 
       - name: Configure CMake (With CUDA)
         if: steps.cuda-check.outputs.cuda-available == 'true'
         shell: cmd
         run: |
-          REM Initialize MSVC environment
-          if exist "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" (
-            call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
-          ) else if exist "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvars64.bat" (
-            call "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvars64.bat"
-          ) else if exist "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat" (
-            call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          )
-          
           set buildDir=build_cuda
           if exist "%buildDir%" (
             rmdir /s /q "%buildDir%"
@@ -586,15 +524,6 @@ jobs:
         if: steps.cuda-check.outputs.cuda-available == 'true'
         shell: cmd
         run: |
-          REM Initialize MSVC environment
-          if exist "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" (
-            call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
-          ) else if exist "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvars64.bat" (
-            call "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvars64.bat"
-          ) else if exist "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat" (
-            call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          )
-          
           cd /d build_cuda
           cmake --build . --config Release -j
           if %ERRORLEVEL% neq 0 (
@@ -606,21 +535,8 @@ jobs:
         if: steps.cuda-check.outputs.cuda-available == 'true'
         shell: cmd
         run: |
-          REM Initialize MSVC environment
-          if exist "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" (
-            call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
-          ) else if exist "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvars64.bat" (
-            call "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvars64.bat"
-          ) else if exist "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat" (
-            call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          )
-          
           cd /d build_cuda
           cmake --install .
-          if %ERRORLEVEL% neq 0 (
-            echo Install failed
-            exit /b %ERRORLEVEL%
-          )
 
       - name: CUDA not available
         if: steps.cuda-check.outputs.cuda-available == 'false'
