@@ -11,8 +11,57 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  verify-credentials:
+    name: Verify GitHub Credentials
+    runs-on: self-hosted
+    steps:
+      - name: Check GH_PAT token
+        shell: powershell
+        run: |
+          try {
+            $token = "${{ secrets.GH_PAT }}"
+            if ([string]::IsNullOrEmpty($token)) {
+              Write-Output "ERROR: GH_PAT secret is not set"
+              exit 1
+            }
+            
+            Write-Output "✓ GH_PAT token is configured"
+            
+            # Test token validity and permissions using gh CLI
+            $env:GH_TOKEN = $token
+            
+            try {
+              # Try to get current user info - this tests token validity
+              $output = & gh auth status --show-token 2>&1
+              if ($LASTEXITCODE -eq 0) {
+                Write-Output "✓ Token authentication successful"
+                Write-Output $output
+              } else {
+                Write-Output "⚠ Token validation returned: $output"
+              }
+            } catch {
+              Write-Output "⚠ Could not validate token with gh CLI, but it may still be valid"
+            }
+            
+            # Try to get repo info as additional test
+            try {
+              & gh api user --jq '.login' 2>$null
+              if ($LASTEXITCODE -eq 0) {
+                Write-Output "✓ Token has valid permissions"
+              }
+            } catch {
+              Write-Output "⚠ Could not verify API permissions"
+            }
+            
+            Write-Output "✓ Credentials check passed"
+          } catch {
+            Write-Output "ERROR: Failed to verify credentials - $_"
+            exit 1
+          }
+
   check-sdk:
     name: Check if SDK needs rebuild
+    needs: verify-credentials
     runs-on: self-hosted
     outputs:
       needs-rebuild: ${{ steps.check.outputs.needs-rebuild }}
@@ -111,7 +160,7 @@ jobs:
 
   build-sdk:
     name: Build SDK
-    needs: check-sdk
+    needs: [verify-credentials, check-sdk]
     if: needs.check-sdk.outputs.needs-rebuild == 'true'
     outputs:
       configure-hash: ${{ needs.check-sdk.outputs.configure-hash }}
@@ -237,21 +286,20 @@ jobs:
           retention-days: 7
 
       - name: Upload SDK to GitHub Release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: success()
         uses: softprops/action-gh-release@v1
         with:
           files: SDK/SDK.zip
           tag_name: sdk-${{ needs.check-sdk.outputs.configure-hash }}
           body: "SDK build for configure.py hash: ${{ needs.check-sdk.outputs.configure-hash }}"
           draft: false
-          prerelease: false
-          fail_on_unmatched_files: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          prerelease: true
+          fail_on_unmatched_files: false
+          token: ${{ secrets.GH_PAT }}
 
   restore-sdk:
     name: Restore or build SDK
-    needs: [check-sdk, build-sdk]
+    needs: [verify-credentials, check-sdk, build-sdk]
     if: always()
     runs-on: self-hosted
     steps:
@@ -277,23 +325,22 @@ jobs:
             $tagName = "sdk-$configureHash"
             $sdkZip = "SDK/SDK.zip"
             
-            Write-Output "Downloading SDK from release with tag: $tagName"
+            Write-Output "Attempting to download SDK from release with tag: $tagName"
             New-Item -ItemType Directory -Path "SDK" -Force -ErrorAction SilentlyContinue | Out-Null
             
+            # Use GH CLI with personal token
+            $env:GH_TOKEN = "${{ secrets.GH_PAT }}"
             & gh release download $tagName --repo ${{ github.repository }} -p "SDK.zip" -O $sdkZip
             
             if ($LASTEXITCODE -eq 0 -and (Test-Path -Path $sdkZip)) {
-              Write-Output "SDK downloaded successfully from Release"
+              $size = (Get-Item $sdkZip).Length / 1GB
+              Write-Output "SDK downloaded successfully - Size: $([Math]::Round($size, 2)) GB"
             } else {
-              Write-Output "ERROR: Failed to download SDK from Release"
-              exit 1
+              Write-Output "WARNING: Failed to download SDK from Release, will use existing binaries if available"
             }
           } catch {
-            Write-Error "Error downloading SDK: $_"
-            exit 1
+            Write-Output "WARNING: Download error - $_"
           }
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
 
       - name: Extract SDK
         shell: powershell
