@@ -216,7 +216,7 @@ jobs:
           python -m pip install -r requirements.txt
           Write-Output "✓ Project requirements installed"
 
-      - name: Build SDK - All libraries
+      - name: Build SDK - Debug
         shell: cmd
         run: |
           REM Initialize Visual Studio environment
@@ -231,9 +231,32 @@ jobs:
           REM Enable Git long path support
           git config --global core.longpaths true
           
-          REM Build SDK - All libraries
-          echo Building SDK with all libraries
-          python configure.py --all
+          REM Build SDK - All libraries for Debug variant
+          echo Building SDK with all libraries for Debug variant
+          python configure.py --all --build_variant Debug
+          if %ERRORLEVEL% neq 0 (
+            echo Build failed with error code %ERRORLEVEL%
+            exit /b %ERRORLEVEL%
+          )
+
+      - name: Build SDK - Release
+        shell: cmd
+        run: |
+          REM Initialize Visual Studio environment
+          if exist "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" (
+            call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
+          ) else if exist "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvars64.bat" (
+            call "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvars64.bat"
+          ) else if exist "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat" (
+            call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          )
+          
+          REM Enable Git long path support
+          git config --global core.longpaths true
+          
+          REM Build SDK - All libraries for Release variant
+          echo Building SDK with all libraries for Release variant
+          python configure.py --all --build_variant Release
           if %ERRORLEVEL% neq 0 (
             echo Build failed with error code %ERRORLEVEL%
             exit /b %ERRORLEVEL%

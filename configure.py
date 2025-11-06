@@ -673,7 +673,7 @@ def patch_findtbb_cmake(dry_run=False):
 def main():
     parser = argparse.ArgumentParser(description="Download and configure libraries.")
     parser.add_argument(
-        "--build_variant", nargs="*", default=["Debug", "Release"], help="Specify build variants."
+        "--build_variant", nargs="*", default=["Debug"], help="Specify build variants."
     )
     parser.add_argument(
         "--library",
