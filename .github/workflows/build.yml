@@ -383,7 +383,7 @@ jobs:
         shell: cmd
         run: |
           REM Extract SDK and setup Binaries structure using configure.py
-          python configure.py --extract-sdk SDK/SDK.zip
+          python configure.py --extract-sdk SDK/SDK.zip --build_variant Release
           if %ERRORLEVEL% neq 0 (
             echo Failed to extract SDK
             exit /b %ERRORLEVEL%
@@ -507,7 +507,7 @@ jobs:
         shell: cmd
         run: |
           REM Extract SDK and setup Binaries structure using configure.py
-          python configure.py --extract-sdk SDK/SDK.zip
+          python configure.py --extract-sdk SDK/SDK.zip --build_variant Release
           if %ERRORLEVEL% neq 0 (
             echo Failed to extract SDK
             exit /b %ERRORLEVEL%
