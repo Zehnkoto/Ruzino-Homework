@@ -182,30 +182,96 @@ NODE_EXECUTION_FUNCTION(reserve_verts)
         mesh_component->set_display_color(new_display_color);
     }
 
-    // 处理法线
+    // 处理法线 - 支持 per-vertex 和 face-varying
     std::vector<glm::vec3> normals = mesh_component->get_normals();
-    if (normals.size() == vertices.size()) {
-        std::vector<glm::vec3> new_normals;
-        new_normals.reserve(new_vertices.size());
-        for (int i = 0; i < static_cast<int>(vertices.size()); ++i) {
-            if (mask[i] > 0.5f) {
-                new_normals.push_back(normals[i]);
+    if (!normals.empty()) {
+        if (normals.size() == vertices.size()) {
+            // Per-vertex normals
+            std::vector<glm::vec3> new_normals;
+            new_normals.reserve(new_vertices.size());
+            for (int i = 0; i < static_cast<int>(vertices.size()); ++i) {
+                if (mask[i] > 0.5f) {
+                    new_normals.push_back(normals[i]);
+                }
             }
+            mesh_component->set_normals(new_normals);
         }
-        mesh_component->set_normals(new_normals);
+        else if (normals.size() == face_vertex_indices.size()) {
+            // Face-varying normals - need to rebuild based on kept faces
+            std::vector<glm::vec3> new_normals;
+            new_normals.reserve(new_face_vertex_indices.size());
+            
+            int old_face_start = 0;
+            int old_normal_start = 0;
+            for (int face_size : face_vertex_counts) {
+                // Check if this face is kept
+                bool face_kept = true;
+                for (int i = 0; i < face_size; ++i) {
+                    int old_vertex_index = face_vertex_indices[old_face_start + i];
+                    if (vertex_map.find(old_vertex_index) == vertex_map.end()) {
+                        face_kept = false;
+                        break;
+                    }
+                }
+                
+                // If face is kept, copy its normals
+                if (face_kept && face_size >= 3) {
+                    for (int i = 0; i < face_size; ++i) {
+                        new_normals.push_back(normals[old_normal_start + i]);
+                    }
+                }
+                
+                old_face_start += face_size;
+                old_normal_start += face_size;
+            }
+            mesh_component->set_normals(new_normals);
+        }
     }
 
-    // 处理纹理坐标
+    // 处理纹理坐标 - 支持 per-vertex 和 face-varying
     std::vector<glm::vec2> texcoords = mesh_component->get_texcoords_array();
-    if (texcoords.size() == vertices.size()) {
-        std::vector<glm::vec2> new_texcoords;
-        new_texcoords.reserve(new_vertices.size());
-        for (int i = 0; i < static_cast<int>(vertices.size()); ++i) {
-            if (mask[i] > 0.5f) {
-                new_texcoords.push_back(texcoords[i]);
+    if (!texcoords.empty()) {
+        if (texcoords.size() == vertices.size()) {
+            // Per-vertex texcoords
+            std::vector<glm::vec2> new_texcoords;
+            new_texcoords.reserve(new_vertices.size());
+            for (int i = 0; i < static_cast<int>(vertices.size()); ++i) {
+                if (mask[i] > 0.5f) {
+                    new_texcoords.push_back(texcoords[i]);
+                }
             }
+            mesh_component->set_texcoords_array(new_texcoords);
         }
-        mesh_component->set_texcoords_array(new_texcoords);
+        else if (texcoords.size() == face_vertex_indices.size()) {
+            // Face-varying texcoords - need to rebuild based on kept faces
+            std::vector<glm::vec2> new_texcoords;
+            new_texcoords.reserve(new_face_vertex_indices.size());
+            
+            int old_face_start = 0;
+            int old_texcoord_start = 0;
+            for (int face_size : face_vertex_counts) {
+                // Check if this face is kept
+                bool face_kept = true;
+                for (int i = 0; i < face_size; ++i) {
+                    int old_vertex_index = face_vertex_indices[old_face_start + i];
+                    if (vertex_map.find(old_vertex_index) == vertex_map.end()) {
+                        face_kept = false;
+                        break;
+                    }
+                }
+                
+                // If face is kept, copy its texcoords
+                if (face_kept && face_size >= 3) {
+                    for (int i = 0; i < face_size; ++i) {
+                        new_texcoords.push_back(texcoords[old_texcoord_start + i]);
+                    }
+                }
+                
+                old_face_start += face_size;
+                old_texcoord_start += face_size;
+            }
+            mesh_component->set_texcoords_array(new_texcoords);
+        }
     }
 
     // 输出结果

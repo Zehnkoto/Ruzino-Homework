@@ -81,6 +81,19 @@ ImGui_Console::ImGui_Console(
 }
 ImGui_Console::~ImGui_Console()
 {
+    // Must disconnect the sink from spdlog BEFORE destroying this object
+    // Otherwise spdlog will try to log to a deleted console object
+    if (m_Options.capture_log) {
+        auto sink = get_global_console_sink();
+        sink->set_console(nullptr);
+        
+        // Remove the console logger as default logger if it exists
+        try {
+            spdlog::set_default_logger(nullptr);
+        } catch (...) {
+            // Ignore exceptions during cleanup
+        }
+    }
 }
 
 void ImGui_Console::Print(char const* fmt, ...)

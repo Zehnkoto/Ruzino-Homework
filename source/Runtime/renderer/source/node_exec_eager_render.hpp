@@ -17,6 +17,7 @@ class EagerNodeTreeExecutorRender : public EagerNodeTreeExecutor {
     void remove_storage(const std::set<std::string>::value_type& key) override;
 
    public:
+    void execute_tree(NodeTree* tree) override;
     void finalize(NodeTree* tree) override;
 
     virtual void reset_allocator();

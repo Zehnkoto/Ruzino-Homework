@@ -31,6 +31,27 @@ bool EagerNodeTreeExecutorRender::execute_node(NodeTree* tree, Node* node)
     return false;
 }
 
+void EagerNodeTreeExecutorRender::execute_tree(NodeTree* tree)
+{
+    // Execute all nodes without caching - always execute dirty nodes
+    for (int i = 0; i < nodes_to_execute_count; ++i) {
+        auto node = nodes_to_execute[i];
+        
+        // Execute node without cache checks
+        auto result = execute_node(tree, node);
+        if (result) {
+            forward_output_to_input(node);
+            // Don't mark as clean or set cache flags - no caching in render
+        }
+    }
+    
+    try_storage();
+    
+    // Don't save to persistent cache in render version
+    // This ensures fresh execution every time
+    dirty_nodes.clear();
+}
+
 void EagerNodeTreeExecutorRender::try_storage()
 {
     for (auto&& value : storage) {

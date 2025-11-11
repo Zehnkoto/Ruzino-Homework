@@ -99,14 +99,10 @@ void Hd_USTC_CG_Field::Sync(
 
 void Hd_USTC_CG_Field::Finalize(HdRenderParam* renderParam)
 {
-    spdlog::info("Finalizing field: %s", GetId().GetText());
-
     // Reset state
     _filePath.clear();
     _fieldName.clear();
     _isLoaded = false;
-
-    spdlog::info("Field finalization complete: %s", GetId().GetText());
 }
 
 USTC_CG_NAMESPACE_CLOSE_SCOPE

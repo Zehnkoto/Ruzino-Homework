@@ -94,9 +94,10 @@ void ClosestHit(
 
     float3 visualize = float3(vertex.texC, 0.0);
     visualize = dot(vertex.normalW, WorldRayDirection());
-    visualize = vertex.tangentW.xyz * 0.5 + 0.5;  // Visualize tangent space
+    visualize = vertex.normalW.xyz * 0.5 + 0.5;  // Visualize tangent space
 
     // payload.color = visualize;  // For debugging, visualize texture
+    // return;
     // coordinates return;
 
     // Get material ID
