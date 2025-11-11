@@ -15,6 +15,15 @@ class RHI_API ShaderReflectionInfo {
     unsigned get_binding_location(const std::string& path);
     nvrhi::ResourceType get_binding_type(const std::string& path);
     
+    // Get the array size for a binding (returns 1 for non-array bindings)
+    unsigned get_binding_array_size(const std::string& path);
+    
+    // Parse array index from path like "samplers[3]", returns -1 if not an array access
+    int parse_array_index(const std::string& path) const;
+    
+    // Get base name without array indices (e.g., "samplers[3]" -> "samplers")
+    std::string get_base_name(const std::string& path) const;
+    
     // Check if a binding exists
     bool has_binding(const std::string& path) const;
 

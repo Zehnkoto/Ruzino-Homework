@@ -347,44 +347,30 @@ ShaderReflectionInfo ShaderFactory::shader_reflect(
             }
         }
 
+        // Handle both arrays and single elements
+        nvrhi::BindingLayoutItem item;
+        item.type = convertBindingTypeToResourceType(type, resource_shape);
+        item.slot = index;
+        
+        // Set the size field: for arrays use element_count, for single elements use 1
         if (is_array && element_count > 0) {
-            // Handle arrays: create binding entries for each array element
-            for (size_t elem_idx = 0; elem_idx < element_count; ++elem_idx) {
-                nvrhi::BindingLayoutItem item;
-                item.type = convertBindingTypeToResourceType(type, resource_shape);
-                item.slot = index + elem_idx;
-
-                if (RHI::get_backend() == nvrhi::GraphicsAPI::VULKAN) {
-                    modify_vulkan_binding_shift(item);
-                }
-
-                // Create binding location for both base name and indexed name
-                std::string indexed_name = name + "[" + std::to_string(elem_idx) + "]";
-                
-                binding_locations[indexed_name] = std::make_tuple(space, indices[space]++);
-                
-                layout_vector[space].addItem(item);
-            }
-            
-            // Also add base name mapping to first element for backward compatibility
-            binding_locations[name] = std::make_tuple(space, indices[space] - element_count);
+            item.size = static_cast<uint16_t>(element_count);
         } else {
-            // Handle single elements
-            nvrhi::BindingLayoutItem item;
-            item.type = convertBindingTypeToResourceType(type, resource_shape);
-            item.slot = index;
-
-            if (RHI::get_backend() == nvrhi::GraphicsAPI::VULKAN) {
-                modify_vulkan_binding_shift(item);
-            }
-            if (layout_vector.size() < space + 1) {
-                layout_vector.resize(space + 1);
-                indices.resize(space + 1, 0);
-            }
-
-            binding_locations[name] = std::make_tuple(space, indices[space]++);
-            layout_vector[space].addItem(item);
+            item.size = 1;
         }
+
+        if (RHI::get_backend() == nvrhi::GraphicsAPI::VULKAN) {
+            modify_vulkan_binding_shift(item);
+        }
+        
+        if (layout_vector.size() < space + 1) {
+            layout_vector.resize(space + 1);
+            indices.resize(space + 1, 0);
+        }
+
+        // Store the binding location with the base name
+        binding_locations[name] = std::make_tuple(space, indices[space]++);
+        layout_vector[space].addItem(item);
         
         layout_vector[space].visibility = shader_type;
         layout_vector[space].registerSpaceIsDescriptorSet = true;

@@ -132,7 +132,17 @@ nvrhi::ResourceType ProgramVars::get_binding_type(const std::string& name)
 std::tuple<unsigned, unsigned> ProgramVars::get_binding_location(
     const std::string& name)
 {
-    unsigned binding_space_id = get_binding_space(name);
+    // Check if we've already created a binding location for this exact path (including array index)
+    auto path_it = path_to_binding_location.find(name);
+    if (path_it != path_to_binding_location.end()) {
+        return path_it->second;
+    }
+    
+    // Get the base name without array indices
+    std::string base_name = final_reflection_info.get_base_name(name);
+    int array_index = final_reflection_info.parse_array_index(name);
+    
+    unsigned binding_space_id = get_binding_space(base_name);
 
     if (binding_space_id == -1) {
         return std::make_tuple(-1, -1);
@@ -150,29 +160,52 @@ std::tuple<unsigned, unsigned> ProgramVars::get_binding_location(
     auto& binding_layout = get_binding_layout()[binding_space_id];
     auto& layout_items = binding_layout->getDesc()->bindings;
 
+    // Find the layout item for the base binding
     auto pos = std::find_if(
         layout_items.begin(),
         layout_items.end(),
-        [&name, this](const nvrhi::BindingLayoutItem& binding) {
-            return binding.slot == get_binding_id(name) &&
-                   binding.type == get_binding_type(name);
+        [&base_name, this](const nvrhi::BindingLayoutItem& binding) {
+            return binding.slot == get_binding_id(base_name) &&
+                   binding.type == get_binding_type(base_name);
         });
 
     assert(pos != layout_items.end());
 
-    unsigned binding_set_location = std::distance(layout_items.begin(), pos);
-
-    if (binding_set_location >= binding_space.size()) {
-        binding_space.resize(binding_set_location + 1);
+    // Get array size to validate array index
+    unsigned array_size = final_reflection_info.get_binding_array_size(base_name);
+    if (array_index >= 0 && static_cast<unsigned>(array_index) >= array_size) {
+        assert(false && "Array index out of bounds");
+        return std::make_tuple(-1, -1);
     }
+
+    // Create a new BindingSetItem for this specific array element (or single binding)
+    unsigned binding_set_location = binding_space.size();
+    binding_space.resize(binding_set_location + 1);
 
     nvrhi::BindingSetItem& item = binding_space[binding_set_location];
 
-    item.slot = get_binding_id(name);
-    item.type = get_binding_type(name);
+    // Initialize all fields properly (default constructor doesn't initialize for performance)
+    item.resourceHandle = nullptr;
+    item.slot = get_binding_id(base_name);
+    item.type = get_binding_type(base_name);
+    item.format = nvrhi::Format::UNKNOWN;
+    item.dimension = nvrhi::TextureDimension::Unknown;
+    item.unused = 0;
+    item.unused2 = 0;
     item.subresources = nvrhi::AllSubresources;
+    
+    // Set the array element if this is an array access
+    if (array_index >= 0) {
+        item.arrayElement = static_cast<uint32_t>(array_index);
+    } else {
+        item.arrayElement = 0;
+    }
 
-    return std::make_tuple(binding_space_id, binding_set_location);
+    // Cache this path -> binding location mapping
+    auto result = std::make_tuple(binding_space_id, binding_set_location);
+    path_to_binding_location[name] = result;
+
+    return result;
 }
 
 static nvrhi::IResource* placeholder;

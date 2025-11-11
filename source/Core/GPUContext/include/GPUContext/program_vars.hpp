@@ -1,6 +1,7 @@
 #pragma once
 #include "RHI/ResourceManager/resource_allocator.hpp"
 #include "api.h"
+#include <unordered_map>
 
 USTC_CG_NAMESPACE_OPEN_SCOPE
 
@@ -80,6 +81,10 @@ class GPUCONTEXT_API ProgramVars {
         descriptor_tables;
     ResourceAllocator& resource_allocator_;
     std::vector<IProgram*> programs;
+    
+    // Map from full path (including array indices) to binding location in binding_spaces
+    // This allows us to have multiple BindingSetItems for the same base binding with different arrayElements
+    std::unordered_map<std::string, std::tuple<unsigned, unsigned>> path_to_binding_location;
 
     unsigned get_binding_space(const std::string& name);
     unsigned get_binding_id(const std::string& name);
