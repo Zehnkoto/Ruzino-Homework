@@ -353,9 +353,9 @@ void Hd_USTC_CG_Mesh::updateTLAS(
 
     Hd_USTC_CG_Material* material = (*render_param->material_map)[material_id];
 
+    std::vector<GeometryInstanceData> instance_data_array(transforms.size());
+    
     for (int i = 0; i < transforms.size(); ++i) {
-        // Combine the local transform and the instance transform.
-
         GfMatrix4f mat = transform * GfMatrix4f(transforms[i]);
         GfMatrix4f mat_transposed = mat.GetTranspose();
 
@@ -373,18 +373,18 @@ void Hd_USTC_CG_Mesh::updateTLAS(
         instanceDesc.instanceID = instanceBuffer->index() + i;
         instances[i] = instanceDesc;
 
-        GeometryInstanceData instance_data;
-        instance_data.geometryID = mesh_desc_buffer->index();
+        instance_data_array[i].geometryID = mesh_desc_buffer->index();
         if (material) {
             material->ensure_material_data_handle(render_param);
-            instance_data.materialID = material->GetMaterialLocation();
+            instance_data_array[i].materialID = material->GetMaterialLocation();
         }
         else {
-            instance_data.materialID = -1;
+            instance_data_array[i].materialID = -1;
         }
-        memcpy(&instance_data.transform, mat.data(), sizeof(pxr::GfMatrix4f));
-        instanceBuffer->write_data(&instance_data, i);
+        memcpy(&instance_data_array[i].transform, mat.data(), sizeof(pxr::GfMatrix4f));
     }
+    
+    instanceBuffer->write_data(instance_data_array.data());
     render_param->InstanceCollection->set_require_rebuild_tlas();
     rt_instanceBuffer->write_data(instances.data());
 

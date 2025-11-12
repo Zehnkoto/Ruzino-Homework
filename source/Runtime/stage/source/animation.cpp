@@ -88,13 +88,21 @@ void WithDynamicLogicPrim::update(float delta_time) const
 
     if (tree_desc_cache != new_tree_desc) {
         tree_desc_cache = new_tree_desc;
-        // node_tree->deserialize(tree_desc_cache);
-        stage_->set_current_time(0);
-        stage_->set_render_time(0);
+        node_tree->deserialize(tree_desc_cache);
+        node_tree_executor->mark_tree_structure_changed();
+        // 重置该prim自己的时间状态
+        prim_current_time = pxr::UsdTimeCode(0.0f);
+        prim_render_time = pxr::UsdTimeCode(0.0f);
+
+        stage_->set_render_time(0.0f);
         simulation_begun = false;
     }
 
-    if (!stage_->should_simulate())
+    // 从Stage获取当前渲染时间，更新prim的渲染时间
+    prim_render_time = stage_->get_render_time();
+
+    // 使用该prim自己的should_simulate判断
+    if (!should_simulate())
         return;
 
     assert(node_tree);
@@ -114,9 +122,14 @@ void WithDynamicLogicPrim::update(float delta_time) const
         simulation_begun = true;
     }
 #ifdef GEOM_USD_EXTENSION
-    payload.current_time = stage_->get_current_time();
+    payload.current_time = prim_current_time;
 #endif
     node_tree_executor->execute(node_tree.get());
+
+    // 更新该prim的仿真时间
+    auto current = prim_current_time.GetValue();
+    current += delta_time;
+    prim_current_time = pxr::UsdTimeCode(current);
 }
 
 // Check whethe r important attributes have time samples

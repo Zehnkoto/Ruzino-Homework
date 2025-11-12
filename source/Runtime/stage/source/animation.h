@@ -35,6 +35,18 @@ class WithDynamicLogicPrim : public WithDynamicLogic {
     void update(float delta_time) const override;
     static bool is_animatable(const pxr::UsdPrim& prim);
 
+    // 每个prim独立判断是否应该进行仿真
+    bool should_simulate() const
+    {
+        return prim_render_time >= prim_current_time;
+    }
+
+    pxr::UsdTimeCode get_prim_current_time() const { return prim_current_time; }
+    void set_prim_current_time(pxr::UsdTimeCode time) { prim_current_time = time; }
+
+    pxr::UsdTimeCode get_prim_render_time() const { return prim_render_time; }
+    void set_prim_render_time(pxr::UsdTimeCode time) { prim_render_time = time; }
+
    private:
     mutable bool simulation_begun = false;
 
@@ -43,6 +55,10 @@ class WithDynamicLogicPrim : public WithDynamicLogic {
     std::shared_ptr<NodeTree> node_tree;
     std::unique_ptr<NodeTreeExecutor> node_tree_executor;
     mutable std::string tree_desc_cache;
+
+    // 每个prim独立的时间码
+    mutable pxr::UsdTimeCode prim_current_time = pxr::UsdTimeCode(0.0f);
+    mutable pxr::UsdTimeCode prim_render_time = pxr::UsdTimeCode(0.0f);
 
     static std::shared_ptr<NodeTreeDescriptor> node_tree_descriptor;
     static std::once_flag init_once;

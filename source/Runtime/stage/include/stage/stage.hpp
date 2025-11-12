@@ -102,6 +102,17 @@ class STAGE_API Stage {
         return m_stage_path;
     }
 
+    // 获取特定prim的时间信息
+    bool get_prim_time_info(
+        const pxr::SdfPath& path,
+        pxr::UsdTimeCode& current_time,
+        pxr::UsdTimeCode& render_time) const;
+
+    // 设置特定prim的渲染时间
+    void set_prim_render_time(
+        const pxr::SdfPath& path,
+        pxr::UsdTimeCode time);
+
    private:
     std::string m_stage_path;
     pxr::UsdStageRefPtr stage;

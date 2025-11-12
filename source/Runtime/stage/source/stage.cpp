@@ -103,6 +103,7 @@ Stage::~Stage()
 void Stage::tick(float ellapsed_time)
 {
     // for each prim, if it is animatable, update it
+    // 每个prim都会独立判断自己是否应该进行仿真
     for (auto&& prim : stage->Traverse()) {
         if (animation::WithDynamicLogicPrim::is_animatable(prim)) {
             if (animatable_prims.find(prim.GetPath()) ==
@@ -115,6 +116,9 @@ void Stage::tick(float ellapsed_time)
             animatable_prims.at(prim.GetPath()).update(ellapsed_time);
         }
     }
+    
+    // Stage的全局时间码用于追踪整体状态
+    // 但实际的仿真时间由每个prim独立管理
     if (should_simulate()) {
         auto current = current_time_code.GetValue();
         current += ellapsed_time;
@@ -377,6 +381,31 @@ std::unique_ptr<Stage> create_global_stage(const std::string& usd_name)
 std::unique_ptr<Stage> create_custom_global_stage(const std::string& filename)
 {
     return std::make_unique<Stage>(filename);
+}
+
+bool Stage::get_prim_time_info(
+    const pxr::SdfPath& path,
+    pxr::UsdTimeCode& current_time,
+    pxr::UsdTimeCode& render_time) const
+{
+    auto it = animatable_prims.find(path);
+    if (it == animatable_prims.end()) {
+        return false;
+    }
+
+    current_time = it->second.get_prim_current_time();
+    render_time = it->second.get_prim_render_time();
+    return true;
+}
+
+void Stage::set_prim_render_time(
+    const pxr::SdfPath& path,
+    pxr::UsdTimeCode time)
+{
+    auto it = animatable_prims.find(path);
+    if (it != animatable_prims.end()) {
+        it->second.set_prim_render_time(time);
+    }
 }
 
 USTC_CG_NAMESPACE_CLOSE_SCOPE
