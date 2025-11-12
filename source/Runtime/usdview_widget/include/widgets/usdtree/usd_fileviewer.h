@@ -46,5 +46,10 @@ class USDVIEW_WIDGET_API UsdFileViewer : public IWidget {
     Stage* stage;
     bool is_selecting_file = false;
     pxr::SdfPath selecting_file_base;
+    
+    // Cached transform values to avoid recomputing from matrix every frame
+    pxr::SdfPath cached_transform_path;
+    pxr::GfVec3d cached_euler_angles;
+    bool has_cached_transform = false;
 };
 USTC_CG_NAMESPACE_CLOSE_SCOPE

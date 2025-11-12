@@ -4,6 +4,7 @@
 
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <cmath>
 #include <future>
 #include <map>
@@ -12,6 +13,7 @@
 #include "GUI/ImGuiFileDialog.h"
 #include "imgui.h"
 #include "pxr/base/gf/matrix4f.h"
+#include "pxr/base/gf/rotation.h"
 #include "pxr/base/vt/typeHeaders.h"
 #include "pxr/base/vt/visitValue.h"
 #include "pxr/usd/usd/attribute.h"
@@ -240,13 +242,38 @@ void UsdFileViewer::EditValue()
                     GfVec3d(mat[2][0], mat[2][1], mat[2][2]).GetLength()
                 );
                 
-                // Extract rotation by removing scale from the matrix
-                GfMatrix3d rotMat3 = mat.ExtractRotationMatrix();
-                
-                // Convert rotation matrix to Euler angles (XYZ order)
-                double rotX = atan2(rotMat3[2][1], rotMat3[2][2]) * 180.0 / M_PI;
-                double rotY = atan2(-rotMat3[2][0], sqrt(rotMat3[2][1] * rotMat3[2][1] + rotMat3[2][2] * rotMat3[2][2])) * 180.0 / M_PI;
-                double rotZ = atan2(rotMat3[1][0], rotMat3[0][0]) * 180.0 / M_PI;
+                // Check if we need to recompute Euler angles (new prim selected or first time)
+                GfVec3d eulerXYZ;
+                if (!has_cached_transform || cached_transform_path != selected) {
+                    // Extract rotation using GfRotation (more stable than Euler angles)
+                    GfMatrix3d rotMat3 = mat.ExtractRotationMatrix();
+                    
+                    // Calculate Euler angles with proper handling of edge cases
+                    double sy = -rotMat3[2][0];
+                    
+                    // Clamp to avoid numerical issues
+                    sy = GfClamp(sy, -1.0, 1.0);
+                    
+                    if (std::abs(sy) < 0.99999) {
+                        // Normal case
+                        eulerXYZ[0] = atan2(rotMat3[2][1], rotMat3[2][2]) * 180.0 / M_PI;  // X
+                        eulerXYZ[1] = asin(sy) * 180.0 / M_PI;  // Y
+                        eulerXYZ[2] = atan2(rotMat3[1][0], rotMat3[0][0]) * 180.0 / M_PI;  // Z
+                    } else {
+                        // Gimbal lock case
+                        eulerXYZ[0] = atan2(-rotMat3[0][1], rotMat3[1][1]) * 180.0 / M_PI;
+                        eulerXYZ[1] = sy > 0 ? 89.9 : -89.9;  // Clamp to safe range
+                        eulerXYZ[2] = 0.0;
+                    }
+                    
+                    // Cache the result
+                    cached_euler_angles = eulerXYZ;
+                    cached_transform_path = selected;
+                    has_cached_transform = true;
+                } else {
+                    // Use cached values to avoid jitter
+                    eulerXYZ = cached_euler_angles;
+                }
                 
                 bool modified = false;
                 
@@ -277,22 +304,29 @@ void UsdFileViewer::EditValue()
                 // Rotation (Euler angles in degrees)
                 ImGui::Text("Rotation (degrees)");
                 float rot_tmp[3] = {
-                    static_cast<float>(rotX),
-                    static_cast<float>(rotY),
-                    static_cast<float>(rotZ)
+                    static_cast<float>(eulerXYZ[0]),
+                    static_cast<float>(eulerXYZ[1]),
+                    static_cast<float>(eulerXYZ[2])
                 };
                 
+                bool rotModified = false;
                 if (ImGui::DragFloat("X##rot", &rot_tmp[0], 1.0f, -180.f, 180.f, "%.1f°")) {
-                    rotX = rot_tmp[0];
-                    modified = true;
+                    eulerXYZ[0] = rot_tmp[0];
+                    rotModified = true;
                 }
-                if (ImGui::DragFloat("Y##rot", &rot_tmp[1], 1.0f, -180.f, 180.f, "%.1f°")) {
-                    rotY = rot_tmp[1];
-                    modified = true;
+                if (ImGui::DragFloat("Y##rot", &rot_tmp[1], 1.0f, -89.9f, 89.9f, "%.1f°")) {
+                    eulerXYZ[1] = rot_tmp[1];
+                    rotModified = true;
                 }
                 if (ImGui::DragFloat("Z##rot", &rot_tmp[2], 1.0f, -180.f, 180.f, "%.1f°")) {
-                    rotZ = rot_tmp[2];
+                    eulerXYZ[2] = rot_tmp[2];
+                    rotModified = true;
+                }
+                
+                if (rotModified) {
                     modified = true;
+                    // Update cache with new values
+                    cached_euler_angles = eulerXYZ;
                 }
                 
                 ImGui::Spacing();
@@ -332,39 +366,36 @@ void UsdFileViewer::EditValue()
                     scaleMat[1][1] = scaleVec[1];
                     scaleMat[2][2] = scaleVec[2];
                     
-                    // Create rotation matrix from Euler angles (XYZ order)
-                    double cx = cos(rotX * M_PI / 180.0);
-                    double sx = sin(rotX * M_PI / 180.0);
-                    double cy = cos(rotY * M_PI / 180.0);
-                    double sy = sin(rotY * M_PI / 180.0);
-                    double cz = cos(rotZ * M_PI / 180.0);
-                    double sz = sin(rotZ * M_PI / 180.0);
+                    // Create rotation matrix from Euler angles using GfRotation
+                    // This is more stable and avoids gimbal lock issues
+                    GfRotation rotX_rotation(GfVec3d(1, 0, 0), eulerXYZ[0]);
+                    GfRotation rotY_rotation(GfVec3d(0, 1, 0), eulerXYZ[1]);
+                    GfRotation rotZ_rotation(GfVec3d(0, 0, 1), eulerXYZ[2]);
                     
-                    GfMatrix4d rotMatX(1);
-                    rotMatX[1][1] = cx;
-                    rotMatX[1][2] = -sx;
-                    rotMatX[2][1] = sx;
-                    rotMatX[2][2] = cx;
+                    // Combine rotations: Z * Y * X (standard XYZ Euler order)
+                    GfRotation combinedRotation = rotZ_rotation * rotY_rotation * rotX_rotation;
                     
-                    GfMatrix4d rotMatY(1);
-                    rotMatY[0][0] = cy;
-                    rotMatY[0][2] = sy;
-                    rotMatY[2][0] = -sy;
-                    rotMatY[2][2] = cy;
+                    // Convert to 3x3 matrix then to 4x4
+                    GfMatrix3d rotMat3(combinedRotation.GetQuat());
+                    GfMatrix4d rotMat4(1);
+                    rotMat4.SetRotate(rotMat3);
                     
-                    GfMatrix4d rotMatZ(1);
-                    rotMatZ[0][0] = cz;
-                    rotMatZ[0][1] = -sz;
-                    rotMatZ[1][0] = sz;
-                    rotMatZ[1][1] = cz;
-                    
-                    // Combine: Scale -> RotX -> RotY -> RotZ
-                    GfMatrix4d newMat = rotMatZ * rotMatY * rotMatX * scaleMat;
+                    // Combine: Scale * Rotation
+                    GfMatrix4d newMat = rotMat4 * scaleMat;
                     
                     // Set translation
                     newMat.SetTranslateOnly(translation);
                     
-                    trans.Set(newMat);
+                    // Verify matrix is valid before setting
+                    if (!std::isnan(newMat[0][0]) && !std::isnan(newMat[3][3])) {
+                        try {
+                            trans.Set(newMat);
+                        } catch (...) {
+                            spdlog::warn("Failed to set transform matrix");
+                        }
+                    } else {
+                        spdlog::warn("Invalid transform matrix detected, skipping update");
+                    }
                 }
                 
                 ImGui::PopItemWidth();
