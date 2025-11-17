@@ -18,7 +18,7 @@ NODE_EXECUTION_FUNCTION(tree_to_mesh)
 {
     auto tree_branches = params.get_input<Geometry>("Tree Branches");
     int radial_segments = params.get_input<int>("Radial Segments");
-    
+    tree_branches.apply_transform();
     auto curve = tree_branches.get_component<CurveComponent>();
     if (!curve) {
         return false;
