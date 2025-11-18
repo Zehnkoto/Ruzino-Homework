@@ -8,7 +8,7 @@ import os
 # Get binary directory
 # From source/Plugins/TreeGen/tests/ to Binaries/Debug
 tests_dir = os.path.dirname(os.path.abspath(__file__))
-binary_dir = os.path.abspath(os.path.join(tests_dir, "..", "..", "..", "..", "Binaries", "Debug"))
+binary_dir = os.path.abspath(os.path.join(tests_dir, "..", "..", "..", "..", "Binaries", "Release"))
 
 # Set PXR_USD_WINDOWS_DLL_PATH so USD can find its DLLs
 os.environ['PXR_USD_WINDOWS_DLL_PATH'] = binary_dir

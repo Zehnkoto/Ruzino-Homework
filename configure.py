@@ -87,6 +87,8 @@ def copy_cuda_runtime_dlls_to_binaries(targets, dry_run=False):
     cuda_dlls = [
         "cudart64_12.dll",
         "nvrtc64_120_0.dll",
+        "cudart64_13.dll",
+        "nvrtc64_130_0.dll",
     ]
     
     # Copy each DLL to Binaries/{target}

@@ -80,6 +80,7 @@ option(USTC_CG_WITH_TORCH OFF)
 
 if(USTC_CG_WITH_CUDA)
     set(CMAKE_CUDA_ARCHITECTURES 86)
+    set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -allow-unsupported-compiler")
     enable_language(CUDA)
     set(CMAKE_CUDA_STANDARD 20)
 else()
