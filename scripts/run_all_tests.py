@@ -5,7 +5,7 @@ Test Runner Script for Ruzino Project
 This script:
 1. Recursively finds all 'tests/' folders under './source/'
 2. Runs pytest on any 'test_*.py' files found
-3. Runs corresponding '*_test.exe' files from './Binaries/Debug/' for any '.cpp' files
+3. Runs corresponding '*_test.exe' files from './Binaries/Release/' for any '.cpp' files
 
 Usage:
     python run_all_tests.py                    # Run all tests
@@ -197,7 +197,7 @@ def main():
     # Setup paths - script is now in scripts/ directory, so go up one level to project root
     script_dir = Path(__file__).parent.parent  # Go up from scripts/ to project root
     source_dir = script_dir / 'source'
-    binaries_dir = script_dir / 'Binaries' / 'Debug'
+    binaries_dir = script_dir / 'Binaries' / 'Release'
     
     print(f"Starting test run...")
     print(f"Searching for tests in: {source_dir}")
