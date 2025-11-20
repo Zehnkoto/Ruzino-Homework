@@ -447,6 +447,7 @@ float3 sample_preview_surface(
     float clearcoat,
     float clearcoatRoughness,
     float opacity,
+    int opacityMode,
     float opacityThreshold,
     float ior,
     float3 normal,
