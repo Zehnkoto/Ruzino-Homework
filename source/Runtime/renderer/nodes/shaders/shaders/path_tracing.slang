@@ -245,10 +245,10 @@ float3 sampleLights(float3 hitPos, float3 hitNormal, float3 V, inout uint seed)
 
         if (NdotL > 0.0 && LdotN > 0.0) {
             RayDesc shadowRay;
-            shadowRay.Origin = hitPos + hitNormal * shadow_offset;
+            shadowRay.Origin = hitPos + hitNormal * 0.001;
             shadowRay.Direction = lightDir;
             shadowRay.TMin = 0.0;
-            shadowRay.TMax = max(0.0, lightDistance - shadow_offset);
+            shadowRay.TMax = max(0.0, lightDistance - 0.001);
 
             ShadowPayload shadowPayload;
             shadowPayload.isVisible = true;
