@@ -10,6 +10,7 @@ using uint = uint32_t;
 struct MaterialHeader {
     uint material_type_id;
     uint material_blob_id;
+    uint padding[2];
 };
 
 struct MaterialDataBlob {
