@@ -338,30 +338,30 @@
   <implementation name="IM_power_vector4FA_genslang" nodedef="ND_power_vector4FA" target="genslang" sourcecode="pow({{in1}}, float4({{in2}}))" />
 
   <!-- <sin>, <cos>, <tan>, <asin>, <acos>, <atan2> -->
-  <implementation name="IM_sin_float_genslang" nodedef="ND_sin_float" target="genslang" sourcecode="mx_sin({{in}})" />
-  <implementation name="IM_cos_float_genslang" nodedef="ND_cos_float" target="genslang" sourcecode="mx_cos({{in}})" />
-  <implementation name="IM_tan_float_genslang" nodedef="ND_tan_float" target="genslang" sourcecode="mx_tan({{in}})" />
-  <implementation name="IM_asin_float_genslang" nodedef="ND_asin_float" target="genslang" sourcecode="mx_asin({{in}})" />
-  <implementation name="IM_acos_float_genslang" nodedef="ND_acos_float" target="genslang" sourcecode="mx_acos({{in}})" />
-  <implementation name="IM_atan2_float_genslang" nodedef="ND_atan2_float" target="genslang" sourcecode="mx_atan({{iny}}, {{inx}})" />
-  <implementation name="IM_sin_vector2_genslang" nodedef="ND_sin_vector2" target="genslang" sourcecode="mx_sin({{in}})" />
-  <implementation name="IM_cos_vector2_genslang" nodedef="ND_cos_vector2" target="genslang" sourcecode="mx_cos({{in}})" />
-  <implementation name="IM_tan_vector2_genslang" nodedef="ND_tan_vector2" target="genslang" sourcecode="mx_tan({{in}})" />
-  <implementation name="IM_asin_vector2_genslang" nodedef="ND_asin_vector2" target="genslang" sourcecode="mx_asin({{in}})" />
-  <implementation name="IM_acos_vector2_genslang" nodedef="ND_acos_vector2" target="genslang" sourcecode="mx_acos({{in}})" />
-  <implementation name="IM_atan2_vector2_genslang" nodedef="ND_atan2_vector2" target="genslang" sourcecode="mx_atan({{iny}}, {{inx}})" />
-  <implementation name="IM_sin_vector3_genslang" nodedef="ND_sin_vector3" target="genslang" sourcecode="mx_sin({{in}})" />
-  <implementation name="IM_cos_vector3_genslang" nodedef="ND_cos_vector3" target="genslang" sourcecode="mx_cos({{in}})" />
-  <implementation name="IM_tan_vector3_genslang" nodedef="ND_tan_vector3" target="genslang" sourcecode="mx_tan({{in}})" />
-  <implementation name="IM_asin_vector3_genslang" nodedef="ND_asin_vector3" target="genslang" sourcecode="mx_asin({{in}})" />
-  <implementation name="IM_acos_vector3_genslang" nodedef="ND_acos_vector3" target="genslang" sourcecode="mx_acos({{in}})" />
-  <implementation name="IM_atan2_vector3_genslang" nodedef="ND_atan2_vector3" target="genslang" sourcecode="mx_atan({{iny}}, {{inx}})" />
-  <implementation name="IM_sin_vector4_genslang" nodedef="ND_sin_vector4" target="genslang" sourcecode="mx_sin({{in}})" />
-  <implementation name="IM_cos_vector4_genslang" nodedef="ND_cos_vector4" target="genslang" sourcecode="mx_cos({{in}})" />
-  <implementation name="IM_tan_vector4_genslang" nodedef="ND_tan_vector4" target="genslang" sourcecode="mx_tan({{in}})" />
-  <implementation name="IM_asin_vector4_genslang" nodedef="ND_asin_vector4" target="genslang" sourcecode="mx_asin({{in}})" />
-  <implementation name="IM_acos_vector4_genslang" nodedef="ND_acos_vector4" target="genslang" sourcecode="mx_acos({{in}})" />
-  <implementation name="IM_atan2_vector4_genslang" nodedef="ND_atan2_vector4" target="genslang" sourcecode="mx_atan({{iny}}, {{inx}})" />
+  <implementation name="IM_sin_float_genslang" nodedef="ND_sin_float" target="genslang" sourcecode="sin({{in}})" />
+  <implementation name="IM_cos_float_genslang" nodedef="ND_cos_float" target="genslang" sourcecode="cos({{in}})" />
+  <implementation name="IM_tan_float_genslang" nodedef="ND_tan_float" target="genslang" sourcecode="tan({{in}})" />
+  <implementation name="IM_asin_float_genslang" nodedef="ND_asin_float" target="genslang" sourcecode="asin({{in}})" />
+  <implementation name="IM_acos_float_genslang" nodedef="ND_acos_float" target="genslang" sourcecode="acos({{in}})" />
+  <implementation name="IM_atan2_float_genslang" nodedef="ND_atan2_float" target="genslang" sourcecode="atan({{iny}}, {{inx}})" />
+  <implementation name="IM_sin_vector2_genslang" nodedef="ND_sin_vector2" target="genslang" sourcecode="sin({{in}})" />
+  <implementation name="IM_cos_vector2_genslang" nodedef="ND_cos_vector2" target="genslang" sourcecode="cos({{in}})" />
+  <implementation name="IM_tan_vector2_genslang" nodedef="ND_tan_vector2" target="genslang" sourcecode="tan({{in}})" />
+  <implementation name="IM_asin_vector2_genslang" nodedef="ND_asin_vector2" target="genslang" sourcecode="asin({{in}})" />
+  <implementation name="IM_acos_vector2_genslang" nodedef="ND_acos_vector2" target="genslang" sourcecode="acos({{in}})" />
+  <implementation name="IM_atan2_vector2_genslang" nodedef="ND_atan2_vector2" target="genslang" sourcecode="atan({{iny}}, {{inx}})" />
+  <implementation name="IM_sin_vector3_genslang" nodedef="ND_sin_vector3" target="genslang" sourcecode="sin({{in}})" />
+  <implementation name="IM_cos_vector3_genslang" nodedef="ND_cos_vector3" target="genslang" sourcecode="cos({{in}})" />
+  <implementation name="IM_tan_vector3_genslang" nodedef="ND_tan_vector3" target="genslang" sourcecode="tan({{in}})" />
+  <implementation name="IM_asin_vector3_genslang" nodedef="ND_asin_vector3" target="genslang" sourcecode="asin({{in}})" />
+  <implementation name="IM_acos_vector3_genslang" nodedef="ND_acos_vector3" target="genslang" sourcecode="acos({{in}})" />
+  <implementation name="IM_atan2_vector3_genslang" nodedef="ND_atan2_vector3" target="genslang" sourcecode="atan({{iny}}, {{inx}})" />
+  <implementation name="IM_sin_vector4_genslang" nodedef="ND_sin_vector4" target="genslang" sourcecode="sin({{in}})" />
+  <implementation name="IM_cos_vector4_genslang" nodedef="ND_cos_vector4" target="genslang" sourcecode="cos({{in}})" />
+  <implementation name="IM_tan_vector4_genslang" nodedef="ND_tan_vector4" target="genslang" sourcecode="tan({{in}})" />
+  <implementation name="IM_asin_vector4_genslang" nodedef="ND_asin_vector4" target="genslang" sourcecode="asin({{in}})" />
+  <implementation name="IM_acos_vector4_genslang" nodedef="ND_acos_vector4" target="genslang" sourcecode="acos({{in}})" />
+  <implementation name="IM_atan2_vector4_genslang" nodedef="ND_atan2_vector4" target="genslang" sourcecode="atan({{iny}}, {{inx}})" />
 
   <!-- <sqrt> -->
   <implementation name="IM_sqrt_float_genslang" nodedef="ND_sqrt_float" target="genslang" sourcecode="sqrt({{in}})" />

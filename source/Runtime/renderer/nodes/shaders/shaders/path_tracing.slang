@@ -65,16 +65,38 @@ float3 sampleLights(float3 hitPos, float3 hitNormal, float3 V, inout uint seed)
     if (lightCount == 0)
         return float3(0, 0, 0);
 
-    // Randomly select a light
-    uint lightIndex =
-        min(uint(random_float(seed) * lightCount), lightCount - 1);
+    // Count non-dome lights (dome lights are handled by miss shader)
+    uint sampleableLightCount = 0;
+    for (uint i = 0; i < lightCount; i++) {
+        if (lightBuffer[i].type != uint(LightType::Dome)) {
+            sampleableLightCount++;
+        }
+    }
+
+    if (sampleableLightCount == 0)
+        return float3(0, 0, 0);
+
+    // Randomly select a non-dome light
+    uint targetLight = uint(random_float(seed) * sampleableLightCount);
+    uint lightIndex = 0;
+    uint nonDomeCount = 0;
+    for (uint i = 0; i < lightCount; i++) {
+        if (lightBuffer[i].type != uint(LightType::Dome)) {
+            if (nonDomeCount == targetLight) {
+                lightIndex = i;
+                break;
+            }
+            nonDomeCount++;
+        }
+    }
+
     LightData light = lightBuffer[lightIndex];
 
     float3 lightContrib = float3(0, 0, 0);
     float3 lightDir;
     float lightDistance;
     float lightPdf =
-        1.0 / float(lightCount);  // Uniform light selection probability
+        1.0 / float(sampleableLightCount);  // Uniform light selection probability for non-dome lights
 
     // Sample the selected light based on its type
     if (light.type == uint(LightType::Point)) {
@@ -432,11 +454,11 @@ void ClosestHit(
         float3 directLight = sampleLights(
             vertex.posW, vertex.normalW, -WorldRayDirection(), payload.seed);
         // Check for NaN/Inf before accumulating
-        if (!any(isnan(directLight)) && !any(isinf(directLight)) &&
-            !any(isnan(callData.throughput)) &&
-            !any(isinf(callData.throughput))) {
-            payload.color +=
-                payload.throughput * directLight * callData.throughput;
+        if (!any(isnan(directLight)) && !any(isinf(directLight))) {
+            // Note: payload.throughput already includes callData.throughput from the path
+            // directLight already includes geometric terms and light PDF
+            // So we only need: throughput * light_contribution
+            payload.color += payload.throughput * directLight;
         }
         else {
             payload.color = float3(1, 0, 1);  // Magenta for debugging NaN/Inf
