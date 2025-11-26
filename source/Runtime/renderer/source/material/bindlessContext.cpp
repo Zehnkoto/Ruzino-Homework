@@ -53,11 +53,6 @@ void BindlessContext::emitResourceBindings(
                 if (type == Type::FLOAT) {
                     auto val = uniform->getValue()->asA<float>();
 
-                    spdlog::info(
-                        "setting {} to {}",
-                        uniform->getVariable(),
-                        val);
-
                     memcpy(
                         &material_data.data[data_location],
                         &val,
@@ -74,11 +69,6 @@ void BindlessContext::emitResourceBindings(
                     if (type == Type::INTEGER) {
                         auto val = uniform->getValue()->asA<int>();
 
-                        spdlog::info(
-                            "setting {} to {}",
-                            uniform->getVariable(),
-                            val);
-
                         memcpy(
                             &material_data.data[data_location],
                             &val,
@@ -87,11 +77,6 @@ void BindlessContext::emitResourceBindings(
                     else if (type == Type::BOOLEAN) {
                         auto val = uniform->getValue()->asA<bool>();
                         int intVal = val ? 1 : 0;
-
-                        spdlog::info(
-                            "setting {} to {}",
-                            uniform->getVariable(),
-                            intVal);
 
                         memcpy(
                             &material_data.data[data_location],
@@ -109,12 +94,6 @@ void BindlessContext::emitResourceBindings(
                         &val,
                         sizeof(Vector2));
 
-                    spdlog::info(
-                        "setting {} to {}, {}",
-                        uniform->getVariable(),
-                        val[0],
-                        val[1]);
-
                     dataFetch = "float2(asfloat(data.data[" +
                                 std::to_string(data_location) +
                                 "]), asfloat(data.data[" +
@@ -127,12 +106,6 @@ void BindlessContext::emitResourceBindings(
                     if (type == Type::COLOR3) {
                         auto val = uniform->getValue()->asA<Color3>();
 
-                        spdlog::info(
-                            "setting {} to {}, {}, {}",
-                            uniform->getVariable(),
-                            val[0],
-                            val[1],
-                            val[2]);
                         memcpy(
                             &material_data.data[data_location],
                             &val,
@@ -140,13 +113,6 @@ void BindlessContext::emitResourceBindings(
                     }
                     else {
                         auto val = uniform->getValue()->asA<Vector3>();
-
-                        spdlog::info(
-                            "setting {} to {}, {}, {}",
-                            uniform->getVariable(),
-                            val[0],
-                            val[1],
-                            val[2]);
 
                         memcpy(
                             &material_data.data[data_location],
@@ -168,14 +134,6 @@ void BindlessContext::emitResourceBindings(
                     if (!uniform->getValue()) {
                         // No value provided, use default zero
                         Vector4 val(0.0f, 0.0f, 0.0f, 0.0f);
-                        
-                        spdlog::info(
-                            "setting {} to default {}, {}, {}, {} (no value provided)",
-                            uniform->getVariable(),
-                            val[0],
-                            val[1],
-                            val[2],
-                            val[3]);
 
                         memcpy(
                             &material_data.data[data_location],
@@ -185,14 +143,6 @@ void BindlessContext::emitResourceBindings(
                     else if (uniform->getValue()->isA<Color4>()) {
                         auto val = uniform->getValue()->asA<Color4>();
 
-                        spdlog::info(
-                            "setting {} to {}, {}, {}, {}",
-                            uniform->getVariable(),
-                            val[0],
-                            val[1],
-                            val[2],
-                            val[3]);
-
                         memcpy(
                             &material_data.data[data_location],
                             &val,
@@ -200,14 +150,6 @@ void BindlessContext::emitResourceBindings(
                     }
                     else if (uniform->getValue()->isA<Vector4>()) {
                         auto val = uniform->getValue()->asA<Vector4>();
-
-                        spdlog::info(
-                            "setting {} to {}, {}, {}, {}",
-                            uniform->getVariable(),
-                            val[0],
-                            val[1],
-                            val[2],
-                            val[3]);
 
                         memcpy(
                             &material_data.data[data_location],

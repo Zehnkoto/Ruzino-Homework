@@ -211,7 +211,6 @@ static mx::NodePtr _AddMaterialXNode(
     for (TfToken const& paramName : hdNodeParamNames) {
         // Get the MaterialX Parameter info
         const std::string& mxInputName = paramName.GetString();
-        spdlog::info("Adding input {}", mxInputName.c_str());
 
         const HdMaterialNetworkInterface::NodeParamData paramData =
             netInterface->GetNodeParameterData(hdNodeName, paramName);

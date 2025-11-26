@@ -214,9 +214,14 @@ float3 sample_standard_surface(
     out float pdf
 )
 {
-    // Create shading frame
+    // Apply specular rotation to tangent
+    float3 rotated_tangent;
+    float rotation_angle = specular_rotation * 360.0;
+    mx_rotate_vector3(tangent, rotation_angle, normal, rotated_tangent);
+    
+    // Create shading frame with rotated tangent
     bool valid;
-    ShadingFrame sf = ShadingFrame.createSafe(normal, float4(tangent, 1.0), valid);
+    ShadingFrame sf = ShadingFrame.createSafe(normal, float4(rotated_tangent, 1.0), valid);
     
     // Transform view direction to local space
     float3 V_local = sf.toLocal(V);
