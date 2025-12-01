@@ -175,10 +175,9 @@ void ClosureCompoundNodeSlang::emitFunctionCall(
             _functionName.find("UsdPreviewSurface") != string::npos;
 
         if (isStandardSurface) {
-            // Fill StandardSurfaceMaterialParams
-            shadergen.emitLine("StandardSurfaceMaterialParams params = {};", stage);
-
-            // Parameter name mapping for standard_surface
+            // Use packStandardSurfaceMaterialParams to create optimized structure
+            
+            // Parameter name mapping for standard_surface - must match input order
             static const std::vector<string> paramNames = {
                 "base",
                 "base_color",
@@ -225,26 +224,37 @@ void ClosureCompoundNodeSlang::emitFunctionCall(
             };
 
             auto inputs = node.getInputs();
+            
+            // Begin function call to packStandardSurfaceMaterialParams
+            shadergen.emitLineBegin(stage);
+            shadergen.emitString("StandardSurfaceMaterialParams params = packStandardSurfaceMaterialParams(", stage);
+            shadergen.emitLineEnd(stage, false);
+            
+            // Emit all parameters to the packing function
             size_t minInputs = std::min(inputs.size(), paramNames.size());
-
-            // Loop through and assign parameters
             for (size_t i = 0; i < minInputs; ++i) {
                 shadergen.emitLineBegin(stage);
-                shadergen.emitString("params." + paramNames[i] + " = ", stage);
+                shadergen.emitString("    ", stage);
                 shadergen.emitInput(inputs[i], context, stage);
-                shadergen.emitLineEnd(stage);
+                if (i < minInputs - 1 || inputs.size() < paramNames.size()) {
+                    shadergen.emitString(",", stage);
+                }
+                shadergen.emitLineEnd(stage, false);
             }
-
+            
             // Fill defaults for missing parameters
             if (inputs.size() < 40) {
-                shadergen.emitLine("params.thin_walled = 0;", stage);
+                shadergen.emitLine("    0,  // thin_walled", stage, false);
             }
             if (inputs.size() < 41) {
-                shadergen.emitLine("params.normal = vd.normalW;", stage);
+                shadergen.emitLine("    vd.normalW,  // normal", stage, false);
             }
             if (inputs.size() < 42) {
-                shadergen.emitLine("params.tangent = vd.tangentW;", stage);
+                shadergen.emitLine("    vd.tangentW  // tangent", stage, false);
             }
+            
+            // Close function call
+            shadergen.emitLine(");", stage);
 
             // Write params to buffer using reinterpret cast
             shadergen.emitLine(
