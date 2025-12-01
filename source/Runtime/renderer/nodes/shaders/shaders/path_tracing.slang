@@ -115,10 +115,10 @@ LightSample sampleLights(float3 hitPos, float3 hitNormal, inout uint seed)
         float NdotL = max(0.0, dot(hitNormal, lightDir));
         if (NdotL > 0.0) {
             RayDesc shadowRay;
-            shadowRay.Origin = hitPos + hitNormal * 0.001;
+            shadowRay.Origin = hitPos + hitNormal * 0.0001;
             shadowRay.Direction = lightDir;
             shadowRay.TMin = 0.0;
-            shadowRay.TMax = lightDistance - 0.001;
+            shadowRay.TMax = lightDistance - 0.0001;
 
             ShadowPayload shadowPayload;
             shadowPayload.isVisible = true;
@@ -142,6 +142,9 @@ LightSample sampleLights(float3 hitPos, float3 hitNormal, inout uint seed)
         }
     }
     else if (light.type == uint(LightType::Sphere)) {
+        // Sphere light - sample a random point on the sphere
+        // For now, treat as point light at center
+        // TODO: Proper sphere light sampling
         lightDir = light.posW - hitPos;
         lightDistance = length(lightDir);
         lightDir /= lightDistance;
@@ -149,10 +152,10 @@ LightSample sampleLights(float3 hitPos, float3 hitNormal, inout uint seed)
         float NdotL = max(0.0, dot(hitNormal, lightDir));
         if (NdotL > 0.0) {
             RayDesc shadowRay;
-            shadowRay.Origin = hitPos + hitNormal * 0.001;
+            shadowRay.Origin = hitPos + hitNormal * 0.0001;
             shadowRay.Direction = lightDir;
             shadowRay.TMin = 0.0;
-            shadowRay.TMax = lightDistance - 0.001;
+            shadowRay.TMax = lightDistance - 0.0001;
 
             ShadowPayload shadowPayload;
             shadowPayload.isVisible = true;
@@ -182,7 +185,7 @@ LightSample sampleLights(float3 hitPos, float3 hitNormal, inout uint seed)
         float NdotL = max(0.0, dot(hitNormal, lightDir));
         if (NdotL > 0.0) {
             RayDesc shadowRay;
-            shadowRay.Origin = hitPos + hitNormal * 0.001;
+            shadowRay.Origin = hitPos + hitNormal * 0.0001;
             shadowRay.Direction = lightDir;
             shadowRay.TMin = 0.0;
             shadowRay.TMax = lightDistance;
@@ -219,6 +222,7 @@ LightSample sampleLights(float3 hitPos, float3 hitNormal, inout uint seed)
         lightDistance = length(lightDir);
         lightDir /= lightDistance;
 
+        float NdotL = max(0.0, dot(hitNormal, lightDir));
         float LdotN = max(0.0, dot(-lightDir, light.dirW));
 
         if (LdotN > 0.0) {
@@ -241,7 +245,7 @@ LightSample sampleLights(float3 hitPos, float3 hitNormal, inout uint seed)
                 shadowPayload);
 
             if (shadowPayload.isVisible) {
-                float geometricTerm = (LdotN) / (lightDistance * lightDistance);
+                float geometricTerm = (NdotL * LdotN) / (lightDistance * lightDistance);
                 areaPdf = 1.0 / light.surfaceArea;
                 sample.direction = lightDir;
                 sample.intensity = light.intensity * geometricTerm;
@@ -327,6 +331,7 @@ void ClosestHit(
     if (dot(WorldRayDirection(), vertex.normalW) >= 0.0) {
         vertex.normalW = -vertex.normalW;
         vertex.tangentW = -vertex.tangentW;
+        vertex.faceNormalW = -vertex.faceNormalW;
         eta_flipped = 1;
     }
 
@@ -351,8 +356,7 @@ void ClosestHit(
     var material_header = materialHeaderBuffer[material_id];
 
     // Sample a light source for direct lighting
-    LightSample lightSample =
-        sampleLights(vertex.posW, vertex.faceNormalW, seed);
+    LightSample lightSample = sampleLights(vertex.posW, vertex.normalW, seed);
 
     // Evaluate material with light direction
     CallableData callData;
@@ -384,8 +388,6 @@ void ClosestHit(
     float3 local_ray_dir = sf.toLocal(ray_dir);
     bool isTransmission = local_ray_dir.z < 0.0;  // if (isTransmission) {
 
-    float cosine_factor = abs(local_ray_dir.z);
-
     // Validate throughput before continuing
     if (any(isnan(callData.throughput))) {
         payload.color = float3(1, 0, 0);
@@ -399,7 +401,7 @@ void ClosestHit(
         return;
     }
 
-    payload.throughput *= cosine_factor * callData.throughput / pdf;
+    payload.throughput *= callData.throughput / pdf;
 
     payload.hitPosition = vertex.posW;
     payload.depth++;

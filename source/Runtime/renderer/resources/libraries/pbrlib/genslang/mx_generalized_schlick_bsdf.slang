@@ -69,7 +69,7 @@ void mx_generalized_schlick_bsdf(
         bsdf.throughput = float3(1.0 - avgDirAlbedo * weight);
 
         bsdf.response =
-            D * F * G * comp * closureData.occlusion * weight / (4.0 * NdotV * NdotL);
+            D * F * G * comp * closureData.occlusion * weight / (4.0 * NdotV);
     }
     else if (closureData.closureType == CLOSURE_TYPE_TRANSMISSION) {
         float3 F = mx_compute_fresnel(NdotV, fd);

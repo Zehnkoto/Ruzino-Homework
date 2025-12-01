@@ -55,5 +55,5 @@ float3 mx_surface_transmission(
     // Final transmission BSDF with proper energy conservation
     float3 transmission = T_fresnel * D * G * jacobian * tint;
 
-    return transmission / (4.0 * NdotV * NdotL);
+    return transmission / (4.0 * NdotV);
 }

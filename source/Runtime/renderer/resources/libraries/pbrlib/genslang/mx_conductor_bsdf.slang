@@ -57,7 +57,7 @@ void mx_conductor_bsdf(
         comp = 1.0f;
 
         bsdf.response = D * F * G * comp * closureData.occlusion * weight /
-                        (4.0 * NdotV * NdotL);
+                        (4.0 * NdotV);
     }
     else if (closureData.closureType == CLOSURE_TYPE_INDIRECT) {
         float3 F = mx_compute_fresnel(NdotV, fd);

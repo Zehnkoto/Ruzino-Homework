@@ -66,7 +66,7 @@ void mx_dielectric_bsdf(
         bsdf.throughput = 1.0 - dirAlbedo * weight;
 
         bsdf.response = D * F * G * comp * safeTint * closureData.occlusion *
-                        weight / (4.0 * NdotV * NdotL);
+                        weight / (4.0 * NdotV);
     }
     else if (closureData.closureType == CLOSURE_TYPE_TRANSMISSION) {
         X = normalize(X - dot(X, N) * N);
