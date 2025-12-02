@@ -131,11 +131,6 @@ void Hd_USTC_CG_Renderer::Render(HdRenderThread* renderThread)
             last_geometry_version = current_geometry_version;
         }
 
-        if (global_payload.InstanceCollection->get_require_rebuild_tlas()) {
-            global_payload.mark_dirty(
-                RenderGlobalPayload::SceneDirtyBits::DirtyGeometry);
-        }
-
         // global_payload.resource_allocator.gc();
         // global_payload.resource_allocator.gc();
 
