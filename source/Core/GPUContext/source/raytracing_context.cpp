@@ -98,6 +98,15 @@ void RaytracingContext::announce_callable(
         callable_programs.resize(position + 1);
     }
     callable_programs[position] = handle;
+
+    // For the middle ones with holes, fill this handle to them to avoid empty
+    // entries in sbt
+    for (int i = 0; i < callable_programs.size(); i++) {
+        if (callable_names[i].empty()) {
+            callable_names[i] = name;
+            callable_programs[i] = handle;
+        }
+    }
 }
 
 void RaytracingContext::announce_miss(

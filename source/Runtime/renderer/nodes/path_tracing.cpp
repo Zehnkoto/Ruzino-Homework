@@ -17,7 +17,6 @@
 #include "shaders/shaders/utils/HitObject.h"
 #include "utils/math.h"
 
-
 // A traditional path tracing node
 
 NODE_DEF_OPEN_SCOPE
@@ -124,9 +123,6 @@ NODE_EXECUTION_FUNCTION(path_tracing)
                     // Use the first valid shader dome light
                     found_dome_shader = true;
                     current_dome_shader_path = dome_light->GetShaderPath();
-                    spdlog::info(
-                        "Using dome light with custom shader: {}",
-                        current_dome_shader_path);
                 }
             }
         }

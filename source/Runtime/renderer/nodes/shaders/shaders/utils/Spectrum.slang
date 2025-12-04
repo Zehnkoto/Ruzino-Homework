@@ -36,7 +36,6 @@ struct RGBSpectrum : ISpectrum
     float3 data;
     float padding;
 
-    [Differentiable]
     float3 toFloat3()
     {
         return data;
