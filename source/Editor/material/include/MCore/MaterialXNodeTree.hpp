@@ -44,7 +44,7 @@ class MCORE_API MaterialXNodeTree : public NodeTree {
             _currGraphElem = _graphDoc;
         }
     }
-    
+
     // Constructor for creating a new empty MaterialX document
     MaterialXNodeTree(
         const std::shared_ptr<NodeTreeDescriptor>& descriptor,
@@ -55,27 +55,39 @@ class MCORE_API MaterialXNodeTree : public NodeTree {
         _libraryFolders = { "libraries" };
 
         loadStandardLibraries();
-        
-        spdlog::info("[MaterialXNodeTree] Constructor called with doc = {}", (void*)doc.get());
-        
+
+        spdlog::info(
+            "[MaterialXNodeTree] Constructor called with doc = {}",
+            (void*)doc.get());
+
         if (doc) {
             _graphDoc = doc;
-            spdlog::info("[MaterialXNodeTree] Assigned _graphDoc = {}", (void*)_graphDoc.get());
+            spdlog::info(
+                "[MaterialXNodeTree] Assigned _graphDoc = {}",
+                (void*)_graphDoc.get());
             _graphDoc->importLibrary(_stdLib);
-            spdlog::info("[MaterialXNodeTree] After importLibrary, _graphDoc = {}", (void*)_graphDoc.get());
-        } else {
+            spdlog::info(
+                "[MaterialXNodeTree] After importLibrary, _graphDoc = {}",
+                (void*)_graphDoc.get());
+        }
+        else {
             _graphDoc = mx::createDocument();
             _graphDoc->importLibrary(_stdLib);
         }
-        
+
         _materialFilename = "";
         buildUiBaseGraph(_graphDoc);
-        spdlog::info("[MaterialXNodeTree] After buildUiBaseGraph, _graphDoc = {}", (void*)_graphDoc.get());
+        spdlog::info(
+            "[MaterialXNodeTree] After buildUiBaseGraph, _graphDoc = {}",
+            (void*)_graphDoc.get());
         _currGraphElem = _graphDoc;
-        spdlog::info("[MaterialXNodeTree] Constructor finished, _graphDoc = {}", (void*)_graphDoc.get());
+        spdlog::info(
+            "[MaterialXNodeTree] Constructor finished, _graphDoc = {}",
+            (void*)_graphDoc.get());
     }
 
-    // Delete copy constructor and assignment operator to prevent issues with MaterialX pointers
+    // Delete copy constructor and assignment operator to prevent issues with
+    // MaterialX pointers
     MaterialXNodeTree(const MaterialXNodeTree&) = delete;
     MaterialXNodeTree& operator=(const MaterialXNodeTree&) = delete;
 
@@ -107,12 +119,10 @@ class MCORE_API MaterialXNodeTree : public NodeTree {
         SocketID endPinId,
         bool refresh_topology = true) override;
 
-
     void delete_link(
         LinkId linkid,
         bool refresh_topology = true,
         bool remove_from_group = true) override;
-
 
     mx::ElementPredicate getElementPredicate() const;
 
