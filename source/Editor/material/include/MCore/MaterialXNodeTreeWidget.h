@@ -142,11 +142,6 @@ class MCORE_API MaterialXNodeTreeWidget : public NodeEditorWidgetBase {
     // endPinId - where the link was ended
     // void addLink(SocketID startPinId, SocketID endPinId);
 
-    // Layout the x-position by assigning the node levels based on its distance
-    // from the first node
-    ImVec2
-    layoutPosition(UiNodePtr node, ImVec2 pos, bool initialLayout, int level);
-
     // Extra layout pass for inputs and nodes that do not attach to an output
     // node
     void layoutInputs();
@@ -171,8 +166,6 @@ class MCORE_API MaterialXNodeTreeWidget : public NodeEditorWidgetBase {
 
     // Check if node has already been assigned a position
     bool checkPosition(UiNodePtr node);
-
-    void upNodeGraph();
 
     // Set the value of the selected node constants in the node property editor
     void setConstant(
@@ -202,14 +195,11 @@ class MCORE_API MaterialXNodeTreeWidget : public NodeEditorWidgetBase {
     // Compiling shaders message
     void shaderPopup();
 
-    void clearGraph();
-    void loadGraphFromFile(bool prompt);
-    void saveGraphToFile();
-    void loadGeometry();
-
     void showHelp() const;
 
     void execute_tree(Node* node) override;
+
+    bool draw_socket_controllers(NodeSocket* input) override;
 
    public:
     // bool BuildUI() override

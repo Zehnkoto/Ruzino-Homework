@@ -169,7 +169,7 @@ void MaterialXNodeTreeWidget::layoutInputs()
                 (getMaterialXNode(uiNode) != nullptr)) {
                 if (getMaterialXNode(uiNode)->getCategory() !=
                     mx::SURFACE_MATERIAL_NODE_STRING) {
-                    layoutPosition(uiNode, ImVec2(1200, 750), _initial, 0);
+                    // layoutPosition(uiNode, ImVec2(1200, 750), _initial, 0);
                 }
             }
         }
@@ -510,16 +510,16 @@ void MaterialXNodeTreeWidget::graphButtons()
         if (ImGui::BeginMenu("File")) {
             // Buttons for loading and saving a .mtlx
             if (ImGui::MenuItem("New", "Ctrl-N")) {
-                clearGraph();
+                // clearGraph();
             }
             else if (ImGui::MenuItem("Open", "Ctrl-O")) {
-                loadGraphFromFile(true);
+                // loadGraphFromFile(true);
             }
             else if (ImGui::MenuItem("Reload", "Ctrl-R")) {
-                loadGraphFromFile(false);
+                // loadGraphFromFile(false);
             }
             else if (ImGui::MenuItem("Save", "Ctrl-S")) {
-                saveGraphToFile();
+                // saveGraphToFile();
             }
             ImGui::EndMenu();
         }
@@ -533,7 +533,7 @@ void MaterialXNodeTreeWidget::graphButtons()
 
         if (ImGui::BeginMenu("Viewer")) {
             if (ImGui::MenuItem("Load Geometry")) {
-                loadGeometry();
+                // loadGeometry();
             }
             ImGui::EndMenu();
         }
@@ -580,7 +580,7 @@ void MaterialXNodeTreeWidget::graphButtons()
     // Create back button and graph hierarchy name display
     ImGui::Indent(leftPaneWidth + 15.f);
     if (ImGui::Button("<")) {
-        upNodeGraph();
+        // upNodeGraph();
     }
     ImGui::SameLine();
     if (!_currGraphName.empty()) {
@@ -1033,6 +1033,168 @@ void MaterialXNodeTreeWidget::addExtraNodes()
 
     // Add nodegraph node
     _nodesToAdd.emplace_back("ND_nodegraph", "", "nodegraph", "Node Graph");
+}
+
+bool MaterialXNodeTreeWidget::draw_socket_controllers(NodeSocket* input)
+{
+    if (input->socket_group) {
+        return false;
+    }
+
+    // Get MaterialX input from the socket
+    mx::InputPtr mtlxInput = getMaterialXPinInput(input);
+    if (!mtlxInput) {
+        // Fallback to default implementation
+        ImGui::TextUnformatted(input->ui_name);
+        ImGui::Spring(0);
+        return false;
+    }
+
+    auto mtlx_tree = static_cast<MaterialXNodeTree*>(tree_);
+    bool changed = false;
+    std::string type = mtlxInput->getType();
+    mx::ValuePtr value = mtlxInput->getValue();
+
+    ImGui::PushItemWidth(120.0f);
+    std::string widgetId = "##" + std::to_string(input->ID.Get());
+
+    if (type == "float") {
+        if (value && value->isA<float>()) {
+            float temp = value->asA<float>();
+            float min = 0.0f;
+            float max = 1.0f;
+            float speed = 0.001f;
+            
+            if (ImGui::DragFloat(widgetId.c_str(), &temp, speed, min, max)) {
+                // Ensure the input exists in the MaterialX node
+                mtlx_tree->addNodeInput(input->node, mtlxInput);
+                // Update socket storage in case mtlxInput was recreated
+                input->storage = mtlxInput;
+                // Set the new value
+                mtlxInput->setValue(temp, type);
+                changed = true;
+            }
+        }
+    }
+    else if (type == "integer") {
+        if (value && value->isA<int>()) {
+            int temp = value->asA<int>();
+            int min = 0;
+            int max = 100;
+            float speed = 1.0f;
+            
+            if (ImGui::DragInt(widgetId.c_str(), &temp, speed, min, max)) {
+                // Ensure the input exists in the MaterialX node
+                mtlx_tree->addNodeInput(input->node, mtlxInput);
+                // Update socket storage in case mtlxInput was recreated
+                input->storage = mtlxInput;
+                // Set the new value
+                mtlxInput->setValue(temp, type);
+                changed = true;
+            }
+        }
+    }
+    else if (type == "color3" || type == "color4") {
+        if (value && value->isA<mx::Color3>()) {
+            mx::Color3 color = value->asA<mx::Color3>();
+            float colorArray[3] = { color[0], color[1], color[2] };
+            
+            if (ImGui::ColorEdit3(widgetId.c_str(), colorArray)) {
+                mtlx_tree->addNodeInput(input->node, mtlxInput);
+                input->storage = mtlxInput;
+                mtlxInput->setValue(mx::Color3(colorArray[0], colorArray[1], colorArray[2]), type);
+                changed = true;
+            }
+        }
+        else if (value && value->isA<mx::Color4>()) {
+            mx::Color4 color = value->asA<mx::Color4>();
+            float colorArray[4] = { color[0], color[1], color[2], color[3] };
+            
+            if (ImGui::ColorEdit4(widgetId.c_str(), colorArray)) {
+                mtlx_tree->addNodeInput(input->node, mtlxInput);
+                input->storage = mtlxInput;
+                mtlxInput->setValue(mx::Color4(colorArray[0], colorArray[1], colorArray[2], colorArray[3]), type);
+                changed = true;
+            }
+        }
+    }
+    else if (type == "vector2") {
+        if (value && value->isA<mx::Vector2>()) {
+            mx::Vector2 vec = value->asA<mx::Vector2>();
+            float vecArray[2] = { vec[0], vec[1] };
+            
+            if (ImGui::DragFloat2(widgetId.c_str(), vecArray, 0.01f, 0.0f, 1.0f)) {
+                mtlx_tree->addNodeInput(input->node, mtlxInput);
+                input->storage = mtlxInput;
+                mtlxInput->setValue(mx::Vector2(vecArray[0], vecArray[1]), type);
+                changed = true;
+            }
+        }
+    }
+    else if (type == "vector3") {
+        if (value && value->isA<mx::Vector3>()) {
+            mx::Vector3 vec = value->asA<mx::Vector3>();
+            float vecArray[3] = { vec[0], vec[1], vec[2] };
+            
+            if (ImGui::DragFloat3(widgetId.c_str(), vecArray, 0.01f, 0.0f, 1.0f)) {
+                mtlx_tree->addNodeInput(input->node, mtlxInput);
+                input->storage = mtlxInput;
+                mtlxInput->setValue(mx::Vector3(vecArray[0], vecArray[1], vecArray[2]), type);
+                changed = true;
+            }
+        }
+    }
+    else if (type == "vector4") {
+        if (value && value->isA<mx::Vector4>()) {
+            mx::Vector4 vec = value->asA<mx::Vector4>();
+            float vecArray[4] = { vec[0], vec[1], vec[2], vec[3] };
+            
+            if (ImGui::DragFloat4(widgetId.c_str(), vecArray, 0.01f, 0.0f, 1.0f)) {
+                mtlx_tree->addNodeInput(input->node, mtlxInput);
+                input->storage = mtlxInput;
+                mtlxInput->setValue(mx::Vector4(vecArray[0], vecArray[1], vecArray[2], vecArray[3]), type);
+                changed = true;
+            }
+        }
+    }
+    else if (type == "string" || type == "filename") {
+        std::string str = value ? value->getValueString() : "";
+        char buffer[256];
+        strncpy(buffer, str.c_str(), sizeof(buffer) - 1);
+        buffer[sizeof(buffer) - 1] = '\0';
+        
+        if (ImGui::InputText(widgetId.c_str(), buffer, sizeof(buffer))) {
+            mtlx_tree->addNodeInput(input->node, mtlxInput);
+            input->storage = mtlxInput;
+            mtlxInput->setValueString(buffer);
+            changed = true;
+        }
+    }
+    else if (type == "boolean") {
+        if (value && value->isA<bool>()) {
+            bool temp = value->asA<bool>();
+            
+            if (ImGui::Checkbox(widgetId.c_str(), &temp)) {
+                mtlx_tree->addNodeInput(input->node, mtlxInput);
+                input->storage = mtlxInput;
+                mtlxInput->setValue(temp, type);
+                changed = true;
+            }
+        }
+    }
+    else {
+        // Unknown type, just show the name
+        ImGui::TextUnformatted(input->ui_name);
+    }
+    
+    ImGui::PopItemWidth();
+    ImGui::Spring(0);
+    
+    if (changed) {
+        tree_->SetDirty();
+    }
+    
+    return changed;
 }
 
 USTC_CG_NAMESPACE_CLOSE_SCOPE

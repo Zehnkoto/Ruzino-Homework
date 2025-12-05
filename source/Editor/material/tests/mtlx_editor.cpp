@@ -70,7 +70,10 @@ int main()
     widget_desc.json_path = "mtlx_test.json";
 
     std::unique_ptr<IWidget> node_widget =
-        std::move(std::make_unique<MaterialXNodeTreeWidget>(widget_desc));
+        std::move(std::make_unique<MaterialXNodeTreeWidget>(
+            widget_desc, 
+            "test.mtlx",
+            ""));
 
     window.register_widget(std::move(node_widget));
     
