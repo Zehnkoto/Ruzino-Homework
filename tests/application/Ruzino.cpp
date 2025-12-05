@@ -29,7 +29,6 @@
 #include "widgets/usdtree/usd_fileviewer.h"
 #include "widgets/usdview/usdview_widget.hpp"
 
-
 using namespace USTC_CG;
 namespace mx = MaterialX;
 
@@ -290,10 +289,6 @@ int main(int argc, char* argv[])
     // Add Python reference to window for console access
     python::reference("window", window.get());
 
-    // Storage for material editor systems to keep them alive
-    // Using a map to track systems by material path for better lifecycle management
-    static std::unordered_map<std::string, std::shared_ptr<MaterialXNodeSystem>> material_systems;
-
     // Subscribe to material editor events
     window->events().subscribe(
         "material_editor_requested",
@@ -305,50 +300,21 @@ int main(int argc, char* argv[])
             auto material_prim =
                 stage->get_usd_stage()->GetPrimAtPath(material_path);
 
-            if (!material_prim || !material_prim.IsA<pxr::UsdShadeMaterial>()) {
-                spdlog::error("Invalid material prim: {}", material_path_str);
-                return;
-            }
+            // Step 1. Create the materialx tree, the materialx file should be
+            // placed nexted to the stage file, the materialx file name can be
+            // the material prim's name. Launch the materialx tree editor.
 
-            try {
-                // Check if system already exists for this material
-                std::shared_ptr<MaterialXNodeSystem> mtlx_system;
-                auto it = material_systems.find(material_path_str);
-
-                if (it != material_systems.end()) {
-                    // Reuse existing system
-                    mtlx_system = it->second;
-                    spdlog::info(
-                        "Reusing existing MaterialX system for: {}",
-                        material_path_str);
-                } else {
-                    // Create new system
-                    std::string safe_name = material_path.GetName();
-                    mtlx_system =
-                        MaterialXNodeSystem::create_with_default_material(
-                            safe_name);
-                    material_systems[material_path_str] = mtlx_system;
-                    spdlog::info(
-                        "Created new MaterialX system for: {}",
-                        material_path_str);
-                }
-
-                // Create widget
-                FileBasedNodeWidgetSettings widget_desc;
-                widget_desc.system = mtlx_system;
-                widget_desc.json_path = material_path_str + "_editor.json";
-
-                std::unique_ptr<IWidget> node_widget =
-                    std::make_unique<MaterialXNodeTreeWidget>(widget_desc);
-
-                window->register_widget(std::move(node_widget));
-                spdlog::info(
-                    "MaterialX editor opened for: {}", material_path_str);
-            }
-            catch (const std::exception& e) {
-                spdlog::error(
-                    "Failed to create MaterialX editor: {}", e.what());
-            }
+            // Step 2. Extract the materialx file name. Make the material prim
+            // reference to the materialx output (but as long as the output
+            // surface exists) resulting into something like this: def Material
+            // "Acryl_Plastic" (
+            //   prepend references =
+            //   @C:\Users\Pengfei\WorkSpace\Ruzino\Assets\matx_library\Acryl_Plastic_1k_8b_kylYFM6\Acryl_Plastic.mtlx@</MaterialX/Materials/Acryl_Plastic>
+            //)
+            //{
+            //    token outputs:surface.connect =
+            //    </root/_materials/Acryl_Plastic/SR_Plastic_Acryl.outputs:surface>
+            //}
         });
 
     // Subscribe to document viewer events
