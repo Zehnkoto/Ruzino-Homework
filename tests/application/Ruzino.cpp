@@ -24,6 +24,8 @@
 #include "pxr/base/tf/setenv.h"
 #include "pxr/usd/usd/stage.h"
 #include "pxr/usd/usdGeom/sphere.h"
+#include "pxr/usd/usdShade/material.h"
+#include "pxr/usd/usdShade/shader.h"
 #include "stage/stage.hpp"
 #include "usd_nodejson.hpp"
 #include "widgets/usdtree/usd_fileviewer.h"
@@ -300,21 +302,154 @@ int main(int argc, char* argv[])
             auto material_prim =
                 stage->get_usd_stage()->GetPrimAtPath(material_path);
 
-            // Step 1. Create the materialx tree, the materialx file should be
-            // placed nexted to the stage file, the materialx file name can be
-            // the material prim's name. Launch the materialx tree editor.
+            if (!material_prim) {
+                spdlog::error("Material prim not found: {}", material_path_str);
+                return;
+            }
 
-            // Step 2. Extract the materialx file name. Make the material prim
-            // reference to the materialx output (but as long as the output
-            // surface exists) resulting into something like this: def Material
-            // "Acryl_Plastic" (
-            //   prepend references =
-            //   @C:\Users\Pengfei\WorkSpace\Ruzino\Assets\matx_library\Acryl_Plastic_1k_8b_kylYFM6\Acryl_Plastic.mtlx@</MaterialX/Materials/Acryl_Plastic>
-            //)
-            //{
-            //    token outputs:surface.connect =
-            //    </root/_materials/Acryl_Plastic/SR_Plastic_Acryl.outputs:surface>
-            //}
+            // Step 1: Create MaterialX file next to the stage file
+            std::string stage_path = stage->GetStagePath();
+            std::filesystem::path stage_file(stage_path);
+            std::filesystem::path stage_dir = stage_file.parent_path();
+
+            // Get material name from the prim
+            std::string material_name = material_prim.GetName();
+            std::string mtlx_filename = material_name + ".mtlx";
+            std::filesystem::path mtlx_path = stage_dir / mtlx_filename;
+
+            spdlog::info("Creating MaterialX file at: {}", mtlx_path.string());
+
+            // Create MaterialX system with default material
+            auto mtlx_system =
+                MaterialXNodeSystem::create_with_default_material(
+                    material_name);
+
+            // Save the MaterialX document to file
+            auto* mtlx_tree =
+                static_cast<MaterialXNodeTree*>(mtlx_system->get_node_tree());
+            mtlx_tree->saveDocument(mx::FilePath(mtlx_path.string()));
+
+            // Launch MaterialX editor widget
+            FileBasedNodeWidgetSettings widget_desc;
+            widget_desc.system = mtlx_system;
+            widget_desc.json_path =
+                (stage_dir / (material_name + "_layout.json")).string();
+
+            std::unique_ptr<IWidget> node_widget =
+                std::make_unique<MaterialXNodeTreeWidget>(widget_desc);
+
+            // Setup callback to save MaterialX file and update USD reference
+            // when editor closes
+            auto mtlx_path_copy = mtlx_path.string();
+            auto material_path_copy = material_path;
+            auto stage_ptr = stage.get();
+
+            node_widget->SetCallBack([mtlx_path_copy,
+                                      mtlx_system,
+                                      material_path_copy,
+                                      stage_ptr,
+                                      mtlx_tree](Window*, IWidget*) {
+                // Save MaterialX document when editing is done
+                spdlog::info(
+                    "Saving MaterialX document to: {}", mtlx_path_copy);
+                mtlx_tree->saveDocument(mx::FilePath(mtlx_path_copy));
+
+                // Step 2: Setup USD material reference to MaterialX file
+                auto material_prim = stage_ptr->get_usd_stage()->GetPrimAtPath(
+                    material_path_copy);
+                if (!material_prim) {
+                    spdlog::error(
+                        "Material prim not found when saving: {}",
+                        material_path_copy.GetString());
+                    return;
+                }
+
+                // Load the MaterialX file to find the material and shader nodes
+                mx::DocumentPtr mtlx_doc = mx::createDocument();
+                try {
+                    mx::readFromXmlFile(mtlx_doc, mx::FilePath(mtlx_path_copy));
+                }
+                catch (const std::exception& e) {
+                    spdlog::error(
+                        "Failed to read MaterialX file: {}", e.what());
+                    return;
+                }
+
+                // Find the surface material in the MaterialX document
+                std::string mtlx_material_path_str;
+                std::string surface_shader_path_str;
+
+                for (auto material_node : mtlx_doc->getMaterialNodes()) {
+                    mtlx_material_path_str =
+                        "/MaterialX/Materials/" + material_node->getName();
+
+                    // Find the surface shader output
+                    auto surfaceshader_input =
+                        material_node->getInput("surfaceshader");
+                    if (surfaceshader_input) {
+                        auto connected_node =
+                            surfaceshader_input->getConnectedNode();
+                        if (connected_node) {
+                            surface_shader_path_str =
+                                material_path_copy.GetString() + "/" +
+                                connected_node->getName();
+                        }
+                    }
+                    break;  // Use the first material found
+                }
+
+                if (mtlx_material_path_str.empty()) {
+                    spdlog::warn(
+                        "No material node found in MaterialX file: {}",
+                        mtlx_path_copy);
+                    return;
+                }
+
+                // Add reference to the MaterialX file
+                auto references = material_prim.GetReferences();
+                references.ClearReferences();
+                references.AddReference(
+                    pxr::SdfReference(
+                        mtlx_path_copy, pxr::SdfPath(mtlx_material_path_str)));
+
+                spdlog::info(
+                    "Added reference: {} -> {}",
+                    mtlx_path_copy,
+                    mtlx_material_path_str);
+
+                // Connect surface output if the shader exists
+                if (!surface_shader_path_str.empty()) {
+                    pxr::UsdShadeMaterial usd_material(material_prim);
+
+                    // Find the shader prim
+                    for (auto child : material_prim.GetChildren()) {
+                        if (child.IsA<pxr::UsdShadeShader>()) {
+                            pxr::UsdShadeShader shader(child);
+                            auto surface_output =
+                                shader.GetOutput(pxr::TfToken("surface"));
+
+                            if (surface_output) {
+                                // Create or get the material's surface output
+                                auto material_surface =
+                                    usd_material.CreateSurfaceOutput();
+                                material_surface.ConnectToSource(
+                                    surface_output);
+
+                                spdlog::info(
+                                    "Connected surface output: {}",
+                                    surface_shader_path_str);
+                            }
+                            break;
+                        }
+                    }
+                }
+
+                // Save the USD stage
+                stage_ptr->get_usd_stage()->Save();
+                spdlog::info("USD stage saved with MaterialX reference");
+            });
+
+            window->register_widget(std::move(node_widget));
         });
 
     // Subscribe to document viewer events
