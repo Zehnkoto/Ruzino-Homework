@@ -434,6 +434,51 @@ void UsdFileViewer::EditValue()
         ImGui::Text("Path: %s", prim.GetPath().GetString().c_str());
         ImGui::Text("Type: %s", prim.GetTypeName().GetText());
         ImGui::Text("Active: %s", prim.IsActive() ? "Yes" : "No");
+        
+        // Show references
+        if (prim.HasAuthoredReferences()) {
+            ImGui::Separator();
+            ImGui::Text("References:");
+            ImGui::Indent();
+            
+            auto primStack = prim.GetPrimStack();
+            for (const auto& primSpec : primStack) {
+                if (primSpec->HasReferences()) {
+                    auto refList = primSpec->GetReferenceList();
+                    for (const auto& ref : refList.GetAddedOrExplicitItems()) {
+                        std::string refStr = ref.GetAssetPath();
+                        if (!ref.GetPrimPath().IsEmpty()) {
+                            refStr += " <" + ref.GetPrimPath().GetString() + ">";
+                        }
+                        ImGui::BulletText("%s", refStr.c_str());
+                    }
+                }
+            }
+            ImGui::Unindent();
+        }
+        
+        // Show payloads
+        if (prim.HasAuthoredPayloads()) {
+            ImGui::Separator();
+            ImGui::Text("Payloads:");
+            ImGui::Indent();
+            
+            auto primStack = prim.GetPrimStack();
+            for (const auto& primSpec : primStack) {
+                if (primSpec->HasPayloads()) {
+                    auto payloadList = primSpec->GetPayloadList();
+                    for (const auto& payload : payloadList.GetAddedOrExplicitItems()) {
+                        std::string payloadStr = payload.GetAssetPath();
+                        if (!payload.GetPrimPath().IsEmpty()) {
+                            payloadStr += " <" + payload.GetPrimPath().GetString() + ">";
+                        }
+                        ImGui::BulletText("%s", payloadStr.c_str());
+                    }
+                }
+            }
+            ImGui::Unindent();
+        }
+        
         ImGui::Separator();
 
         // Show material binding UI for geometry prims
@@ -928,6 +973,57 @@ void UsdFileViewer::EditValue()
             }
         }
     }
+
+    // Relationships in a collapsible section
+    if (prim) {
+        if (ImGui::CollapsingHeader("Relationships", ImGuiTreeNodeFlags_DefaultOpen)) {
+            auto relationships = prim.GetRelationships();
+
+            if (relationships.empty()) {
+                ImGui::TextDisabled("No relationships");
+            } else {
+                for (auto&& rel : relationships) {
+                    std::string relName = rel.GetName().GetString();
+                    ImGui::PushID(relName.c_str());
+                    
+                    ImGui::AlignTextToFramePadding();
+                    ImGui::Text("%s", relName.c_str());
+                    ImGui::SameLine(200);
+                    
+                    // Get relationship targets
+                    SdfPathVector targets;
+                    rel.GetTargets(&targets);
+                    
+                    if (targets.empty()) {
+                        ImGui::TextDisabled("(no targets)");
+                    } else {
+                        // Display targets as clickable links
+                        for (size_t i = 0; i < targets.size(); ++i) {
+                            if (i > 0) {
+                                ImGui::SameLine();
+                                ImGui::TextDisabled(",");
+                                ImGui::SameLine();
+                            }
+                            
+                            std::string targetStr = targets[i].GetString();
+                            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.4f, 0.7f, 1.0f, 1.0f));
+                            if (ImGui::SmallButton(targetStr.c_str())) {
+                                // Navigate to the target prim
+                                selected = targets[i];
+                            }
+                            ImGui::PopStyleColor();
+                            
+                            if (ImGui::IsItemHovered()) {
+                                ImGui::SetTooltip("Click to navigate to %s", targetStr.c_str());
+                            }
+                        }
+                    }
+                    
+                    ImGui::PopID();
+                }
+            }
+        }
+    }
 }
 
 void UsdFileViewer::select_file()
@@ -1181,6 +1277,12 @@ void UsdFileViewer::show_material_binding_ui(pxr::UsdPrim& prim)
 
     ImGui::Separator();
     ImGui::Text("Material Binding");
+
+    // Apply MaterialBindingAPI if not already applied
+    if (!prim.HasAPI<UsdShadeMaterialBindingAPI>()) {
+        UsdShadeMaterialBindingAPI::Apply(prim);
+        spdlog::debug("Applied MaterialBindingAPI to {}", prim.GetPath().GetString());
+    }
 
     // Get current bound material
     UsdShadeMaterialBindingAPI bindingAPI(prim);

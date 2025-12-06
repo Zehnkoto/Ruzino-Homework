@@ -7,5 +7,5 @@ ninja.exe
 ## Test Instructions
 Run the following command in Ruzino/Binaries/Release:
 ```
-.\Ruzino.exe
+.\Ruzino.exe ..\..\Assets\ttt.usda
 ```

@@ -23,9 +23,6 @@
 #include "nodes/ui/imgui.hpp"
 #include "pxr/base/tf/setenv.h"
 #include "pxr/usd/usd/stage.h"
-#include "pxr/usd/usdGeom/sphere.h"
-#include "pxr/usd/usdShade/material.h"
-#include "pxr/usd/usdShade/shader.h"
 #include "stage/stage.hpp"
 #include "usd_nodejson.hpp"
 #include "widgets/usdtree/usd_fileviewer.h"
@@ -54,9 +51,29 @@ class MaterialXNodeSystem : public NodeSystem {
         if (!ptr) {
             doc = mx::createDocument();
 
-            // Create only a surface material node
+            // CRITICAL FIX: Create complete material with standard_surface shader
+            // This ensures the .mtlx file has children BEFORE the reference is created
             mx::NodePtr materialNode =
                 doc->addNode("surfacematerial", material_name, "material");
+            
+            // Create standard_surface shader node with proper nodedef
+            std::string shader_name = "standard_surface_surfaceshader";
+            mx::NodePtr shaderNode = doc->addNode(
+                "standard_surface",
+                shader_name,
+                "surfaceshader");
+            
+            // Set the nodedef attribute (CRITICAL for USD to create child prims)
+            shaderNode->setNodeDefString("ND_standard_surface_surfaceshader");
+            
+            // Connect shader to material
+            mx::InputPtr surfaceShaderInput = materialNode->addInput(
+                "surfaceshader",
+                "surfaceshader");
+            surfaceShaderInput->setNodeName(shader_name);
+            
+            spdlog::info(
+                "Created default MaterialX document with standard_surface shader");
         }
         else {
             doc = ptr;
@@ -373,7 +390,6 @@ int main(int argc, char* argv[])
 
             // Create new if file doesn't exist OR reference doesn't exist
             if (!has_mtlx_file || !has_reference) {
-                // Create new MaterialX document
                 spdlog::info(
                     "Creating new MaterialX file at: {}", mtlx_path.string());
 
@@ -385,24 +401,23 @@ int main(int argc, char* argv[])
                     mtlx_system->get_node_tree());
                 mtlx_tree_temp->saveDocument(mx::FilePath(mtlx_path.string()));
 
-                // MaterialX materials are at root level in the document
-                std::string mtlx_material_path_str = "/" + material_name;
+                // Add reference to the MaterialX file
+                std::string mtlx_relative_path = "./" + mtlx_filename;
+                std::string mtlx_material_path_str =
+                    "/MaterialX/Materials/" + material_name;
 
-                // Add reference to the MaterialX file (clear existing first if
-                // any)
                 auto references = material_prim.GetReferences();
                 references.ClearReferences();
                 references.AddReference(
                     pxr::SdfReference(
-                        mtlx_path.string(),
+                        mtlx_relative_path,
                         pxr::SdfPath(mtlx_material_path_str)));
 
                 spdlog::info(
-                    "Added reference: {} -> {}",
-                    mtlx_path.string(),
+                    "Added MaterialX reference: {} -> {}",
+                    mtlx_relative_path,
                     mtlx_material_path_str);
 
-                // Save stage to persist the reference
                 stage->get_usd_stage()->Save();
             }
 
@@ -450,7 +465,7 @@ int main(int argc, char* argv[])
             std::filesystem::path mtlx_path =
                 stage_dir / (material_name + ".mtlx");
 
-            // Load the MaterialX file to find the material and shader nodes
+            // Load the MaterialX file to find the surface shader
             mx::DocumentPtr mtlx_doc = mx::createDocument();
             try {
                 mx::readFromXmlFile(mtlx_doc, mx::FilePath(mtlx_path.string()));
@@ -460,10 +475,9 @@ int main(int argc, char* argv[])
                 return;
             }
 
+            // Find surface shader name from MaterialX document
             std::string surface_shader_name;
-
             for (auto material_node : mtlx_doc->getMaterialNodes()) {
-                // Find the surface shader output
                 auto surfaceshader_input =
                     material_node->getInput("surfaceshader");
                 if (surfaceshader_input) {
@@ -472,101 +486,68 @@ int main(int argc, char* argv[])
                     if (connected_node) {
                         surface_shader_name = connected_node->getName();
                     }
-                }
-                break;  // Use the first material found
-            }
-
-            // Connect surface output if the shader exists
-            if (!surface_shader_name.empty()) {
-                // STEP 1: Ensure MaterialX layer is loaded into USD's registry
-                auto mtlx_layer = pxr::SdfLayer::FindOrOpen(mtlx_path.string());
-                if (!mtlx_layer) {
-                    spdlog::error(
-                        "Failed to open MaterialX layer: {}",
-                        mtlx_path.string());
-                    stage->get_usd_stage()->Save();
-                    return;
-                }
-
-                spdlog::info("MaterialX layer loaded: {}", mtlx_path.string());
-
-                // STEP 2: Create the connection in the root layer
-                auto root_layer = stage->get_usd_stage()->GetRootLayer();
-
-                // Construct paths
-                pxr::SdfPath shader_path = material_path.AppendChild(
-                    pxr::TfToken(surface_shader_name));
-                pxr::SdfPath shader_surface_output_path =
-                    shader_path.AppendProperty(pxr::TfToken("outputs:surface"));
-
-                // Create the material prim spec if it doesn't exist in root
-                // layer
-                auto material_prim_spec =
-                    root_layer->GetPrimAtPath(material_path);
-                if (!material_prim_spec) {
-                    material_prim_spec =
-                        pxr::SdfCreatePrimInLayer(root_layer, material_path);
-                }
-
-                // Create or update outputs:surface attribute
-                pxr::TfToken outputs_surface_token("outputs:surface");
-                auto existing_attr = material_prim_spec->GetAttributes().get(
-                    outputs_surface_token);
-
-                if (existing_attr) {
-                    auto conn_list = existing_attr->GetConnectionPathList();
-                    conn_list.ClearEdits();
-                    conn_list.GetExplicitItems().clear();
-                    conn_list.GetExplicitItems().push_back(
-                        shader_surface_output_path);
-
-                    spdlog::info(
-                        "Updated surface connection: {} -> {}",
-                        material_path.GetString() + ".outputs:surface",
-                        shader_surface_output_path.GetString());
-                }
-                else {
-                    auto surface_output_attr = pxr::SdfAttributeSpec::New(
-                        material_prim_spec,
-                        outputs_surface_token,
-                        pxr::SdfValueTypeNames->Token);
-
-                    if (surface_output_attr) {
-                        auto conn_list =
-                            surface_output_attr->GetConnectionPathList();
-                        conn_list.GetExplicitItems().push_back(
-                            shader_surface_output_path);
-
-                        spdlog::info(
-                            "Created surface connection: {} -> {}",
-                            material_path.GetString() + ".outputs:surface",
-                            shader_surface_output_path.GetString());
+                    else {
+                        auto nodename =
+                            surfaceshader_input->getAttribute("nodename");
+                        if (!nodename.empty()) {
+                            surface_shader_name = nodename;
+                        }
                     }
                 }
-
-                // STEP 3: Force stage to recompose by temporarily removing and
-                // re-adding the reference This is the most reliable way to
-                // ensure USD expands the reference
-                auto references = material_prim.GetReferences();
-
-                // Simply clear and re-add with the known reference info
-                std::string ref_asset_path = mtlx_path.string();
-                std::string ref_prim_path_str =
-                    "/MaterialX/Materials/" + material_name;
-
-                // Clear and re-add the reference to force recomposition
-                references.ClearReferences();
-                references.AddReference(
-                    pxr::SdfReference(
-                        ref_asset_path, pxr::SdfPath(ref_prim_path_str)));
-
-                spdlog::info(
-                    "Forced reference recomposition for material: {} -> {}",
-                    material_path.GetString(),
-                    ref_asset_path + ref_prim_path_str);
-                stage->get_usd_stage()->Save();
-                stage->get_usd_stage()->Reload();
+                break;
             }
+
+            if (surface_shader_name.empty()) {
+                spdlog::warn(
+                    "No surface shader found in MaterialX file, skipping USD "
+                    "connection");
+                return;
+            }
+
+            // Create USD surface connection
+            auto root_layer = stage->get_usd_stage()->GetRootLayer();
+            pxr::SdfPath shader_path = material_path.AppendChild(
+                pxr::TfToken(surface_shader_name));
+            pxr::SdfPath shader_surface_output_path =
+                shader_path.AppendProperty(pxr::TfToken("outputs:surface"));
+
+            pxr::SdfPrimSpecHandle material_prim_spec =
+                root_layer->GetPrimAtPath(material_path);
+            if (!material_prim_spec) {
+                material_prim_spec =
+                    pxr::SdfCreatePrimInLayer(root_layer, material_path);
+            }
+
+            pxr::TfToken outputs_surface_token("outputs:surface");
+            auto existing_attr = material_prim_spec->GetAttributes().get(
+                outputs_surface_token);
+
+            if (existing_attr) {
+                auto conn_list = existing_attr->GetConnectionPathList();
+                conn_list.ClearEdits();
+                conn_list.GetExplicitItems().clear();
+                conn_list.GetExplicitItems().push_back(
+                    shader_surface_output_path);
+            }
+            else {
+                auto surface_output_attr = pxr::SdfAttributeSpec::New(
+                    material_prim_spec,
+                    outputs_surface_token,
+                    pxr::SdfValueTypeNames->Token);
+
+                if (surface_output_attr) {
+                    auto conn_list =
+                        surface_output_attr->GetConnectionPathList();
+                    conn_list.GetExplicitItems().push_back(
+                        shader_surface_output_path);
+                }
+            }
+
+            stage->get_usd_stage()->Save();
+            spdlog::info(
+                "MaterialX graph update complete: {} -> {}",
+                material_path_str + ".outputs:surface",
+                shader_surface_output_path.GetString());
         });
     // Subscribe to document viewer events
     window->events().subscribe(
