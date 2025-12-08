@@ -475,17 +475,48 @@ int main(int argc, char* argv[])
                 spdlog::error("Failed to read MaterialX file: {}", e.what());
                 return;
             }
-            // First clear the material prim's attributes
-            auto attributes = material_prim.GetAuthoredAttributes();
-            for (const auto& attr : attributes) {
-                spdlog::info(
-                    "Clearing attribute: {}", attr.GetName().GetString());
-                spdlog::info(
-                    "Attribute type: {}", attr.GetTypeName().GetCPPTypeName());
+            // CRITICAL: Clear USD-layer opinions to let MaterialX reference
+            // values show through This solves the opinion strength problem
+            // where USD overrides MaterialX
 
-                // Step 1: First check if this attribute is
+            auto root_layer = stage->get_usd_stage()->GetRootLayer();
+            auto material_prim_spec = root_layer->GetPrimAtPath(material_path);
+
+            if (material_prim_spec) {
+                // Get all authored attributes from the USD prim (not from
+                // reference)
+                auto attributes = material_prim.GetAuthoredAttributes();
+
+                for (const auto& attr : attributes) {
+                    std::string attr_name = attr.GetName().GetString();
+
+                    // Step 1: Check if this attribute is an input parameter
+                    // (starts with "inputs:") and exists in the root layer
+                    if (pxr::TfStringStartsWith(attr_name, "inputs:")) {
+                        // Check if the attribute is authored in the root layer
+                        // (not just coming from the reference)
+                        auto attr_spec =
+                            material_prim_spec->GetAttributes().get(
+                                pxr::TfToken(attr_name));
+
+                        if (attr_spec) {
+                            // Step 2: Clear the attribute from the root layer
+                            // This removes the USD opinion, allowing MaterialX
+                            // reference to win
+                            spdlog::info(
+                                "Clearing USD opinion for: {} (type: {})",
+                                attr_name,
+                                attr.GetTypeName().GetCPPTypeName());
+
+                            // Directly use the prim spec handle to remove the
+                            // property
+                            material_prim_spec->RemoveProperty(attr_spec);
+                        }
+                    }
+                }
             }
 
+            // Re-add the reference to ensure it's up to date
             auto mtlx_relative_path = "./" + material_name + ".mtlx";
             auto mtlx_material_path_str =
                 "/MaterialX/Materials/" + material_name;
@@ -494,7 +525,74 @@ int main(int argc, char* argv[])
             references.AddReference(
                 pxr::SdfReference(
                     mtlx_relative_path, pxr::SdfPath(mtlx_material_path_str)));
+            // Put on the connection again
+            spdlog::info(
+                "Re-added MaterialX reference: {} -> {}",
+                mtlx_relative_path,
+                mtlx_material_path_str);
 
+            //  Find surface shader and sync parameters
+            std::string surface_shader_name;
+            mx::NodePtr shader_node = nullptr;
+
+            for (auto material_node : mtlx_doc->getMaterialNodes()) {
+                auto surfaceshader_input =
+                    material_node->getInput("surfaceshader");
+                if (surfaceshader_input) {
+                    auto connected_node =
+                        surfaceshader_input->getConnectedNode();
+                    if (connected_node) {
+                        surface_shader_name = connected_node->getName();
+                        shader_node = connected_node;
+                    }
+                    else {
+                        auto nodename =
+                            surfaceshader_input->getAttribute("nodename");
+                        if (!nodename.empty()) {
+                            surface_shader_name = nodename;
+                            shader_node = mtlx_doc->getNode(nodename);
+                        }
+                    }
+                }
+                break;
+            }
+
+            if (surface_shader_name.empty() || !shader_node) {
+                spdlog::warn(
+                    "No surface shader found in MaterialX file, skipping USD "
+                    "update");
+                return;
+            }
+            // Create USD surface connection
+            pxr::SdfPath shader_path =
+                material_path.AppendChild(pxr::TfToken(surface_shader_name));
+            pxr::SdfPath shader_surface_output_path =
+                shader_path.AppendProperty(pxr::TfToken("outputs:surface"));
+
+            pxr::TfToken outputs_surface_token("outputs:surface");
+            auto existing_attr =
+                material_prim_spec->GetAttributes().get(outputs_surface_token);
+
+            if (existing_attr) {
+                auto conn_list = existing_attr->GetConnectionPathList();
+                conn_list.ClearEdits();
+                conn_list.GetExplicitItems().clear();
+                conn_list.GetExplicitItems().push_back(
+                    shader_surface_output_path);
+            }
+            else {
+                auto surface_output_attr = pxr::SdfAttributeSpec::New(
+                    material_prim_spec,
+                    outputs_surface_token,
+                    pxr::SdfValueTypeNames->Token);
+
+                if (surface_output_attr) {
+                    auto conn_list =
+                        surface_output_attr->GetConnectionPathList();
+                    conn_list.GetExplicitItems().push_back(
+                        shader_surface_output_path);
+                }
+            }
             stage->get_usd_stage()->Save();
         });
     // Subscribe to document viewer events

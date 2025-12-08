@@ -1079,6 +1079,19 @@ bool MaterialXNodeTreeWidget::draw_socket_controllers(NodeSocket* input)
         return false;
     }
 
+    // CRITICAL: Ensure we have the actual input pointer from the node, not a stale cached pointer
+    // This is necessary because addNodeInput() may have created a new input on a previous frame
+    mx::NodePtr mxNode = getMaterialXNode(input->node);
+    if (mxNode) {
+        std::string inputName = mtlxInput->getName();
+        mx::InputPtr actualInput = mxNode->getInput(inputName);
+        if (actualInput) {
+            mtlxInput = actualInput;
+            // Update socket storage with the correct pointer
+            input->storage = mtlxInput;
+        }
+    }
+
     auto mtlx_tree = static_cast<MaterialXNodeTree*>(tree_);
     bool changed = false;
     std::string type = mtlxInput->getType();
@@ -1096,8 +1109,16 @@ bool MaterialXNodeTreeWidget::draw_socket_controllers(NodeSocket* input)
             
             if (ImGui::DragFloat(widgetId.c_str(), &temp, speed, min, max)) {
                 mtlx_tree->addNodeInput(input->node, mtlxInput);
-                mtlxInput->setValue(temp, type);
-                changed = true;
+                // Re-fetch pointer in case addNodeInput created a new one
+                mx::NodePtr mxNode = getMaterialXNode(input->node);
+                if (mxNode) {
+                    mtlxInput = mxNode->getInput(mtlxInput->getName());
+                    if (mtlxInput) {
+                        mtlxInput->setValue(temp, type);
+                        input->storage = mtlxInput;  // Update socket storage
+                        changed = true;
+                    }
+                }
             }
         }
     }
@@ -1110,8 +1131,15 @@ bool MaterialXNodeTreeWidget::draw_socket_controllers(NodeSocket* input)
             
             if (ImGui::DragInt(widgetId.c_str(), &temp, speed, min, max)) {
                 mtlx_tree->addNodeInput(input->node, mtlxInput);
-                mtlxInput->setValue(temp, type);
-                changed = true;
+                mx::NodePtr mxNode = getMaterialXNode(input->node);
+                if (mxNode) {
+                    mtlxInput = mxNode->getInput(mtlxInput->getName());
+                    if (mtlxInput) {
+                        mtlxInput->setValue(temp, type);
+                        input->storage = mtlxInput;
+                        changed = true;
+                    }
+                }
             }
         }
     }
@@ -1122,8 +1150,15 @@ bool MaterialXNodeTreeWidget::draw_socket_controllers(NodeSocket* input)
             
             if (ImGui::ColorEdit3(widgetId.c_str(), colorArray)) {
                 mtlx_tree->addNodeInput(input->node, mtlxInput);
-                mtlxInput->setValue(mx::Color3(colorArray[0], colorArray[1], colorArray[2]), type);
-                changed = true;
+                mx::NodePtr mxNode = getMaterialXNode(input->node);
+                if (mxNode) {
+                    mtlxInput = mxNode->getInput(mtlxInput->getName());
+                    if (mtlxInput) {
+                        mtlxInput->setValue(mx::Color3(colorArray[0], colorArray[1], colorArray[2]), type);
+                        input->storage = mtlxInput;
+                        changed = true;
+                    }
+                }
             }
         }
         else if (value && value->isA<mx::Color4>()) {
@@ -1132,8 +1167,15 @@ bool MaterialXNodeTreeWidget::draw_socket_controllers(NodeSocket* input)
             
             if (ImGui::ColorEdit4(widgetId.c_str(), colorArray)) {
                 mtlx_tree->addNodeInput(input->node, mtlxInput);
-                mtlxInput->setValue(mx::Color4(colorArray[0], colorArray[1], colorArray[2], colorArray[3]), type);
-                changed = true;
+                mx::NodePtr mxNode = getMaterialXNode(input->node);
+                if (mxNode) {
+                    mtlxInput = mxNode->getInput(mtlxInput->getName());
+                    if (mtlxInput) {
+                        mtlxInput->setValue(mx::Color4(colorArray[0], colorArray[1], colorArray[2], colorArray[3]), type);
+                        input->storage = mtlxInput;
+                        changed = true;
+                    }
+                }
             }
         }
     }
@@ -1144,8 +1186,15 @@ bool MaterialXNodeTreeWidget::draw_socket_controllers(NodeSocket* input)
             
             if (ImGui::DragFloat2(widgetId.c_str(), vecArray, 0.01f, 0.0f, 1.0f)) {
                 mtlx_tree->addNodeInput(input->node, mtlxInput);
-                mtlxInput->setValue(mx::Vector2(vecArray[0], vecArray[1]), type);
-                changed = true;
+                mx::NodePtr mxNode = getMaterialXNode(input->node);
+                if (mxNode) {
+                    mtlxInput = mxNode->getInput(mtlxInput->getName());
+                    if (mtlxInput) {
+                        mtlxInput->setValue(mx::Vector2(vecArray[0], vecArray[1]), type);
+                        input->storage = mtlxInput;
+                        changed = true;
+                    }
+                }
             }
         }
     }
@@ -1156,8 +1205,15 @@ bool MaterialXNodeTreeWidget::draw_socket_controllers(NodeSocket* input)
             
             if (ImGui::DragFloat3(widgetId.c_str(), vecArray, 0.01f, 0.0f, 1.0f)) {
                 mtlx_tree->addNodeInput(input->node, mtlxInput);
-                mtlxInput->setValue(mx::Vector3(vecArray[0], vecArray[1], vecArray[2]), type);
-                changed = true;
+                mx::NodePtr mxNode = getMaterialXNode(input->node);
+                if (mxNode) {
+                    mtlxInput = mxNode->getInput(mtlxInput->getName());
+                    if (mtlxInput) {
+                        mtlxInput->setValue(mx::Vector3(vecArray[0], vecArray[1], vecArray[2]), type);
+                        input->storage = mtlxInput;
+                        changed = true;
+                    }
+                }
             }
         }
     }
@@ -1168,8 +1224,15 @@ bool MaterialXNodeTreeWidget::draw_socket_controllers(NodeSocket* input)
             
             if (ImGui::DragFloat4(widgetId.c_str(), vecArray, 0.01f, 0.0f, 1.0f)) {
                 mtlx_tree->addNodeInput(input->node, mtlxInput);
-                mtlxInput->setValue(mx::Vector4(vecArray[0], vecArray[1], vecArray[2], vecArray[3]), type);
-                changed = true;
+                mx::NodePtr mxNode = getMaterialXNode(input->node);
+                if (mxNode) {
+                    mtlxInput = mxNode->getInput(mtlxInput->getName());
+                    if (mtlxInput) {
+                        mtlxInput->setValue(mx::Vector4(vecArray[0], vecArray[1], vecArray[2], vecArray[3]), type);
+                        input->storage = mtlxInput;
+                        changed = true;
+                    }
+                }
             }
         }
     }
@@ -1181,8 +1244,15 @@ bool MaterialXNodeTreeWidget::draw_socket_controllers(NodeSocket* input)
         
         if (ImGui::InputText(widgetId.c_str(), buffer, sizeof(buffer))) {
             mtlx_tree->addNodeInput(input->node, mtlxInput);
-            mtlxInput->setValueString(buffer);
-            changed = true;
+            mx::NodePtr mxNode = getMaterialXNode(input->node);
+            if (mxNode) {
+                mtlxInput = mxNode->getInput(mtlxInput->getName());
+                if (mtlxInput) {
+                    mtlxInput->setValueString(buffer);
+                    input->storage = mtlxInput;
+                    changed = true;
+                }
+            }
         }
     }
     else if (type == "boolean") {
@@ -1191,8 +1261,15 @@ bool MaterialXNodeTreeWidget::draw_socket_controllers(NodeSocket* input)
             
             if (ImGui::Checkbox(widgetId.c_str(), &temp)) {
                 mtlx_tree->addNodeInput(input->node, mtlxInput);
-                mtlxInput->setValue(temp, type);
-                changed = true;
+                mx::NodePtr mxNode = getMaterialXNode(input->node);
+                if (mxNode) {
+                    mtlxInput = mxNode->getInput(mtlxInput->getName());
+                    if (mtlxInput) {
+                        mtlxInput->setValue(temp, type);
+                        input->storage = mtlxInput;
+                        changed = true;
+                    }
+                }
             }
         }
     }
