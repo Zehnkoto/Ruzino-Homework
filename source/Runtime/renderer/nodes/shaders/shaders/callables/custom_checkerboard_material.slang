@@ -9,15 +9,15 @@ import Utils.Math.MathHelpers;
 [shader("callable")]
 void eval_custom_checkerboard_material(inout EvalCallableData data)
 {
-    // Create checkerboard pattern
-    float2 uv = data.vertexInfo.texC;
-    float scale = 40.0;
-    float2 scaledUV = uv * scale;
-    float checker = ((int(floor(scaledUV.x)) + int(floor(scaledUV.y))) % 2) == 0 ? 1.0 : 0.0;
+    // Create checkerboard pattern based on world position
+    float3 pos = data.vertexInfo.posW;
+    float scale = 0.1;
+    float3 scaledPos = pos * scale;
+    float checker = ((int(floor(scaledPos.x)) + int(floor(scaledPos.y)) + int(floor(scaledPos.z))) % 2) == 0 ? 1.0 : 0.0;
     
     // Mix between two colors
-    float3 color1 = float3(0.2, 0.5, 1.0); // Blue
-    float3 color2 = float3(1.0, 0.8, 0.2); // Orange
+    float3 color1 = float3(1.0, 1.0, 1.0); // White
+    float3 color2 = float3(0.2); // Dark gray
     float3 baseColor = lerp(color1, color2, checker);
     
     // Lambertian BRDF evaluation

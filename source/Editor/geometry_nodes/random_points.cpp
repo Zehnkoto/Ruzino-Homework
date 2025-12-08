@@ -42,6 +42,11 @@ NODE_EXECUTION_FUNCTION(random_points)
     float z_min = params.get_input<float>("z_min");
     float z_max = params.get_input<float>("z_max");
 
+    // Ensure min <= max for all dimensions
+    if (x_min > x_max) std::swap(x_min, x_max);
+    if (y_min > y_max) std::swap(y_min, y_max);
+    if (z_min > z_max) std::swap(z_min, z_max);
+
     std::mt19937 rng(params.get_input<int>("Seed"));
 
     std::uniform_real_distribution<float> dist_x(x_min, x_max);

@@ -85,33 +85,22 @@ void Hd_USTC_CG_MaterialX::Sync(
                 this->has_valid_shader = true;
                 this->shader_path = shader_file_path.string();
                 spdlog::info(
-                    "Material {}: Using custom eval shader file '{}' instead of MaterialX",
+                    "Material {}: Using custom eval shader '{}' instead of MaterialX",
                     id.GetText(),
                     shader_file_path.string());
-                
-                // Load shader from file - this is an EVAL callable
-                std::ifstream file(shader_file_path);
-                if (file.is_open()) {
-                    std::stringstream buffer;
-                    buffer << file.rdbuf();
-                    // Store the shader source directly - it's already an eval callable
-                    final_shader_source = buffer.str();
 
-                    // Extract material name from file path for the callable function name
-                    material_name = shader_file_path.stem().string();
-                    std::replace(material_name.begin(), material_name.end(), '-', '_');
-                    std::replace(material_name.begin(), material_name.end(), '.', '_');
-                    
-                    // The shader is already a complete eval callable
-                    // Just need to ensure the function name matches material_name
-                    // Replace the function name in the shader if needed
-                    std::string expected_func = "void eval_" + material_name;
-                    
-                    shader_ready = true;
-                    shader_generation++;
-                    *dirtyBits = HdChangeTracker::Clean;
-                    return;
-                }
+                // Extract material name from file path for the callable function name
+                material_name = shader_file_path.stem().string();
+                std::replace(material_name.begin(), material_name.end(), '-', '_');
+                std::replace(material_name.begin(), material_name.end(), '.', '_');
+                
+                // The shader is already a complete eval callable at the file
+                // Just store the path, no need to load source here
+                
+                shader_ready = true;
+                shader_generation++;
+                *dirtyBits = HdChangeTracker::Clean;
+                return;
             }
         }
     }
@@ -173,11 +162,12 @@ void Hd_USTC_CG_MaterialX::ensure_shader_ready(const ShaderFactory& factory)
         return;
     }
 
-    // If we have a custom shader loaded, it's already ready (it's an eval callable)
-    if (has_valid_shader && !final_shader_source.empty()) {
+    // If we have a custom shader path, mark as ready (path-based, not source-based)
+    if (has_valid_shader) {
         spdlog::info(
-            "MaterialX: Custom eval shader ready for material '{}'",
-            material_name);
+            "MaterialX: Custom eval shader path ready for material '{}': {}",
+            material_name,
+            shader_path);
         shader_ready = true;
         return;
     }

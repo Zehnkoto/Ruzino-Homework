@@ -207,17 +207,22 @@ NODE_EXECUTION_FUNCTION(path_tracing)
 
             // Check if this is a custom shader material
             if (material.second->HasValidShader()) {
-                // This is a custom eval callable - add it directly
-                std::string shader_source = material.second->GetShader(shader_factory);
-                program_desc.add_source_code(shader_source);
+                // This is a custom eval callable - add shader file by path
+                std::filesystem::path shader_path(material.second->GetShaderPath());
+                if (!shader_path.is_absolute()) {
+                    shader_path = std::filesystem::path(RENDERER_SHADER_DIR) /
+                                  material.second->GetShaderPath();
+                }
+                program_desc.add_path(shader_path.string());
                 
                 // Store the eval index for this material
                 storage.custom_shader_eval_indices[location] = next_eval_index;
                 storage.callable_shaders[location] = material.second->GetMaterialName();
                 
                 spdlog::info(
-                    "Material '{}': Custom eval shader at index {}",
+                    "Material '{}': Custom eval shader '{}' at index {}",
                     material.first.GetText(),
+                    shader_path.string(),
                     next_eval_index);
                 
                 // Generate a simple fetch callable wrapper that just sets shader_type_id
