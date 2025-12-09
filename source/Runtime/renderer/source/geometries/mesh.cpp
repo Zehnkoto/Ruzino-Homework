@@ -384,7 +384,9 @@ void Hd_USTC_CG_Mesh::updateTLAS(
     std::vector<GeometryInstanceData> instance_data_array(transforms.size());
 
     for (int i = 0; i < transforms.size(); ++i) {
-        GfMatrix4f mat = transform * GfMatrix4f(transforms[i]);
+        // transforms[i] already contains the full instance transform from the instancer
+        // For instanced geometry, apply: instanceTransform * prototypeTransform
+        GfMatrix4f mat = GfMatrix4f(transforms[i]) * transform;
         GfMatrix4f mat_transposed = mat.GetTranspose();
 
         nvrhi::rt::InstanceDesc instanceDesc;

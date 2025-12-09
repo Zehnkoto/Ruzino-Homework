@@ -25,9 +25,9 @@
 
 #include "pxr/base/gf/matrix4d.h"
 #include "pxr/base/gf/quaternion.h"
+#include "pxr/base/gf/quath.h"
 #include "pxr/base/gf/rotation.h"
 #include "pxr/base/gf/vec3f.h"
-#include "pxr/base/gf/vec4f.h"
 #include "pxr/base/tf/staticTokens.h"
 #include "pxr/imaging/hd/sceneDelegate.h"
 #include "pxr/imaging/hd/tokens.h"
@@ -128,11 +128,19 @@ VtMatrix4dArray Hd_USTC_CG_Instancer::ComputeInstanceTransforms(
     if (_primvarMap.count(HdInstancerTokens->instanceRotations) > 0) {
         Hd_USTC_CGBufferSampler sampler(
             *_primvarMap[HdInstancerTokens->instanceRotations]);
+        
         for (size_t i = 0; i < instanceIndices.size(); ++i) {
-            GfVec4f quat;
-            if (sampler.Sample(instanceIndices[i], &quat)) {
+            // USD uses GfQuath (half precision), convert to GfQuatd for computation
+            GfQuath quatHalf;
+            if (sampler.Sample(instanceIndices[i], &quatHalf)) {
+                // Convert half precision to double precision quaternion
+                GfQuatd quat(quatHalf.GetReal(), 
+                            quatHalf.GetImaginary()[0],
+                            quatHalf.GetImaginary()[1], 
+                            quatHalf.GetImaginary()[2]);
+                
                 GfMatrix4d rotateMat(1);
-                rotateMat.SetRotate(GfQuatd(quat[0], quat[1], quat[2], quat[3]));
+                rotateMat.SetRotate(quat);
                 transforms[i] = rotateMat * transforms[i];
             }
         }
