@@ -216,22 +216,38 @@ struct SampledSpectrum : ISpectrum {
     [mutating]
     void fromRGB(float3 rgb)
     {
-        // Convert RGB to XYZ first
-        float3 xyz = RGBtoXYZ(rgb);
-        
-        // For each wavelength sample, compute the contribution
-        // We use a simple reconstruction based on the XYZ color matching functions
+        // Simple uniform spectrum reconstruction weighted by RGB wavelength response
+        // This is a simplified approach that preserves color fairly well
         float lambdaStep = (LAMBDA_MAX - LAMBDA_MIN) / float(NUM_SAMPLES - 1);
         
         for (int i = 0; i < NUM_SAMPLES; ++i) {
             float lambda = LAMBDA_MIN + float(i) * lambdaStep;
             
-            // Get XYZ color matching functions at this wavelength
-            float3 cmf = wavelengthToXYZ(lambda);
+            // Simple wavelength to RGB mapping for reconstruction
+            // Red peak ~600-700nm, Green peak ~500-600nm, Blue peak ~400-500nm
+            float r_weight = 0.0;
+            float g_weight = 0.0;
+            float b_weight = 0.0;
             
-            // Reconstruct spectral sample as a weighted sum
-            // This is a simplified smits-style RGB to spectrum conversion
-            this.samples[i] = dot(xyz, cmf);
+            if (lambda >= 580.0 && lambda <= 700.0) {
+                r_weight = smoothstep(580.0, 620.0, lambda);
+            }
+            if (lambda >= 490.0 && lambda <= 580.0) {
+                g_weight = 1.0 - abs(lambda - 535.0) / 45.0;
+                g_weight = max(0.0, g_weight);
+            }
+            if (lambda >= 380.0 && lambda <= 490.0) {
+                b_weight = 1.0 - abs(lambda - 445.0) / 65.0;
+                b_weight = max(0.0, b_weight);
+            }
+            
+            // Normalize weights
+            float total = r_weight + g_weight + b_weight + 1e-7;
+            r_weight /= total;
+            g_weight /= total;
+            b_weight /= total;
+            
+            this.samples[i] = rgb.r * r_weight + rgb.g * g_weight + rgb.b * b_weight;
         }
     }
 
@@ -248,6 +264,7 @@ struct SampledSpectrum : ISpectrum {
     static float3 spectrumToXYZ(SampledSpectrum spec)
     {
         // Integrate spectrum against CIE XYZ color matching functions
+        // Using trapezoidal rule for numerical integration
         float3 xyz = float3(0.0, 0.0, 0.0);
         float lambdaStep = (LAMBDA_MAX - LAMBDA_MIN) / float(NUM_SAMPLES - 1);
         
@@ -255,29 +272,24 @@ struct SampledSpectrum : ISpectrum {
             float lambda = LAMBDA_MIN + float(i) * lambdaStep;
             float3 cmf = wavelengthToXYZ(lambda);
             
+            // Trapezoidal rule weights (0.5 for endpoints, 1.0 for interior points)
+            float weight = (i == 0 || i == NUM_SAMPLES - 1) ? 0.5 : 1.0;
+            
             // Accumulate weighted by the spectrum value and wavelength step
-            xyz += spec.samples[i] * cmf * lambdaStep;
+            xyz += spec.samples[i] * cmf * weight;
         }
         
-        // Normalize by CIE Y integral (106.856895)
-        return xyz / 106.856895f;
+        // Normalize by wavelength step and the sum of CMF Y values
+        // This ensures unit spectrum (all 1.0) maps to white
+        return xyz * lambdaStep / 106.856895f;
     }
 
     [mutating]
     void fromXYZ(float3 xyz)
     {
-        // Similar to fromRGB but starting from XYZ
-        float lambdaStep = (LAMBDA_MAX - LAMBDA_MIN) / float(NUM_SAMPLES - 1);
-        
-        for (int i = 0; i < NUM_SAMPLES; ++i) {
-            float lambda = LAMBDA_MIN + float(i) * lambdaStep;
-            
-            // Get XYZ color matching functions at this wavelength
-            float3 cmf = wavelengthToXYZ(lambda);
-            
-            // Reconstruct spectral sample
-            this.samples[i] = dot(xyz, cmf);
-        }
+        // Convert XYZ to RGB first, then use RGB reconstruction
+        float3 rgb = XYZtoRGB(xyz);
+        fromRGB(rgb);
     }
 
     float3 toFloat3()
