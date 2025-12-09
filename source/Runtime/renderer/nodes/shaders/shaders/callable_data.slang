@@ -9,8 +9,8 @@ struct FetchCallableData {
 };
 
 struct EvalCallableData {
-    RGBSpectrum color;
-    RGBSpectrum throughput;
+    Spectrum color;          // Using typedef Spectrum (RGBSpectrum or SampledSpectrum)
+    Spectrum throughput;     // Using typedef Spectrum (RGBSpectrum or SampledSpectrum)
     float3 L;
     float3 V;
     float3 sampledDir;
@@ -24,7 +24,7 @@ struct EvalCallableData {
 struct DomeLightCallableData {
     float3 rayDirection;     // Ray direction in world space
     float3 localDirection;   // Ray direction in dome light local space
-    RGBSpectrum envColor;    // Output environment color
+    Spectrum envColor;       // Output environment color (using typedef Spectrum)
     float3 intensity;        // Dome light intensity
     int textureIndex;        // Bindless texture index
     uint seed;               // Random seed for sampling

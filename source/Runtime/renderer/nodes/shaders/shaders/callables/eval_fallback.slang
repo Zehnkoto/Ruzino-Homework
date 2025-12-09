@@ -10,7 +10,7 @@ void eval_fallback(inout EvalCallableData data)
 {
     float3 color3 = float3(0.8);  // Default color for fallback
     data.color =
-        RGBSpectrum(color3 * max(0.0, dot(data.L, data.vertexInfo.normalW)));
+        Spectrum(color3 * max(0.0, dot(data.L, data.vertexInfo.normalW)));
 
     data.sampledDir =
         sample_cosine_hemisphere_concentric(random_float2(data.seed), data.pdf);
@@ -19,6 +19,6 @@ void eval_fallback(inout EvalCallableData data)
         data.vertexInfo.normalW, float4(1, 0, 0, 1), valid);
     data.sampledDir = sf.fromLocal(data.sampledDir);
 
-    data.throughput = RGBSpectrum(float3(0.8, 0.8, 0.8) / 3.14159 *
+    data.throughput = Spectrum(float3(0.8, 0.8, 0.8) / 3.14159 *
                       max(0.0, dot(data.vertexInfo.normalW, data.sampledDir)));
 }

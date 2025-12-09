@@ -32,5 +32,5 @@ void eval_dome_light_default(inout DomeLightCallableData data)
         envColor = data.intensity;
     }
     
-    data.envColor = RGBSpectrum(envColor);
+    data.envColor = Spectrum(envColor);
 }

@@ -25,6 +25,7 @@ NODE_DECLARATION_FUNCTION(path_tracing)
     b.add_input<nvrhi::BufferHandle>("Pixel Target");
     b.add_input<nvrhi::BufferHandle>("Rays");
     b.add_input<nvrhi::BufferHandle>("Random Seeds");
+    b.add_input<bool>("Use Sampled Spectrum").default_val(false);
 
     b.add_output<nvrhi::TextureHandle>("Output");
 
@@ -52,6 +53,9 @@ struct PathTracingStorage {
     // Dome light custom shader state
     std::string dome_light_shader_path;
     bool has_dome_light_shader = false;
+    
+    // Spectrum type state
+    bool use_sampled_spectrum = false;
     
     // Custom shader materials: map from material_location to eval_callable_index
     std::unordered_map<unsigned, unsigned> custom_shader_eval_indices;
@@ -145,11 +149,30 @@ NODE_EXECUTION_FUNCTION(path_tracing)
         (found_dome_shader &&
          current_dome_shader_path != storage.dome_light_shader_path);
 
-    if (mat_dirty || !storage.path_tracing_program || dome_shader_changed) {
+    // Check if Spectrum type changed
+    bool use_sampled_spectrum = params.get_input<bool>("Use Sampled Spectrum");
+    bool spectrum_type_changed = (use_sampled_spectrum != storage.use_sampled_spectrum);
+    storage.use_sampled_spectrum = use_sampled_spectrum;
+    
+    if (spectrum_type_changed) {
+        g.reset_accumulation = true;
+    }
+
+    if (mat_dirty || !storage.path_tracing_program || dome_shader_changed || spectrum_type_changed) {
         ProgramDesc program_desc;
         program_desc.set_path("shaders/path_tracing.slang");
         program_desc.shaderType = nvrhi::ShaderType::AllRayTracing;
         program_desc.nvapi_support = true;
+
+        // Define macro for spectrum type
+        if (use_sampled_spectrum) {
+            program_desc.define("USE_SAMPLED_SPECTRUM", "1");
+            spdlog::info("Using Sampled Spectrum");
+        }
+        else {
+            program_desc.define("USE_RGB_SPECTRUM", "1");
+            spdlog::info("Using RGB Spectrum");
+        }
 
         // Define macro for dome light custom shader
         if (found_dome_shader) {

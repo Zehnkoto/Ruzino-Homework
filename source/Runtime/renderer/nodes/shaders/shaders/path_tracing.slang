@@ -29,12 +29,12 @@ struct PathTracingConstants {
 ConstantBuffer<PathTracingConstants> ptConstants;
 
 struct RayPayload {
-    RGBSpectrum color;        // Accumulated color
-    RGBSpectrum throughput;   // Path throughput
-    float3 hitPosition;  // Hit position in world space
-    uint depth;          // Current ray bounce depth
-    uint seed;           // Random seed for this ray
-    bool terminated;     // Flag to indicate if path is terminated
+    Spectrum color;       // Accumulated color
+    Spectrum throughput;  // Path throughput
+    float3 hitPosition;   // Hit position in world space
+    uint depth;           // Current ray bounce depth
+    uint seed;            // Random seed for this ray
+    bool terminated;      // Flag to indicate if path is terminated
 };
 
 struct ShadowPayload {
@@ -57,20 +57,21 @@ void RayGen()
     RayPayload payload;
     payload.seed = random_seeds[DispatchRaysIndex().x];
 
-    RGBSpectrum output_color = RGBSpectrum(0.0);
+    Spectrum output_color = Spectrum(0.0);
 
     const int spp = 1;
 
     for (int i = 0; i < spp; i++) {
-        payload.color = RGBSpectrum(0.0);
-        payload.throughput = RGBSpectrum(1.0);
+        payload.color = Spectrum(0.0);
+        payload.throughput = Spectrum(1.0);
         payload.depth = 0;
         payload.terminated = false;
         TraceRay(
             SceneBVH, RAY_FLAG_NONE, 0xFF, 0, 0, 0, get_ray_desc(ray), payload);
         output_color = add(output_color, payload.color);
     }
-    output_color = div(output_color, float(spp));  // Average color over multiple samples
+    output_color =
+        div(output_color, float(spp));  // Average color over multiple samples
     // output_color = ray.Direction*0.5+0.5;
     output[pixel] = float4(output_color.toFloat3(), 1.0);
 
@@ -323,8 +324,8 @@ void ClosestHit(
 {
     // Check if maximum depth is reached
     if (payload.depth >= 30) {
-        payload.throughput = RGBSpectrum(float3(1, 0, 0));
-        payload.color = RGBSpectrum(0.0);
+        payload.throughput = Spectrum(float3(1, 0, 0));
+        payload.color = Spectrum(0.0);
         payload.terminated = true;
         return;
     }
@@ -380,12 +381,15 @@ void ClosestHit(
     fetchData.vertexInfo = vertex;
 
     // Call the per-material data fetch callable to fill parameters
-    CallShader(ptConstants.materialFetchCallableBaseIndex + material_header.material_type_id, fetchData);
+    CallShader(
+        ptConstants.materialFetchCallableBaseIndex +
+            material_header.material_type_id,
+        fetchData);
 
     // Step 2: Call shared evaluation callable based on shader type
     EvalCallableData evalData;
-    evalData.color = RGBSpectrum(0.0);
-    evalData.throughput = RGBSpectrum(1.0);
+    evalData.color = Spectrum(0.0);
+    evalData.throughput = Spectrum(1.0);
     evalData.L = lightSample.direction;
     evalData.V = -WorldRayDirection();
     evalData.sampledDir = float3(0, 0, 0);
@@ -407,9 +411,11 @@ void ClosestHit(
 
     // Add direct lighting contribution: light_intensity * BRDF * NdotL / PDF
     if (lightSample.valid) {
-        RGBSpectrum directContrib =
-            div(mul(RGBSpectrum(lightSample.intensity), evalData.color), lightSample.pdf);
-        payload.color = add(payload.color, mul(payload.throughput, directContrib));
+        Spectrum directContrib =
+            div(mul(Spectrum(lightSample.intensity), evalData.color),
+                lightSample.pdf);
+        payload.color =
+            add(payload.color, mul(payload.throughput, directContrib));
     }
 
     float3 ray_dir = evalData.sampledDir;
@@ -418,13 +424,13 @@ void ClosestHit(
 
     // Validate throughput before continuing
     if (any(isnan(evalData.throughput.toFloat3()))) {
-        payload.color = RGBSpectrum(float3(1, 0, 0));
+        payload.color = Spectrum(float3(1, 0, 0));
         payload.terminated = true;
         return;
     }
 
     if (any(isinf(evalData.throughput.toFloat3()))) {
-        payload.color = RGBSpectrum(float3(0, 0, 1));
+        payload.color = Spectrum(float3(0, 0, 1));
         payload.terminated = true;
         return;
     }
@@ -471,7 +477,7 @@ void ClosestHit(
 void Miss(inout RayPayload payload)
 {
     float3 rayDir = WorldRayDirection();
-    RGBSpectrum envColor = RGBSpectrum(0.0);
+    Spectrum envColor = Spectrum(0.0);
 
     // Check if we have a dome light
     bool hasDomeLight = false;
@@ -497,14 +503,14 @@ void Miss(inout RayPayload payload)
         DomeLightCallableData domeData;
         domeData.rayDirection = rayDir;
         domeData.localDirection = localDir;
-        domeData.envColor = RGBSpectrum(0.0);
+        domeData.envColor = Spectrum(0.0);
         domeData.intensity = domeLight.intensity;
         domeData.textureIndex = domeLight.textureIndex;
         domeData.seed = payload.seed;
-        
+
         // Call the custom dome light shader at dynamic callable index
         CallShader(ptConstants.domeLightCallableIndex, domeData);
-        
+
         envColor = domeData.envColor;
         payload.seed = domeData.seed;
 #else
@@ -525,11 +531,11 @@ void Miss(inout RayPayload payload)
             float4 texColor =
                 t_BindlessTextures[domeLight.textureIndex].SampleLevel(
                     samplers[1], float2(u, v), 0);
-            envColor = RGBSpectrum(texColor.rgb * domeLight.intensity);
+            envColor = Spectrum(texColor.rgb * domeLight.intensity);
         }
         else {
             // No texture, use solid color intensity
-            envColor = RGBSpectrum(domeLight.intensity);
+            envColor = Spectrum(domeLight.intensity);
         }
 #endif  // USE_DOME_LIGHT_CALLABLE
     }
@@ -552,15 +558,17 @@ void Miss(inout RayPayload payload)
         skyColor += float3(1.0, 0.9, 0.7) * sunIntensity;
         skyColor += sunsetColor * sunsetIntensity * (1.0 - skyBlend) * 0.4;
 
-        envColor = RGBSpectrum(skyColor * 0.0);  // Fallback disabled by default
+        envColor = Spectrum(skyColor * 0.0);  // Fallback disabled by default
     }
 
     // Add contribution to path
     payload.color = add(payload.color, mul(payload.throughput, envColor));
 
     // Debug: Check for invalid values
-    if (any(isnan(payload.color.toFloat3())) || any(isinf(payload.color.toFloat3()))) {
-        payload.color = RGBSpectrum(float3(1, 0, 1));  // Magenta for debugging NaN/Inf
+    if (any(isnan(payload.color.toFloat3())) ||
+        any(isinf(payload.color.toFloat3()))) {
+        payload.color =
+            Spectrum(float3(1, 0, 1));  // Magenta for debugging NaN/Inf
         payload.terminated = true;
     }
 

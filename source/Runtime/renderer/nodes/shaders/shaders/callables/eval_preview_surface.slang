@@ -48,7 +48,7 @@ void eval_preview_surface(inout EvalCallableData data)
         params.occlusion,
         bsdf_result);
 
-    data.color = RGBSpectrum(bsdf_result.color);
+    data.color = Spectrum(bsdf_result.color);
 
     // Sample the BSDF for next direction
     data.sampledDir = sample_preview_surface(
@@ -97,5 +97,5 @@ void eval_preview_surface(inout EvalCallableData data)
         params.occlusion,
         weight_result);
 
-    data.throughput = RGBSpectrum(weight_result.color);
+    data.throughput = Spectrum(weight_result.color);
 }

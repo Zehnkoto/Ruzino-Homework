@@ -29,5 +29,5 @@ void eval_dome_light_procedural_sky(inout DomeLightCallableData data)
     skyColor += sunColor * (sunDisk * 50.0 + sunGlow);
     
     // Apply intensity scaling
-    data.envColor = RGBSpectrum(skyColor * data.intensity);
+    data.envColor = Spectrum(skyColor * data.intensity);
 }

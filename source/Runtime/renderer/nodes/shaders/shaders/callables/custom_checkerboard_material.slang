@@ -23,7 +23,7 @@ void eval_custom_checkerboard_material(inout EvalCallableData data)
     
     // Lambertian BRDF evaluation
     float NdotL = max(0.0, dot(data.vertexInfo.normalW, data.L));
-    data.color = RGBSpectrum(baseColor * NdotL / 3.14159265359);
+    data.color = Spectrum(baseColor * NdotL / 3.14159265359);
     
     // Sample next direction using cosine-weighted hemisphere sampling
     data.sampledDir = sample_cosine_hemisphere_concentric(
@@ -39,5 +39,5 @@ void eval_custom_checkerboard_material(inout EvalCallableData data)
     
     // Lambertian BRDF for throughput
     float NdotSampled = max(0.0, dot(data.vertexInfo.normalW, data.sampledDir));
-    data.throughput = RGBSpectrum(baseColor * NdotSampled / 3.14159265359);
+    data.throughput = Spectrum(baseColor * NdotSampled / 3.14159265359);
 }
