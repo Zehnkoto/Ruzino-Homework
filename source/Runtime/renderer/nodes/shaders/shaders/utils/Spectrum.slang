@@ -190,18 +190,20 @@ RGBSpectrum div(RGBSpectrum a, float scalar)
 }
 
 // ============================================================================
-// Sampled Spectrum Implementation (8-sample version for testing)
-// Uses wavelength range 380nm-720nm (visible spectrum)
+// Sampled Spectrum Implementation (16-sample version with manual packing)
+// Uses wavelength range 400nm-700nm (visible spectrum)
+// Manually packs 2 half values into each uint for better control
 // ============================================================================
 struct SampledSpectrum : ISpectrum {
-    static const int NUM_SAMPLES = 8;
+    static const int NUM_SAMPLES = 16;
     static const float LAMBDA_MIN = 400.0;  // nm
     static const float LAMBDA_MAX = 700.0;  // nm
 
     __init(float v)
     {
-        for (int i = 0; i < NUM_SAMPLES; ++i) {
-            this.samples[i] = v;
+        uint packed = packHalf2x16(float2(v, v));
+        for (int i = 0; i < NUM_SAMPLES / 2; ++i) {
+            this.samples[i] = packed;
         }
     }
 
@@ -211,7 +213,32 @@ struct SampledSpectrum : ISpectrum {
         fromRGB(rgb);
     }
 
-    float samples[NUM_SAMPLES];
+    uint samples[NUM_SAMPLES / 2];  // 8 uints = 32 bytes, stores 16 half values
+
+    // Helper functions to get/set individual samples
+    float getSample(int index)
+    {
+        int uintIndex = index / 2;
+        float2 unpacked = f16tof32(uint2((samples[uintIndex] >> 0) & 0xFFFF, (samples[uintIndex] >> 16) & 0xFFFF));
+        return (index % 2 == 0) ? unpacked.x : unpacked.y;
+    }
+
+    [mutating]
+    void setSample(int index, float value)
+    {
+        int uintIndex = index / 2;
+        uint2 current = uint2((samples[uintIndex] >> 0) & 0xFFFF, (samples[uintIndex] >> 16) & 0xFFFF);
+        float2 unpacked = f16tof32(current);
+        
+        if (index % 2 == 0) {
+            unpacked.x = value;
+        } else {
+            unpacked.y = value;
+        }
+        
+        uint2 packed = f32tof16(unpacked);
+        samples[uintIndex] = (packed.y << 16) | (packed.x & 0xFFFF);
+    }
 
     [mutating]
     void fromRGB(float3 rgb)
@@ -219,6 +246,9 @@ struct SampledSpectrum : ISpectrum {
         // RGB to spectrum conversion using smooth basis functions
         // Based on "An RGB to Spectrum Conversion for Reflectances" by Smits (1999)
         // This uses smooth gaussian-like profiles for each RGB channel
+        
+        // Clamp input to prevent extreme values
+        rgb = clamp(rgb, 0.0, 65504.0);  // Max value for half precision
         
         float lambdaStep = (LAMBDA_MAX - LAMBDA_MIN) / float(NUM_SAMPLES - 1);
         
@@ -228,17 +258,20 @@ struct SampledSpectrum : ISpectrum {
             // Define smooth basis functions for R, G, B channels
             // These are designed to integrate to approximately 1.0 when converted back to RGB
             
-            // Red: centered at 600nm, broader distribution
-            float r_response = exp(-pow((lambda - 600.0) / 50.0, 2.0));
+            // Red: centered at 620nm, broader distribution
+            float r_response = exp(-pow((lambda - 620.0) / 50.0, 2.0));
             
-            // Green: centered at 550nm, medium width
-            float g_response = exp(-pow((lambda - 550.0) / 45.0, 2.0));
+            // Green: centered at 540nm, medium width
+            float g_response = exp(-pow((lambda - 540.0) / 40.0, 2.0));
             
             // Blue: centered at 450nm, narrower distribution
-            float b_response = exp(-pow((lambda - 450.0) / 40.0, 2.0));
+            float b_response = exp(-pow((lambda - 450.0) / 30.0, 2.0));
             
             // Linear combination of basis functions weighted by RGB values
-            this.samples[i] = rgb.r * r_response + rgb.g * g_response + rgb.b * b_response;
+            float value = rgb.r * r_response + rgb.g * g_response + rgb.b * b_response;
+            
+            // Clamp before storing
+            setSample(i, clamp(value, 0.0, 65504.0));
         }
     }
 
@@ -267,7 +300,7 @@ struct SampledSpectrum : ISpectrum {
             float weight = (i == 0 || i == NUM_SAMPLES - 1) ? 0.5 : 1.0;
             
             // Accumulate weighted by the spectrum value and wavelength step
-            xyz += spec.samples[i] * cmf * weight;
+            xyz += spec.getSample(i) * cmf * weight;
         }
         
         // Normalize by wavelength step and the sum of CMF Y values
@@ -287,7 +320,10 @@ struct SampledSpectrum : ISpectrum {
     {
         // Convert spectrum to XYZ, then to RGB
         float3 xyz = spectrumToXYZ(this);
-        return XYZtoRGB(xyz);
+        float3 rgb = XYZtoRGB(xyz);
+        
+        // Clamp to prevent invalid colors
+        return clamp(rgb, 0.0, 65504.0);
     }
 };
 
@@ -295,8 +331,8 @@ struct SampledSpectrum : ISpectrum {
 SampledSpectrum add(SampledSpectrum a, SampledSpectrum b)
 {
     SampledSpectrum result = SampledSpectrum(0.0);
-    for (int i = 0; i < 8; ++i) {
-        result.samples[i] = a.samples[i] + b.samples[i];
+    for (int i = 0; i < 16; ++i) {
+        result.setSample(i, a.getSample(i) + b.getSample(i));
     }
     return result;
 }
@@ -304,8 +340,8 @@ SampledSpectrum add(SampledSpectrum a, SampledSpectrum b)
 SampledSpectrum sub(SampledSpectrum a, SampledSpectrum b)
 {
     SampledSpectrum result = SampledSpectrum(0.0);
-    for (int i = 0; i < 8; ++i) {
-        result.samples[i] = a.samples[i] - b.samples[i];
+    for (int i = 0; i < 16; ++i) {
+        result.setSample(i, a.getSample(i) - b.getSample(i));
     }
     return result;
 }
@@ -313,8 +349,8 @@ SampledSpectrum sub(SampledSpectrum a, SampledSpectrum b)
 SampledSpectrum mul(SampledSpectrum a, SampledSpectrum b)
 {
     SampledSpectrum result = SampledSpectrum(0.0);
-    for (int i = 0; i < 8; ++i) {
-        result.samples[i] = a.samples[i] * b.samples[i];
+    for (int i = 0; i < 16; ++i) {
+        result.setSample(i, a.getSample(i) * b.getSample(i));
     }
     return result;
 }
@@ -322,8 +358,10 @@ SampledSpectrum mul(SampledSpectrum a, SampledSpectrum b)
 SampledSpectrum mul(SampledSpectrum a, float scalar)
 {
     SampledSpectrum result = SampledSpectrum(0.0);
-    for (int i = 0; i < 8; ++i) {
-        result.samples[i] = a.samples[i] * scalar;
+    // Clamp scalar to prevent half overflow
+    float safe_scalar = clamp(scalar, -65504.0, 65504.0);
+    for (int i = 0; i < 16; ++i) {
+        result.setSample(i, a.getSample(i) * safe_scalar);
     }
     return result;
 }
@@ -336,8 +374,11 @@ SampledSpectrum mul(float scalar, SampledSpectrum a)
 SampledSpectrum div(SampledSpectrum a, float scalar)
 {
     SampledSpectrum result = SampledSpectrum(0.0);
-    for (int i = 0; i < 8; ++i) {
-        result.samples[i] = a.samples[i] / scalar;
+    // Prevent division by zero and clamp
+    float safe_scalar = max(abs(scalar), 1e-7) * sign(scalar);
+    safe_scalar = clamp(safe_scalar, -65504.0, 65504.0);
+    for (int i = 0; i < 16; ++i) {
+        result.setSample(i, a.getSample(i) / safe_scalar);
     }
     return result;
 }
