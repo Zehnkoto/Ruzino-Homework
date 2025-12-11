@@ -751,6 +751,21 @@ float3 sample_standard_surface(
         shading_tangent = -tangent;
     }
 
+    // Compute coat layer properties with its own shading frame
+    float3 coat_shading_normal = coat_normal;
+    float3 coat_shading_tangent = tangent;
+    if (dot(V, coat_normal) < 0.0) {
+        coat_shading_normal = -coat_normal;
+        coat_shading_tangent = -tangent;
+    }
+
+    if (eta_flipped != 0) {
+        // coat_shading_normal = -coat_shading_normal;
+        // coat_shading_tangent = -coat_shading_tangent;
+        // shading_normal = -shading_normal;
+        // shading_tangent = -shading_tangent;
+    }
+
     // Create base layer shading frame
     float3 rotated_tangent;
     float rotation_angle = specular_rotation * 360.0;
@@ -768,21 +783,6 @@ float3 sample_standard_surface(
     // Compute base layer anisotropic roughness
     float2 alpha;
     mx_roughness_anisotropy(specular_roughness, specular_anisotropy, alpha);
-
-    // Compute coat layer properties with its own shading frame
-    float3 coat_shading_normal = coat_normal;
-    float3 coat_shading_tangent = tangent;
-    if (dot(V, coat_normal) < 0.0) {
-        coat_shading_normal = -coat_normal;
-        coat_shading_tangent = -tangent;
-    }
-
-    if (eta_flipped != 0) {
-        coat_shading_normal = -coat_shading_normal;
-        coat_shading_tangent = -coat_shading_tangent;
-        shading_normal = -shading_normal;
-        shading_tangent = -shading_tangent;
-    }
 
     float3 coat_rotated_tangent;
     float coat_rotation_angle = coat_rotation * 360.0;

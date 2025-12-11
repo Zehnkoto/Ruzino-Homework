@@ -283,7 +283,8 @@ inline auto get_size(ExeParams& params)
             "Failed to create shader {}: {}",     \
             #program,                             \
             program->get_error_string().c_str()); \
-        resource_allocator.destroy(program);     \
+        resource_allocator.destroy(program);      \
+        (program) = nullptr;                      \
         return false;                             \
     }
 

@@ -61,6 +61,8 @@ void RayGen()
 
     const int spp = 1;
 
+    ray.TMax = 50000.0;
+
     for (int i = 0; i < spp; i++) {
         payload.color = Spectrum(0.0);
         payload.throughput = Spectrum(1.0);
@@ -419,8 +421,7 @@ void ClosestHit(
     }
 
     float3 ray_dir = evalData.sampledDir;
-    float3 local_ray_dir = sf.toLocal(ray_dir);
-    bool isTransmission = local_ray_dir.z < 0.0;  // if (isTransmission) {
+    bool isTransmission = dot(ray_dir, vertex.normalW) < 0.0;
 
     // Validate throughput before continuing
     if (any(isnan(evalData.throughput.toFloat3()))) {
@@ -437,7 +438,7 @@ void ClosestHit(
 
     payload.throughput = mul(payload.throughput, div(evalData.throughput, pdf));
     // Russian Roulette path termination after depth 3
-    if (payload.depth >= 5) {
+    if (payload.depth >= 3) {
         float3 thr = payload.throughput.toFloat3();
         float rrProbability = min(0.95, max(thr.x, max(thr.y, thr.z)));
         if (random_float(evalData.seed) > rrProbability) {
@@ -460,15 +461,15 @@ void ClosestHit(
         // For transmission, offset against the normal; for reflection, offset
         // with the normal
         float3 offset_normal =
-            isTransmission ? -vertex.faceNormalW : vertex.faceNormalW;
+            isTransmission ? -vertex.normalW : vertex.normalW;
 
         // Additional offset along ray direction to avoid grazing angle issues
-        float3 ray_offset = offset_normal * 1e-4f;
+        float3 ray_offset = offset_normal * 1e-5f;
 
         nextRay.Origin = vertex.posW + ray_offset;
         nextRay.Direction = ray_dir;
         nextRay.TMin = 0.0;
-        nextRay.TMax = 1000.0;
+        nextRay.TMax = 10000.0;
 
         TraceRay(SceneBVH, RAY_FLAG_NONE, 0xFF, 0, 0, 0, nextRay, payload);
     }

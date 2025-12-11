@@ -67,7 +67,23 @@ void BindlessContext::emitResourceBindings(
                     type == Type::INTEGER || type == Type::STRING ||
                     type == Type::BOOLEAN) {
                     if (type == Type::INTEGER) {
-                        auto val = uniform->getValue()->asA<int>();
+                        int val = 0;
+                        try {
+                            val = uniform->getValue()->asA<int>();
+                        }
+                        catch (const std::exception& e) {
+                            // Try long as fallback (it's also mapped to "integer")
+                            try {
+                                val = static_cast<int>(uniform->getValue()->asA<long>());
+                                spdlog::info("Uniform '{}' is long type, converted to int: {}", 
+                                    uniform->getVariable(), val);
+                            }
+                            catch (const std::exception& e2) {
+                                spdlog::warn("Failed to convert INTEGER type for '{}': {}. Using default value 0. Inner error: {}", 
+                                    uniform->getVariable(), e.what(), e2.what());
+                                val = 0;
+                            }
+                        }
 
                         memcpy(
                             &material_data.data[data_location],
