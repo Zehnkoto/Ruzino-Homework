@@ -496,10 +496,6 @@ void _FixNodeValues(HdMaterialNetwork2Interface* netInterface)
             if (wrapS.IsHolding<TfToken>() && wrapT.IsHolding<TfToken>()) {
                 TfToken wrapSValue = wrapS.Get<TfToken>();
                 TfToken wrapTValue = wrapT.Get<TfToken>();
-
-                spdlog::info("wrapSValue: %s", wrapSValue.GetText());
-                spdlog::info("wrapTValue: %s", wrapTValue.GetText());
-
                 if (wrapSValue == _tokens->repeat) {
                     netInterface->SetNodeParameterValue(
                         nodeName, _tokens->wrapS, VtValue(_tokens->periodic));

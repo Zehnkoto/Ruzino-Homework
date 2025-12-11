@@ -359,22 +359,34 @@ void Hd_USTC_CG_Mesh::updateTLAS(
         transforms.size());
 
     auto material_id = GetMaterialId();
+    
+    // Check if mesh has GeomSubset materials
+    bool has_subset_materials = 
+        _primvarSourceMap.find(TfToken("subset_material_id")) != _primvarSourceMap.end();
 
     if (material_id.IsEmpty()) {
-        spdlog::info(
-            "Mesh {} has no material assigned. Using default material.",
-            id.GetText());
-        render_param->InstanceCollection->mark_materials_dirty();
+        if (!has_subset_materials) {
+            spdlog::info(
+                "Mesh {} has no material assigned. Using default material.",
+                id.GetText());
+            render_param->InstanceCollection->mark_materials_dirty();
+        }
+        else {
+            spdlog::info(
+                "Mesh {} uses GeomSubset materials only.",
+                id.GetText());
+        }
     }
     else {
         spdlog::info(
-            "Mesh {} has material {} assigned.",
+            "Mesh {} has material {} assigned{}.",
             id.GetText(),
-            material_id.GetText());
+            material_id.GetText(),
+            has_subset_materials ? " with GeomSubset overrides" : "");
     }
 
     Hd_USTC_CG_Material* material = (*render_param->material_map)[material_id];
-    if (!material) {
+    if (!material && !has_subset_materials) {
         spdlog::warn(
             "Material {} not found for mesh {}. Using default material.",
             material_id.GetText(),
@@ -614,20 +626,29 @@ void Hd_USTC_CG_Mesh::Sync(
 
             if (!geom_subsets.empty()) {
                 std::unordered_map<int, int> subset_material_id_map;
+                auto material_map =
+                    static_cast<Hd_USTC_CG_RenderParam*>(renderParam)
+                        ->material_map;
+
+                // Get mesh-level material for faces not in any subset
+                auto mesh_material_id = GetMaterialId();
+                int default_material_loc = -1;
+                if (!mesh_material_id.IsEmpty()) {
+                    auto p = material_map->find(mesh_material_id);
+                    if (p != material_map->end()) {
+                        default_material_loc = (*p).second->GetMaterialLocation();
+                    }
+                }
 
                 for (auto& subset : geom_subsets) {
                     auto face_ids = subset.indices;
-
-                    auto material_map =
-                        static_cast<Hd_USTC_CG_RenderParam*>(renderParam)
-                            ->material_map;
-
                     auto p = material_map->find(subset.materialId);
 
                     if (p == material_map->end()) {
                         spdlog::error(
-                            "Material not found for subset {}",
-                            subset.materialId.GetText());
+                            "Material {} not found for subset in mesh {}. Skipping subset.",
+                            subset.materialId.GetText(),
+                            id.GetText());
                         continue;
                     }
 
@@ -637,23 +658,28 @@ void Hd_USTC_CG_Mesh::Sync(
                     }
                 }
 
+                // Initialize with max uint to indicate "use instance material" (equivalent to -1 in signed)
                 VtArray<unsigned> material_id_primvars;
-                material_id_primvars.resize(triangulatedIndices.size() * 3, 0u);
+                material_id_primvars.resize(triangulatedIndices.size() * 3, 
+                    static_cast<unsigned>(-1));
 
                 assert(
                     triangulatedIndices.size() ==
                     trianglePrimitiveParams.size());
 
                 for (int i = 0; i < triangulatedIndices.size(); i++) {
-                    material_id_primvars[i * 3] = subset_material_id_map
-                        [HdMeshUtil::DecodeFaceIndexFromCoarseFaceParam(
-                            trianglePrimitiveParams[i])];
-                    material_id_primvars[i * 3 + 1] = subset_material_id_map
-                        [HdMeshUtil::DecodeFaceIndexFromCoarseFaceParam(
-                            trianglePrimitiveParams[i])];
-                    material_id_primvars[i * 3 + 2] = subset_material_id_map
-                        [HdMeshUtil::DecodeFaceIndexFromCoarseFaceParam(
-                            trianglePrimitiveParams[i])];
+                    int face_index = HdMeshUtil::DecodeFaceIndexFromCoarseFaceParam(
+                        trianglePrimitiveParams[i]);
+                    
+                    // Check if this face has a subset material
+                    auto it = subset_material_id_map.find(face_index);
+                    unsigned mat_id = (it != subset_material_id_map.end()) 
+                        ? static_cast<unsigned>(it->second)
+                        : static_cast<unsigned>(default_material_loc);
+                    
+                    material_id_primvars[i * 3] = mat_id;
+                    material_id_primvars[i * 3 + 1] = mat_id;
+                    material_id_primvars[i * 3 + 2] = mat_id;
                 }
 
                 _primvarSourceMap[TfToken("subset_material_id")] = {

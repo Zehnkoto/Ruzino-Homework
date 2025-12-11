@@ -69,7 +69,8 @@ void Hd_USTC_CG_MaterialX::Sync(
             shader_path = customParamValue.UncheckedGet<std::string>();
         }
         else if (customParamValue.IsHolding<SdfAssetPath>()) {
-            shader_path = customParamValue.UncheckedGet<SdfAssetPath>().GetAssetPath();
+            shader_path =
+                customParamValue.UncheckedGet<SdfAssetPath>().GetAssetPath();
         }
 
         // Validate shader path
@@ -85,18 +86,22 @@ void Hd_USTC_CG_MaterialX::Sync(
                 this->has_valid_shader = true;
                 this->shader_path = shader_file_path.string();
                 spdlog::info(
-                    "Material {}: Using custom eval shader '{}' instead of MaterialX",
+                    "Material {}: Using custom eval shader '{}' instead of "
+                    "MaterialX",
                     id.GetText(),
                     shader_file_path.string());
 
-                // Extract material name from file path for the callable function name
+                // Extract material name from file path for the callable
+                // function name
                 material_name = shader_file_path.stem().string();
-                std::replace(material_name.begin(), material_name.end(), '-', '_');
-                std::replace(material_name.begin(), material_name.end(), '.', '_');
-                
+                std::replace(
+                    material_name.begin(), material_name.end(), '-', '_');
+                std::replace(
+                    material_name.begin(), material_name.end(), '.', '_');
+
                 // The shader is already a complete eval callable at the file
                 // Just store the path, no need to load source here
-                
+
                 shader_ready = true;
                 shader_generation++;
                 *dirtyBits = HdChangeTracker::Clean;
@@ -162,7 +167,8 @@ void Hd_USTC_CG_MaterialX::ensure_shader_ready(const ShaderFactory& factory)
         return;
     }
 
-    // If we have a custom shader path, mark as ready (path-based, not source-based)
+    // If we have a custom shader path, mark as ready (path-based, not
+    // source-based)
     if (has_valid_shader) {
         spdlog::info(
             "MaterialX: Custom eval shader path ready for material '{}': {}",
@@ -220,8 +226,8 @@ void Hd_USTC_CG_MaterialX::ensure_shader_ready(const ShaderFactory& factory)
     // program_desc.set_shader_type(nvrhi::ShaderType::Callable);
     // program_desc.set_entry_name(material_name);
 
-    // spdlog::info("MaterialX: Creating shader program for '{}'", material_name);
-    // final_program = factory.createProgram(program_desc);
+    // spdlog::info("MaterialX: Creating shader program for '{}'",
+    // material_name); final_program = factory.createProgram(program_desc);
 
     // if (!final_program) {
     //     spdlog::error(
@@ -434,6 +440,69 @@ void Hd_USTC_CG_MaterialX::MtlxGenerateShader(
     }
 
     _FixOmittedConnections(mtlx_document, renderable);
+
+    // Fix geompropvalue nodes that don't have 'geomprop' input
+    for (auto nodeGraph : mtlx_document->getNodeGraphs()) {
+        for (auto node : nodeGraph->getNodes("geompropvalue")) {
+            auto geompropInput = node->getInput("geomprop");
+
+            if (geompropInput) {
+                std::string interfaceName = geompropInput->getInterfaceName();
+
+                if (!interfaceName.empty()) {
+                    // geomprop has an interfacename reference - resolve it
+                    spdlog::info(
+                        "geompropvalue node '{}' has interfaceName='{}', "
+                        "resolving...",
+                        node->getName(),
+                        interfaceName);
+
+                    auto ngInput = nodeGraph->getInput(interfaceName);
+                    if (ngInput && ngInput->hasValueString()) {
+                        std::string resolvedValue = ngInput->getValueString();
+                        spdlog::info("Resolved to value '{}'", resolvedValue);
+
+                        // Replace the interfacename reference with the actual
+                        // value
+                        geompropInput->setInterfaceName("");
+                        geompropInput->setValue(resolvedValue, "string");
+                    }
+                    else {
+                        // Interface exists but no value, use default 'st'
+                        spdlog::warn(
+                            "Could not resolve interfaceName='{}', using "
+                            "default 'st'",
+                            interfaceName);
+                        geompropInput->setInterfaceName("");
+                        geompropInput->setValue("st", "string");
+                    }
+                }
+                else if (geompropInput->hasValueString()) {
+                    // Already has a direct value, all good
+                    spdlog::info(
+                        "geompropvalue node '{}' already has geomprop = '{}'",
+                        node->getName(),
+                        geompropInput->getValueString());
+                }
+                else {
+                    // No interfacename and no value - use default
+                    spdlog::warn(
+                        "geompropvalue node '{}' has geomprop but no value, "
+                        "using default 'st'",
+                        node->getName());
+                    geompropInput->setValue("st", "string");
+                }
+            }
+            else {
+                // No geomprop input at all - shouldn't happen after our fixes
+                spdlog::error(
+                    "geompropvalue node '{}' has no geomprop input!",
+                    node->getName());
+                node->setInputValue("geomprop", "st", "string");
+            }
+        }
+    }
+
     using namespace mx;
 
     auto element = renderable[0];

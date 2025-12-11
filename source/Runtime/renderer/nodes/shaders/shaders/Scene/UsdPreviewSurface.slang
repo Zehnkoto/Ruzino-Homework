@@ -80,6 +80,12 @@ import pbrlib.genslang.mx_mix_bsdf;
 
 import pbrlib.genslang.mx_layer_bsdf;
 
+bool is_close(float3 a, float3 b)
+{
+    const float EPSILON = 1e-8;
+    return all(abs(a - b) < float3(EPSILON, EPSILON, EPSILON));
+}
+
 void IMP_UsdPreviewSurface_surfaceshader(
     VertexData vd,
     float3 L,
@@ -102,6 +108,11 @@ void IMP_UsdPreviewSurface_surfaceshader(
     float occlusion,
     out surfaceshader out1)
 {
+    if (is_close(L, -V)) {
+        out1 = surfaceshader(float3(1.0), float3(1.0));
+        return;
+    }
+
     float3 geomprop_Tworld_out1 = normalize(vd.tangentWorld);
     const float one_minus_ior_in1_tmp = 1.000000;
     float one_minus_ior_out = one_minus_ior_in1_tmp - ior;
@@ -474,6 +485,7 @@ void IMP_UsdPreviewSurface_surfaceshader(
         // Compute and apply surface opacity
         {
             surface_constructor_out.color *= surfaceOpacity;
+            surface_constructor_out.color += emissiveColor;
             surface_constructor_out.transparency = lerp(
                 float3(1.0),
                 surface_constructor_out.transparency,
@@ -581,6 +593,11 @@ float3 sample_preview_surface(
     inout uint seed,
     out float pdf)
 {
+    if (opacity < random_float(seed)) {
+        pdf = 1.0;
+        V = normalize(V);
+        return -V;
+    }
     // Create shading frame
     bool valid;
     ShadingFrame sf =

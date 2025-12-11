@@ -16,6 +16,13 @@ void eval_preview_surface(inout EvalCallableData data)
     // Reinterpret buffer data as PreviewSurfaceMaterialParams
     params = reinterpret<PreviewSurfaceMaterialParams>(params_blob);
 
+    // Clamp roughness to avoid numerical issues with perfect mirrors
+    const float MIN_ROUGHNESS = 0.001;
+    params.roughness = max(params.roughness, MIN_ROUGHNESS);
+    params.clearcoatRoughness = max(params.clearcoatRoughness, MIN_ROUGHNESS);
+
+    // params.opacity = 1.0f;
+
     VertexData vd;
     vd.normalWorld = data.vertexInfo.normalW;
     vd.tangentWorld = data.vertexInfo.tangentW.xyz;
@@ -98,4 +105,5 @@ void eval_preview_surface(inout EvalCallableData data)
         weight_result);
 
     data.throughput = Spectrum(weight_result.color);
+    // data.throughput = Spectrum(float3(1,0,1));
 }

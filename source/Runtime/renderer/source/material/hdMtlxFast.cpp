@@ -202,15 +202,31 @@ static mx::NodePtr _AddMaterialXNode(
 
     if (mxNode->getNodeDefString().empty()) {
         mxNode->setNodeDefString(hdNodeType.GetText());
-    }
+     }
 
     // For each of the HdNode parameters add the corresponding parameter/input
     // to the mxNode
     TfTokenVector hdNodeParamNames =
         netInterface->GetAuthoredNodeParameterNames(hdNodeName);
+    
+    // Debug for geompropvalue nodes
+    if (mxNodeCategory == _tokens->geompropvalue) {
+        spdlog::info(
+            "Processing geompropvalue node '{}', {} authored parameters",
+            mxNodeName,
+            hdNodeParamNames.size());
+        for (const auto& pName : hdNodeParamNames) {
+            auto paramData = netInterface->GetNodeParameterData(hdNodeName, pName);
+            spdlog::info(
+                "  Param '{}': value = '{}'",
+                pName.GetText(),
+                HdMtlxConvertToString(paramData.value));
+        }
+    }
+    
     for (TfToken const& paramName : hdNodeParamNames) {
         // Get the MaterialX Parameter info
-        const std::string& mxInputName = paramName.GetString();
+        std::string mxInputName = paramName.GetString();
 
         const HdMaterialNetworkInterface::NodeParamData paramData =
             netInterface->GetNodeParameterData(hdNodeName, paramName);
@@ -229,6 +245,15 @@ static mx::NodePtr _AddMaterialXNode(
             SdfPath::StripPrefixNamespace(mxInputName, _tokens->typeName);
         if (tnResult.second) {
             continue;
+        }
+
+        // For UsdPrimvarReader nodes (geompropvalue), map 'varname' to 'geomprop'
+        if (mxNodeCategory == _tokens->geompropvalue && mxInputName == "varname") {
+            spdlog::info(
+                "Mapping varname='{}' to geomprop for node '{}'",
+                mxInputValue,
+                mxNodeName);
+            mxInputName = "geomprop";
         }
 
         // Set the input value, and colorspace on the mxNode
@@ -259,6 +284,43 @@ static mx::NodePtr _AddMaterialXNode(
             // Save the path to have the primvarName declared in ShaderGen
             mxHdData->hdPrimvarNodes.insert(hdNodePath);
         }
+        
+        // Debug: Check if geomprop input was set
+        mx::InputPtr geompropInput = mxNode->getInput("geomprop");
+        if (geompropInput) {
+            spdlog::info(
+                "geompropvalue node '{}': geomprop = '{}'",
+                mxNodeName,
+                geompropInput->getValueString());
+        } else {
+            spdlog::warn(
+                "geompropvalue node '{}': No 'geomprop' input found! "
+                "Available inputs: {}",
+                mxNodeName,
+                mxNode->getInputCount());
+            for (auto input : mxNode->getInputs()) {
+                spdlog::info("  Input: '{}' = '{}'", 
+                    input->getName(), 
+                    input->hasValueString() ? input->getValueString() : "(connected)");
+            }
+            
+            // If no geomprop input exists but varname exists, this is likely
+            // an error in conversion. Try to fix it by using a default value.
+            mx::InputPtr varnameInput = mxNode->getInput("varname");
+            if (varnameInput) {
+                std::string varnameValue = varnameInput->getValueString();
+                spdlog::info(
+                    "Found 'varname' input with value '{}', creating 'geomprop' input",
+                    varnameValue);
+                mxNode->removeInput("varname");
+                mxNode->setInputValue("geomprop", varnameValue, "string");
+            } else {
+                // As a last resort, use "st" as default texture coordinate
+                spdlog::warn(
+                    "No varname or geomprop found, using default 'st' for texture coordinates");
+                mxNode->setInputValue("geomprop", "st", "string");
+            }
+        }
     }
 
     // Stdlib MaterialX texture coordinate node or a custom node that
@@ -281,6 +343,12 @@ static void _AddInput(
     mx::NodePtr const& mxNextNode,
     mx::InputPtr* mxInput)
 {
+    spdlog::info(
+        "Adding input '{}' to node '{}' (category: '{}')",
+        inputName.GetText(),
+        mxCurrNode->getName(),
+        mxCurrNode->getCategory());
+    
     // If the currNode is connected to a multi-output node, the input on the
     // currNode needs to get the output type and indicate the output name.
     if (mxNextNode->isMultiOutputType()) {
@@ -396,13 +464,20 @@ static void _GatherUpstreamNodes(
                 continue;
             }
 
+            // For UsdPrimvarReader nodes (geompropvalue), map 'varname' input to 'geomprop'
+            TfToken mxConnName = connName;
+            if (mxCurrNode->getCategory() == _tokens->geompropvalue && 
+                connName == "varname") {
+                mxConnName = TfToken("geomprop");
+            }
+
             // Make sure to not add the same input twice
-            mx::InputPtr mxInput = mxCurrNode->getInput(connName);
+            mx::InputPtr mxInput = mxCurrNode->getInput(mxConnName);
             if (!mxInput) {
                 _AddInput(
                     netInterface,
                     currConnection,
-                    connName,
+                    mxConnName,
                     mxDoc,
                     mxCurrNode,
                     mxNextNode,

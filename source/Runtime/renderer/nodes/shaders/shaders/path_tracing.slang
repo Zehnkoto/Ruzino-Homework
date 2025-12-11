@@ -411,6 +411,12 @@ void ClosestHit(
         return;
     }
 
+    // payload.seed = evalData.seed;
+    // payload.color = div(evalData.throughput, evalData.pdf);
+    // payload.throughput = Spectrum(float3(0.0f));
+    // payload.terminated = true;
+    // return;
+
     // Add direct lighting contribution: light_intensity * BRDF * NdotL / PDF
     if (lightSample.valid) {
         Spectrum directContrib =
@@ -464,7 +470,7 @@ void ClosestHit(
             isTransmission ? -vertex.normalW : vertex.normalW;
 
         // Additional offset along ray direction to avoid grazing angle issues
-        float3 ray_offset = offset_normal * 1e-5f;
+        float3 ray_offset = offset_normal * 1e-4f;
 
         nextRay.Origin = vertex.posW + ray_offset;
         nextRay.Direction = ray_dir;
@@ -566,10 +572,15 @@ void Miss(inout RayPayload payload)
     payload.color = add(payload.color, mul(payload.throughput, envColor));
 
     // Debug: Check for invalid values
-    if (any(isnan(payload.color.toFloat3())) ||
-        any(isinf(payload.color.toFloat3()))) {
+    if (any(isnan(payload.color.toFloat3()))) {
         payload.color =
-            Spectrum(float3(1, 0, 1));  // Magenta for debugging NaN/Inf
+            Spectrum(float3(0, 0, 0));  // Red for debugging NaN/Inf
+        payload.terminated = true;
+    }
+
+    if (any(isnan(payload.color.toFloat3()))) {
+        payload.color =
+            Spectrum(float3(0, 0, 0));  // Magenta for debugging NaN/Inf
         payload.terminated = true;
     }
 
