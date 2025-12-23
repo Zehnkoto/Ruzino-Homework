@@ -5,8 +5,9 @@ ConstantBuffer<SPHConstants> sph_constants : register(b0);
 RWByteAddressBuffer positions : register(u0);
 RWByteAddressBuffer velocities : register(u1);
 
-ByteAddressBuffer pressure : register(t0);
-ByteAddressBuffer viscosity : register(t1);
+RWByteAddressBuffer pressure : register(u2);
+RWByteAddressBuffer viscosity : register(u3);
+RWByteAddressBuffer rho : register(u4);
 
 // particle_count
 [numthreads(32, 1, 1)]
@@ -15,7 +16,7 @@ void main(int2 i_globalIdx: SV_DispatchThreadID)
     if (i_globalIdx.x >= sph_constants.numParticles)
         return;
 
-    float3 gravity = float3(0, sph_constants.gravity, 0);
+    float3 gravity = float3(0, 0, sph_constants.gravity);
 
     float dt = sph_constants.dt;
     int i = i_globalIdx.x;
@@ -37,25 +38,34 @@ void main(int2 i_globalIdx: SV_DispatchThreadID)
     vel += dt * (F_pres + F_visc + gravity);
     pos += dt * vel;
 
-    // Simple boundary collision with axis-aligned box [0,1]^3
-    float3 boundary = float3(1, 1, 1);
+    // Simple boundary collision with axis-aligned box [-1,1]^3
+    float3 min_boundary = float3(-1, -1, -1);
+    float3 max_boundary = float3(1, 1, 1);
 
-    // Check collision with min boundary (0,0,0)
-    int3 minflag = int3(pos < float3(-1, -1, -1));
-    // Check collision with max boundary
-    int3 maxflag = int3(pos > boundary);
+    // Check collision with boundaries
+    int3 minflag = int3(pos < min_boundary);
+    int3 maxflag = int3(pos > max_boundary);
 
-    // Reflect position if out of bounds
-    pos = -2 * pos * minflag + pos;
-    pos = -2 * (pos - boundary) * maxflag + pos;
+    // Reflect position relative to boundary planes
+    pos = pos - 2 * minflag * (pos - min_boundary);
+    pos = pos - 2 * maxflag * (pos - max_boundary);
 
-    // Apply damping to velocity on collision (coefficient 0.7)
+    // Apply damping to velocity on collision
     vel = (1 - 2 * (minflag + maxflag) * sqrt(0.7)) * vel;
-
-    // Recalculate velocity from actual position change
+    
+    // Recalculate velocity from actual position change (important for stability!)
     vel = (pos - pos_o) / dt;
 
     // Store updated values
     positions.Store3(i * 12, asuint(pos));
     velocities.Store3(i * 12, asuint(vel));
+
+    // Clear force accumulators for next iteration
+    rho.Store(i * 4, 0);
+    pressure.Store(i * 12 + 0, 0);
+    pressure.Store(i * 12 + 4, 0);
+    pressure.Store(i * 12 + 8, 0);
+    viscosity.Store(i * 12 + 0, 0);
+    viscosity.Store(i * 12 + 4, 0);
+    viscosity.Store(i * 12 + 8, 0);
 }

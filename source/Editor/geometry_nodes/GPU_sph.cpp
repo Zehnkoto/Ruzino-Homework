@@ -1,8 +1,8 @@
-#include "geom_node_base.h"
 #include "GCore/Components/MeshComponent.h"
 #include "GCore/Components/PointsComponent.h"
 #include "GCore/algorithms/intersection.h"
 #include "GPUContext/compute_context.hpp"
+#include "geom_node_base.h"
 #include "nvrhi/nvrhi.h"
 
 NODE_DEF_OPEN_SCOPE
@@ -70,11 +70,27 @@ struct SPHStorage {
 NODE_DECLARATION_FUNCTION(gpu_sph)
 {
     b.add_input<Geometry>("Geometry");
-    b.add_input<float>("Radius").default_val(0.02f).min(0.01f).max(1.0f);
-    b.add_input<float>("Time Step").default_val(0.01f).min(0.001f).max(0.1f);
+    b.add_input<float>("Radius").default_val(0.02f).min(0.001f).max(0.1f);
+    b.add_input<float>("Time Step")
+        .default_val(0.0005f)
+        .min(0.0001f)
+        .max(0.01f);
+    b.add_input<float>("Rest Density")
+        .default_val(1000.0f)
+        .min(100.0f)
+        .max(10000.0f);
+    b.add_input<float>("Pressure Constant")
+        .default_val(50000.0f)
+        .min(1000.0f)
+        .max(100000.0f);
+    b.add_input<float>("Viscosity").default_val(0.01f).min(0.001f).max(1.0f);
+    b.add_input<float>("Surface Tension")
+        .default_val(0.05f)
+        .min(0.0f)
+        .max(1.0f);
+    b.add_input<float>("Gravity").default_val(-9.81f).min(-20.0f).max(0.0f);
 
     b.add_output<Geometry>("Geometry");
-    b.add_output<nvrhi::BufferHandle>("Contacts");
 }
 
 NODE_EXECUTION_FUNCTION(gpu_sph)
@@ -88,12 +104,16 @@ NODE_EXECUTION_FUNCTION(gpu_sph)
 
     auto radius = params.get_input<float>("Radius");
     auto dt = params.get_input<float>("Time Step");
+    auto rest_density = params.get_input<float>("Rest Density");
+    auto pressure_constant = params.get_input<float>("Pressure Constant");
+    auto viscosity = params.get_input<float>("Viscosity");
+    auto surface_tension = params.get_input<float>("Surface Tension");
+    auto gravity = params.get_input<float>("Gravity");
 
     // Get points component
     auto points_component = input_geom.get_component<PointsComponent>();
     if (!points_component) {
         params.set_output<Geometry>("Geometry", std::move(input_geom));
-        params.set_output<nvrhi::BufferHandle>("Contacts", nullptr);
         return true;
     }
 
@@ -102,7 +122,6 @@ NODE_EXECUTION_FUNCTION(gpu_sph)
 
     if (num_particles == 0) {
         params.set_output<Geometry>("Geometry", std::move(input_geom));
-        params.set_output<nvrhi::BufferHandle>("Contacts", nullptr);
         return true;
     }
 
@@ -191,17 +210,25 @@ NODE_EXECUTION_FUNCTION(gpu_sph)
         // Zero initialize other buffers
         std::vector<glm::vec3> zeros_vec3(num_particles, glm::vec3(0));
         upload_cmd->writeBuffer(
-            storage.velocities, zeros_vec3.data(), num_particles * sizeof(glm::vec3));
+            storage.velocities,
+            zeros_vec3.data(),
+            num_particles * sizeof(glm::vec3));
 
         std::vector<unsigned int> zeros_uint(num_particles, 0);
         upload_cmd->writeBuffer(
-            storage.rho, zeros_uint.data(), num_particles * sizeof(unsigned int));
+            storage.rho,
+            zeros_uint.data(),
+            num_particles * sizeof(unsigned int));
 
         std::vector<int> zeros_int(num_particles * 3, 0);
         upload_cmd->writeBuffer(
-            storage.pressure, zeros_int.data(), num_particles * 3 * sizeof(int));
+            storage.pressure,
+            zeros_int.data(),
+            num_particles * 3 * sizeof(int));
         upload_cmd->writeBuffer(
-            storage.viscosity, zeros_int.data(), num_particles * 3 * sizeof(int));
+            storage.viscosity,
+            zeros_int.data(),
+            num_particles * 3 * sizeof(int));
 
         upload_cmd->close();
         device->executeCommandList(upload_cmd);
@@ -213,16 +240,17 @@ NODE_EXECUTION_FUNCTION(gpu_sph)
     if (!storage.init_density_program) {
         ProgramDesc desc;
         desc.shaderType = nvrhi::ShaderType::Compute;
-        desc.set_path(GEOM_NODES_SHADER_DIR "SPH/shaders/SPH_init_density.slang");
+        desc.set_path(
+            GEOM_NODES_SHADER_DIR "SPH/shaders/SPH_init_density.slang");
         desc.set_entry_name("main");
         storage.init_density_program = resource_allocator.create(desc);
         if (!storage.init_density_program->get_error_string().empty()) {
-            spdlog::error("Failed to compile init_density shader: {}", 
-                         storage.init_density_program->get_error_string());
+            spdlog::error(
+                "Failed to compile init_density shader: {}",
+                storage.init_density_program->get_error_string());
             resource_allocator.destroy(storage.init_density_program);
             storage.init_density_program = nullptr;
             params.set_output<Geometry>("Geometry", std::move(input_geom));
-            params.set_output<nvrhi::BufferHandle>("Contacts", nullptr);
             return false;
         }
     }
@@ -230,16 +258,17 @@ NODE_EXECUTION_FUNCTION(gpu_sph)
     if (!storage.density_program) {
         ProgramDesc desc;
         desc.shaderType = nvrhi::ShaderType::Compute;
-        desc.set_path(GEOM_NODES_SHADER_DIR "SPH/shaders/SPH_update_density.slang");
+        desc.set_path(
+            GEOM_NODES_SHADER_DIR "SPH/shaders/SPH_update_density.slang");
         desc.set_entry_name("main");
         storage.density_program = resource_allocator.create(desc);
         if (!storage.density_program->get_error_string().empty()) {
-            spdlog::error("Failed to compile density shader: {}", 
-                         storage.density_program->get_error_string());
+            spdlog::error(
+                "Failed to compile density shader: {}",
+                storage.density_program->get_error_string());
             resource_allocator.destroy(storage.density_program);
             storage.density_program = nullptr;
             params.set_output<Geometry>("Geometry", std::move(input_geom));
-            params.set_output<nvrhi::BufferHandle>("Contacts", nullptr);
             return false;
         }
     }
@@ -247,16 +276,17 @@ NODE_EXECUTION_FUNCTION(gpu_sph)
     if (!storage.pressure_program) {
         ProgramDesc desc;
         desc.shaderType = nvrhi::ShaderType::Compute;
-        desc.set_path(GEOM_NODES_SHADER_DIR "SPH/shaders/SPH_update_pressure.slang");
+        desc.set_path(
+            GEOM_NODES_SHADER_DIR "SPH/shaders/SPH_update_pressure.slang");
         desc.set_entry_name("main");
         storage.pressure_program = resource_allocator.create(desc);
         if (!storage.pressure_program->get_error_string().empty()) {
-            spdlog::error("Failed to compile pressure shader: {}", 
-                         storage.pressure_program->get_error_string());
+            spdlog::error(
+                "Failed to compile pressure shader: {}",
+                storage.pressure_program->get_error_string());
             resource_allocator.destroy(storage.pressure_program);
             storage.pressure_program = nullptr;
             params.set_output<Geometry>("Geometry", std::move(input_geom));
-            params.set_output<nvrhi::BufferHandle>("Contacts", nullptr);
             return false;
         }
     }
@@ -264,16 +294,17 @@ NODE_EXECUTION_FUNCTION(gpu_sph)
     if (!storage.viscosity_program) {
         ProgramDesc desc;
         desc.shaderType = nvrhi::ShaderType::Compute;
-        desc.set_path(GEOM_NODES_SHADER_DIR "SPH/shaders/SPH_update_viscosity.slang");
+        desc.set_path(
+            GEOM_NODES_SHADER_DIR "SPH/shaders/SPH_update_viscosity.slang");
         desc.set_entry_name("main");
         storage.viscosity_program = resource_allocator.create(desc);
         if (!storage.viscosity_program->get_error_string().empty()) {
-            spdlog::error("Failed to compile viscosity shader: {}", 
-                         storage.viscosity_program->get_error_string());
+            spdlog::error(
+                "Failed to compile viscosity shader: {}",
+                storage.viscosity_program->get_error_string());
             resource_allocator.destroy(storage.viscosity_program);
             storage.viscosity_program = nullptr;
             params.set_output<Geometry>("Geometry", std::move(input_geom));
-            params.set_output<nvrhi::BufferHandle>("Contacts", nullptr);
             return false;
         }
     }
@@ -285,36 +316,30 @@ NODE_EXECUTION_FUNCTION(gpu_sph)
         desc.set_entry_name("main");
         storage.update_pos_program = resource_allocator.create(desc);
         if (!storage.update_pos_program->get_error_string().empty()) {
-            spdlog::error("Failed to compile update_pos shader: {}", 
-                         storage.update_pos_program->get_error_string());
+            spdlog::error(
+                "Failed to compile update_pos shader: {}",
+                storage.update_pos_program->get_error_string());
             resource_allocator.destroy(storage.update_pos_program);
             storage.update_pos_program = nullptr;
             params.set_output<Geometry>("Geometry", std::move(input_geom));
-            params.set_output<nvrhi::BufferHandle>("Contacts", nullptr);
             return false;
         }
     }
 
     // Find neighbors (contact detection)
     unsigned pair_count = 0;
-    auto contacts = FindNeighborsToBuffer(input_geom, radius, pair_count);
-
-    if (!contacts || pair_count == 0) {
-        params.set_output<Geometry>("Geometry", std::move(input_geom));
-        params.set_output<nvrhi::BufferHandle>("Contacts", std::move(contacts));
-        return true;
-    }
+    auto contacts = FindNeighborsToBuffer(input_geom, radius * 2, pair_count);
 
     // Setup SPH constants
     SPHConstants sph_constants;
-    sph_constants.particleDiameter = radius * 0.5f;
-    sph_constants.smoothingRadius = radius;
-    sph_constants.gravity = -9.81f;
-    sph_constants.restDensity = 1000.0f;
+    sph_constants.particleDiameter = radius;
+    sph_constants.smoothingRadius = radius * 2;
+    sph_constants.gravity = gravity;
+    sph_constants.restDensity = rest_density;
     sph_constants.mV = 0.000001f;
-    sph_constants.constPress = 50000.0f;
-    sph_constants.constVisc = 0.01f;
-    sph_constants.constSurf = 0.05f;
+    sph_constants.constPress = pressure_constant;
+    sph_constants.constVisc = viscosity;
+    sph_constants.constSurf = surface_tension;
     sph_constants.dt = dt;
     sph_constants.numParticles = num_particles;
     sph_constants.numPairs = pair_count;
@@ -327,7 +352,7 @@ NODE_EXECUTION_FUNCTION(gpu_sph)
             .setInitialState(nvrhi::ResourceStates::ConstantBuffer)
             .setKeepInitialState(true)
             .setDebugName("sph_constants"));
-    
+
     auto upload_cmd = device->createCommandList();
     upload_cmd->open();
     upload_cmd->writeBuffer(sph_cb, &sph_constants, sizeof(SPHConstants));
@@ -336,21 +361,7 @@ NODE_EXECUTION_FUNCTION(gpu_sph)
     device->waitForIdle();
     resource_allocator.destroy(upload_cmd);
 
-    // Step 1: Initialize density with self-contribution
-    {
-        ProgramVars vars(resource_allocator, storage.init_density_program);
-        vars["sph_constants"] = sph_cb.Get();
-        vars["rho"] = storage.rho.Get();
-        vars.finish_setting_vars();
-
-        ComputeContext ctx(resource_allocator, vars);
-        ctx.finish_setting_pso();
-        ctx.begin();
-        ctx.dispatch({}, vars, num_particles, 32);
-        ctx.finish();
-    }
-
-    // Step 2: Update density from pair interactions
+    // Step 1: Update density from pair interactions
     {
         ProgramVars vars(resource_allocator, storage.density_program);
         vars["sph_constants"] = sph_cb.Get();
@@ -366,14 +377,29 @@ NODE_EXECUTION_FUNCTION(gpu_sph)
         ctx.finish();
     }
 
-    // Step 3: Update pressure
+    // Step 2: Initialize density with self-contribution
     {
-        ProgramVars vars(resource_allocator, storage.pressure_program);
+        ProgramVars vars(resource_allocator, storage.init_density_program);
+        vars["sph_constants"] = sph_cb.Get();
+        vars["rho"] = storage.rho.Get();
+        vars.finish_setting_vars();
+
+        ComputeContext ctx(resource_allocator, vars);
+        ctx.finish_setting_pso();
+        ctx.begin();
+        ctx.dispatch({}, vars, num_particles, 32);
+        ctx.finish();
+    }
+
+    // Step 3: Update viscosity
+    {
+        ProgramVars vars(resource_allocator, storage.viscosity_program);
         vars["sph_constants"] = sph_cb.Get();
         vars["ContactPairs"] = contacts.Get();
         vars["positions"] = storage.positions.Get();
-        vars["pressure"] = storage.pressure.Get();
+        vars["velocities"] = storage.velocities.Get();
         vars["rho"] = storage.rho.Get();
+        vars["viscosity"] = storage.viscosity.Get();
         vars.finish_setting_vars();
 
         ComputeContext ctx(resource_allocator, vars);
@@ -383,15 +409,14 @@ NODE_EXECUTION_FUNCTION(gpu_sph)
         ctx.finish();
     }
 
-    // Step 4: Update viscosity
+    // Step 4: Update pressure
     {
-        ProgramVars vars(resource_allocator, storage.viscosity_program);
+        ProgramVars vars(resource_allocator, storage.pressure_program);
         vars["sph_constants"] = sph_cb.Get();
         vars["ContactPairs"] = contacts.Get();
         vars["positions"] = storage.positions.Get();
-        vars["velocities"] = storage.velocities.Get();
+        vars["pressure"] = storage.pressure.Get();
         vars["rho"] = storage.rho.Get();
-        vars["viscosity"] = storage.viscosity.Get();
         vars.finish_setting_vars();
 
         ComputeContext ctx(resource_allocator, vars);
@@ -419,6 +444,8 @@ NODE_EXECUTION_FUNCTION(gpu_sph)
         ctx.finish();
     }
 
+    get_resource_allocator().destroy(contacts);
+
     // Read back positions from GPU
     auto readback_buffer = resource_allocator.create(
         nvrhi::BufferDesc{}
@@ -429,14 +456,20 @@ NODE_EXECUTION_FUNCTION(gpu_sph)
     auto copy_cmd = device->createCommandList();
     copy_cmd->open();
     copy_cmd->copyBuffer(
-        readback_buffer, 0, storage.positions, 0, num_particles * sizeof(glm::vec3));
+        readback_buffer,
+        0,
+        storage.positions,
+        0,
+        num_particles * sizeof(glm::vec3));
     copy_cmd->close();
     device->executeCommandList(copy_cmd);
     device->waitForIdle();
 
-    void* mapped_data = device->mapBuffer(readback_buffer, nvrhi::CpuAccessMode::Read);
+    void* mapped_data =
+        device->mapBuffer(readback_buffer, nvrhi::CpuAccessMode::Read);
     std::vector<glm::vec3> new_positions(num_particles);
-    memcpy(new_positions.data(), mapped_data, num_particles * sizeof(glm::vec3));
+    memcpy(
+        new_positions.data(), mapped_data, num_particles * sizeof(glm::vec3));
     device->unmapBuffer(readback_buffer);
 
     resource_allocator.destroy(readback_buffer);
@@ -447,7 +480,6 @@ NODE_EXECUTION_FUNCTION(gpu_sph)
     points_component->set_vertices(new_positions);
 
     params.set_output<Geometry>("Geometry", std::move(input_geom));
-    params.set_output<nvrhi::BufferHandle>("Contacts", std::move(contacts));
 
     return true;
 }
