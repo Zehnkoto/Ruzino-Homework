@@ -41,15 +41,25 @@ NODE_EXECUTION_FUNCTION(instance_on_points)
                        points_normals.size() == points_vertices.size();
 
     instancer->set_has_rotations_enabled(has_normals);
-    
-    for (size_t i = 0; i < points_vertices.size(); ++i) {
-        auto& point = points_vertices[i];
 
-        glm::mat4 rotation = glm::mat4(1.0f);
+    // Batch prepare all instances
+    size_t num_points = points_vertices.size();
+    std::vector<glm::vec3> positions;
+    std::vector<glm::quat> orientations;
+    std::vector<glm::vec3> scales;  // Keep empty, no scaling needed
 
-        // Apply rotation based on normal if available
+    positions.reserve(num_points);
+    if (has_normals) {
+        orientations.reserve(num_points);
+    }
+
+    for (size_t i = 0; i < num_points; ++i) {
+        const auto& point = points_vertices[i];
+        positions.push_back(point);
+
+        // Only compute orientations if we have normals
         if (has_normals) {
-            auto& normal = points_normals[i];
+            const auto& normal = points_normals[i];
             glm::vec3 normalized_normal = glm::normalize(normal);
 
             // Default up direction (Z-axis)
@@ -58,34 +68,30 @@ NODE_EXECUTION_FUNCTION(instance_on_points)
             // Calculate rotation from default up to normal
             float dot = glm::dot(default_up, normalized_normal);
 
+            glm::quat orientation;
             if (std::abs(dot - 1.0f) < 1e-6f) {
-                // Normal is already aligned with default up, no rotation
-                // needed
-                rotation = glm::mat4(1.0f);
+                // Normal is already aligned with default up, no rotation needed
+                orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
             }
             else if (std::abs(dot + 1.0f) < 1e-6f) {
-                // Normal is opposite to default up, rotate 180 degrees
-                rotation = glm::rotate(
-                    glm::mat4(1.0f),
-                    glm::pi<float>(),
-                    glm::vec3(1.0f, 0.0f, 0.0f));
+                // Normal is opposite to default up, rotate 180 degrees around X
+                orientation = glm::angleAxis(
+                    glm::pi<float>(), glm::vec3(1.0f, 0.0f, 0.0f));
             }
             else {
                 // General case: create rotation from default up to normal
                 glm::vec3 axis =
                     glm::normalize(glm::cross(default_up, normalized_normal));
                 float angle = std::acos(glm::clamp(dot, -1.0f, 1.0f));
-                rotation = glm::rotate(glm::mat4(1.0f), angle, axis);
+                orientation = glm::angleAxis(angle, axis);
             }
+            orientations.push_back(orientation);
         }
-
-        // Build transform matrix: T * R (translate after rotate)
-        // Object rotates at origin to align Z-axis with normal, then translates
-        // to point
-        glm::mat4 instance = glm::translate(glm::mat4(1.0f), point) * rotation;
-
-        instancer->add_instance(instance);
     }
+
+    // Batch add all instances at once
+    // orientations and scales can be empty
+    instancer->add_instances(positions, orientations, scales);
 
     params.set_output("Geometry", std::move(geometry));
 

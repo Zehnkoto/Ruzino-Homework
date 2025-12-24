@@ -522,6 +522,7 @@ HdInstancer* Hd_USTC_CG_RenderDelegate::CreateInstancer(
 
 void Hd_USTC_CG_RenderDelegate::DestroyInstancer(HdInstancer* instancer)
 {
+    delete instancer;
     // TF_CODING_ERROR("Destroy instancer not supported");
 
     // spdlog::info(
