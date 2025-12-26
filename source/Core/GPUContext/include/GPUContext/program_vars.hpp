@@ -109,6 +109,9 @@ class GPUCONTEXT_API ProgramVars {
     ResourceAllocator& resource_allocator_;
     std::vector<IProgram*> programs;
     
+    // Automatically created NVAPI extension buffer (for SER support)
+    nvrhi::BufferHandle nvapi_ext_buffer_;
+    
     // Map from full path (including array indices) to binding location in binding_spaces
     // This allows us to have multiple BindingSetItems for the same base binding with different arrayElements
     std::unordered_map<std::string, std::tuple<unsigned, unsigned>> path_to_binding_location;

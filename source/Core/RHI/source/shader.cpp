@@ -942,37 +942,73 @@ ProgramHandle ShaderFactory::createProgram(const ProgramDesc& desc) const
     ProgramHandle ret;
     ret = ProgramHandle::Create(new Program());
 
-    ret->desc = desc;
+    // Create a modifiable copy of the descriptor
+    ProgramDesc modified_desc = desc;
+    
+    // Automatically add NVAPI extension defines if hlslExtensionsUAV is set
+    if (modified_desc.hlslExtensionsUAV >= 0) {
+        modified_desc.define("ENABLE_SER", "1");
+        modified_desc.define("NV_SHADER_EXTN_SLOT", "u" + std::to_string(modified_desc.hlslExtensionsUAV));
+        modified_desc.define("NV_SHADER_EXTN_REGISTER_SPACE", "space0");
+    }
+
+    ret->desc = modified_desc;
 
     SlangCompileTarget target =
         (RHI::get_backend() == nvrhi::GraphicsAPI::VULKAN) ? SLANG_SPIRV
                                                            : SLANG_DXIL;
 
     // Try to load from cache first
-    if (try_load_from_cache(desc, ret->blob, ret->reflection_info, target)) {
+    if (try_load_from_cache(modified_desc, ret->blob, ret->reflection_info, target)) {
         // Successfully loaded from cache
         return ret;
     }
 
     // Cache miss - compile the shader
     SlangCompile(
-        desc.paths,
-        desc.source_code,
-        desc.entry_name.c_str(),
-        desc.shaderType,
-        desc.get_profile().c_str(),
-        desc.macros,
+        modified_desc.paths,
+        modified_desc.source_code,
+        modified_desc.entry_name.c_str(),
+        modified_desc.shaderType,
+        modified_desc.get_profile().c_str(),
+        modified_desc.macros,
         ret->reflection_info,
         ret->blob,
         ret->library,
         ret->error_string,
         target,
         std::addressof(ret->linkedProgram),
-        desc.nvapi_support);
+        modified_desc.nvapi_support);
+
+    // Add NVAPI extension binding to reflection if hlslExtensionsUAV is set
+    if (modified_desc.hlslExtensionsUAV >= 0 && ret->error_string.empty()) {
+        unsigned space = 0;  // space0
+        unsigned slot = modified_desc.hlslExtensionsUAV;
+        
+        // Ensure space exists in binding layout
+        if (ret->reflection_info.binding_spaces.size() <= space) {
+            ret->reflection_info.binding_spaces.resize(space + 1);
+        }
+        
+        // Add the NVAPI UAV binding
+        nvrhi::BindingLayoutItem nvapi_item;
+        nvapi_item.slot = slot;
+        nvapi_item.type = nvrhi::ResourceType::StructuredBuffer_UAV;
+        nvapi_item.size = 1;  // Array size
+        
+        ret->reflection_info.binding_spaces[space].addItem(nvapi_item);
+        ret->reflection_info.binding_spaces[space].visibility = modified_desc.shaderType;
+        ret->reflection_info.binding_spaces[space].registerSpaceIsDescriptorSet = true;
+        ret->reflection_info.binding_spaces[space].registerSpace = space;
+        
+        // Add to binding locations map
+        ret->reflection_info.binding_locations["g_NvidiaExt"] = 
+            std::make_tuple(space, ret->reflection_info.binding_spaces[space].bindings.size() - 1);
+    }
 
     // Save to cache if compilation was successful
     if (ret->blob && ret->error_string.empty()) {
-        save_to_cache(desc, ret->blob, ret->reflection_info, target);
+        save_to_cache(modified_desc, ret->blob, ret->reflection_info, target);
     }
 
     return ret;

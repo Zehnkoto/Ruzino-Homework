@@ -7,7 +7,10 @@
 USTC_CG_NAMESPACE_OPEN_SCOPE
 
 // ProgramVarsProxy implementation
-ProgramVarsProxy::ProgramVarsProxy(ProgramVars* parent, const std::string& path, int array_index)
+ProgramVarsProxy::ProgramVarsProxy(
+    ProgramVars* parent,
+    const std::string& path,
+    int array_index)
     : parent_(parent),
       path_(path),
       binding_id_(),
@@ -15,7 +18,10 @@ ProgramVarsProxy::ProgramVarsProxy(ProgramVars* parent, const std::string& path,
 {
 }
 
-ProgramVarsProxy::ProgramVarsProxy(ProgramVars* parent, BindingID binding_id, int array_index)
+ProgramVarsProxy::ProgramVarsProxy(
+    ProgramVars* parent,
+    BindingID binding_id,
+    int array_index)
     : parent_(parent),
       path_(),
       binding_id_(binding_id),
@@ -48,7 +54,8 @@ ProgramVarsProxy& ProgramVarsProxy::operator=(nvrhi::IResource* resource)
 {
     if (binding_id_.is_valid()) {
         parent_->get_resource_direct(binding_id_, array_index_) = resource;
-    } else {
+    }
+    else {
         parent_->get_resource_direct(path_, array_index_) = resource;
     }
     return *this;
@@ -84,10 +91,39 @@ ProgramVars::~ProgramVars()
     for (int i = 0; i < binding_layouts.size(); ++i) {
         resource_allocator_.destroy(binding_layouts[i]);
     }
+    if (nvapi_ext_buffer_) {
+        resource_allocator_.destroy(nvapi_ext_buffer_);
+    }
 }
 
 void ProgramVars::finish_setting_vars()
 {
+    // Auto-create NVAPI extension buffer if needed
+    if (!programs.empty() && programs[0]->get_desc().hlslExtensionsUAV >= 0) {
+        // Check if g_NvidiaExt binding exists in reflection
+        if (final_reflection_info.has_binding("g_NvidiaExt")) {
+            // Destroy old buffer if it exists
+            if (nvapi_ext_buffer_) {
+                resource_allocator_.destroy(nvapi_ext_buffer_);
+            }
+            
+            // Create minimal UAV buffer for NVAPI SER
+            nvrhi::BufferDesc nvapi_desc;
+            nvapi_desc.byteSize = sizeof(int);  // Minimal placeholder
+            nvapi_desc.structStride = 0;
+            nvapi_desc.canHaveUAVs = true;
+            nvapi_desc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+            nvapi_desc.keepInitialState = true;
+            nvapi_desc.debugName = "g_NvidiaExt_auto";
+            nvapi_desc.format = nvrhi::Format::R32_SINT;
+            nvapi_desc.structStride =  sizeof(int);
+            nvapi_ext_buffer_ = resource_allocator_.create(nvapi_desc);
+            
+            // Automatically bind it
+            get_resource_direct("g_NvidiaExt") = nvapi_ext_buffer_;
+        }
+    }
+    
     for (int i = 0; i < binding_sets_solid.size(); ++i) {
         resource_allocator_.destroy(binding_sets_solid[i]);
     }
@@ -121,14 +157,14 @@ unsigned ProgramVars::get_binding_space(std::string_view name)
     return final_reflection_info.get_binding_space(name);
 }
 
-// This is based on reflection  
+// This is based on reflection
 unsigned ProgramVars::get_binding_id(std::string_view name)
 {
     auto binding_space = get_binding_space(name);
     if (binding_space == -1) {
         return -1;
     }
-    
+
     auto binding_location = final_reflection_info.get_binding_location(name);
     if (binding_location == -1) {
         return -1;
@@ -152,25 +188,25 @@ BindingID ProgramVars::resolve_binding_id(std::string_view name)
 {
     // Get base name without array indices
     std::string_view base_name = final_reflection_info.get_base_name_view(name);
-    
+
     // Check cache first - need to convert to string for lookup
     std::string base_name_str(base_name);
     auto cache_it = base_name_to_id_cache.find(base_name_str);
     if (cache_it != base_name_to_id_cache.end()) {
         return cache_it->second;
     }
-    
+
     // Resolve and cache
     unsigned space_id = get_binding_space(base_name);
     if (space_id == -1) {
-        return BindingID(); // Invalid
+        return BindingID();  // Invalid
     }
-    
+
     unsigned location = final_reflection_info.get_binding_location(base_name);
     if (location == -1) {
-        return BindingID(); // Invalid
+        return BindingID();  // Invalid
     }
-    
+
     BindingID result(space_id, location);
     base_name_to_id_cache.emplace(std::move(base_name_str), result);
     return result;
@@ -178,26 +214,28 @@ BindingID ProgramVars::resolve_binding_id(std::string_view name)
 
 // Fast path using pre-resolved BindingID
 std::tuple<unsigned, unsigned> ProgramVars::get_binding_location_fast(
-    BindingID binding_id, int array_index)
+    BindingID binding_id,
+    int array_index)
 {
     if (!binding_id.is_valid()) {
         return std::make_tuple(-1, -1);
     }
-    
+
     auto [space_id, layout_location] = binding_id.as_tuple();
-    
+
     // Build cache key
-    std::string cache_key = std::to_string(space_id) + ":" + std::to_string(layout_location);
+    std::string cache_key =
+        std::to_string(space_id) + ":" + std::to_string(layout_location);
     if (array_index >= 0) {
         cache_key += "[" + std::to_string(array_index) + "]";
     }
-    
+
     // Check if we've already created a binding location
     auto path_it = path_to_binding_location.find(cache_key);
     if (path_it != path_to_binding_location.end()) {
         return path_it->second;
     }
-    
+
     // Ensure space exists
     if (binding_spaces.size() <= space_id) {
         binding_spaces.resize(space_id + 1);
@@ -205,28 +243,29 @@ std::tuple<unsigned, unsigned> ProgramVars::get_binding_location_fast(
     if (descriptor_tables.size() <= space_id) {
         descriptor_tables.resize(space_id + 1);
     }
-    
+
     auto& binding_space = binding_spaces[space_id];
     auto& binding_layout = get_binding_layout()[space_id];
     auto& layout_items = binding_layout->getDesc()->bindings;
-    
+
     // Use the layout_location directly
     if (layout_location >= layout_items.size()) {
         return std::make_tuple(-1, -1);
     }
-    
+
     const auto& layout_item = layout_items[layout_location];
-    
+
     // Validate array index
-    if (array_index >= 0 && static_cast<unsigned>(array_index) >= layout_item.size) {
+    if (array_index >= 0 &&
+        static_cast<unsigned>(array_index) >= layout_item.size) {
         assert(false && "Array index out of bounds");
         return std::make_tuple(-1, -1);
     }
-    
+
     // Create new binding set item
     unsigned binding_set_location = binding_space.size();
     binding_space.resize(binding_set_location + 1);
-    
+
     nvrhi::BindingSetItem& item = binding_space[binding_set_location];
     item.resourceHandle = nullptr;
     item.slot = layout_item.slot;
@@ -236,8 +275,9 @@ std::tuple<unsigned, unsigned> ProgramVars::get_binding_location_fast(
     item.unused = 0;
     item.unused2 = 0;
     item.subresources = nvrhi::AllSubresources;
-    item.arrayElement = array_index >= 0 ? static_cast<uint32_t>(array_index) : 0;
-    
+    item.arrayElement =
+        array_index >= 0 ? static_cast<uint32_t>(array_index) : 0;
+
     auto result = std::make_tuple(space_id, binding_set_location);
     path_to_binding_location[cache_key] = result;
     return result;
@@ -245,30 +285,32 @@ std::tuple<unsigned, unsigned> ProgramVars::get_binding_location_fast(
 
 // This is where it is within the binding set
 std::tuple<unsigned, unsigned> ProgramVars::get_binding_location(
-    std::string_view name, int array_index)
+    std::string_view name,
+    int array_index)
 {
     // Build cache key - use string for heterogeneous lookup
     std::string cache_key;
     if (array_index >= 0) {
         cache_key = std::string(name) + "[" + std::to_string(array_index) + "]";
-    } else {
+    }
+    else {
         cache_key = std::string(name);
     }
-    
+
     // Check if we've already created a binding location for this exact path
     auto path_it = path_to_binding_location.find(cache_key);
     if (path_it != path_to_binding_location.end()) {
         return path_it->second;
     }
-    
+
     // Get the base name
     std::string_view base_name = final_reflection_info.get_base_name_view(name);
-    
+
     // If array_index is -1, try parsing from the name string
     if (array_index < 0) {
         array_index = final_reflection_info.parse_array_index(name);
     }
-    
+
     unsigned binding_space_id = get_binding_space(base_name);
 
     if (binding_space_id == -1) {
@@ -299,19 +341,22 @@ std::tuple<unsigned, unsigned> ProgramVars::get_binding_location(
     assert(pos != layout_items.end());
 
     // Get array size to validate array index
-    unsigned array_size = final_reflection_info.get_binding_array_size(base_name);
+    unsigned array_size =
+        final_reflection_info.get_binding_array_size(base_name);
     if (array_index >= 0 && static_cast<unsigned>(array_index) >= array_size) {
         assert(false && "Array index out of bounds");
         return std::make_tuple(-1, -1);
     }
 
-    // Create a new BindingSetItem for this specific array element (or single binding)
+    // Create a new BindingSetItem for this specific array element (or single
+    // binding)
     unsigned binding_set_location = binding_space.size();
     binding_space.resize(binding_set_location + 1);
 
     nvrhi::BindingSetItem& item = binding_space[binding_set_location];
 
-    // Initialize all fields properly (default constructor doesn't initialize for performance)
+    // Initialize all fields properly (default constructor doesn't initialize
+    // for performance)
     item.resourceHandle = nullptr;
     item.slot = get_binding_id(base_name);
     item.type = get_binding_type(base_name);
@@ -320,11 +365,12 @@ std::tuple<unsigned, unsigned> ProgramVars::get_binding_location(
     item.unused = 0;
     item.unused2 = 0;
     item.subresources = nvrhi::AllSubresources;
-    
+
     // Set the array element if this is an array access
     if (array_index >= 0) {
         item.arrayElement = static_cast<uint32_t>(array_index);
-    } else {
+    }
+    else {
         item.arrayElement = 0;
     }
 
@@ -348,9 +394,12 @@ ProgramVarsProxy ProgramVars::operator[](std::string_view name)
     return ProgramVarsProxy(this, std::string(name));
 }
 
-nvrhi::IResource*& ProgramVars::get_resource_direct(std::string_view name, int array_index)
+nvrhi::IResource*& ProgramVars::get_resource_direct(
+    std::string_view name,
+    int array_index)
 {
-    auto [binding_space_id, binding_set_location] = get_binding_location(name, array_index);
+    auto [binding_space_id, binding_set_location] =
+        get_binding_location(name, array_index);
 
     if (binding_space_id == -1) {
         return placeholder;
@@ -361,9 +410,12 @@ nvrhi::IResource*& ProgramVars::get_resource_direct(std::string_view name, int a
 }
 
 // Fast path: O(1) access using pre-resolved BindingID
-nvrhi::IResource*& ProgramVars::get_resource_direct(BindingID binding_id, int array_index)
+nvrhi::IResource*& ProgramVars::get_resource_direct(
+    BindingID binding_id,
+    int array_index)
 {
-    auto [binding_space_id, binding_set_location] = get_binding_location_fast(binding_id, array_index);
+    auto [binding_space_id, binding_set_location] =
+        get_binding_location_fast(binding_id, array_index);
 
     if (binding_space_id == -1) {
         return placeholder;

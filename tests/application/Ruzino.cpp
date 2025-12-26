@@ -765,8 +765,8 @@ int main(int argc, char* argv[])
 
 #ifdef GPU_GEOM_ALGORITHM
 #endif
-    stage.reset();
     deinit_gpu_geometry_algorithms();
 
     window.reset();
+    stage.reset();
 }
