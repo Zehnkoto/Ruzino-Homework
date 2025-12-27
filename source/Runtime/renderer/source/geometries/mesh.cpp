@@ -336,7 +336,7 @@ void Hd_USTC_CG_Mesh::updateTLAS(
     HdInstancer::_SyncInstancerAndParents(
         sceneDelegate->GetRenderIndex(), GetInstancerId());
 
-    VtMatrix4dArray transforms;
+    VtMatrix4fArray transforms;
     if (!GetInstancerId().IsEmpty()) {
         // Retrieve instance transforms from the instancer.
         HdRenderIndex& renderIndex = sceneDelegate->GetRenderIndex();
@@ -347,7 +347,7 @@ void Hd_USTC_CG_Mesh::updateTLAS(
     else {
         // If there's no instancer, add a single instance with transform
         // I.
-        transforms.push_back(GfMatrix4d(1.0f));
+        transforms.push_back(GfMatrix4f(1.0f));
     }
 
     auto& rt_instance_pool = render_param->InstanceCollection->rt_instance_pool;
@@ -399,7 +399,7 @@ void Hd_USTC_CG_Mesh::updateTLAS(
     for (int i = 0; i < transforms.size(); ++i) {
         // transforms[i] already contains the full instance transform from the instancer
         // For instanced geometry, apply: instanceTransform * prototypeTransform
-        GfMatrix4f mat = GfMatrix4f(transforms[i]) * transform;
+        GfMatrix4f mat = transforms[i] * transform;
         GfMatrix4f mat_transposed = mat.GetTranspose();
 
         nvrhi::rt::InstanceDesc instanceDesc;

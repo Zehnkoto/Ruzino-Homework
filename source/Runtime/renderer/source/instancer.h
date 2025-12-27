@@ -68,7 +68,7 @@ public:
     /// if necessary.
     ///   \param prototypeId The prototype to compute transforms for.
     ///   \return One transform per instance, to apply when drawing.
-    VtMatrix4dArray ComputeInstanceTransforms(SdfPath const& prototypeId);
+    VtMatrix4fArray ComputeInstanceTransforms(SdfPath const& prototypeId);
 
     /// Updates cached primvar data from the scene delegate.
     ///   \param sceneDelegate The scene delegate for this prim.

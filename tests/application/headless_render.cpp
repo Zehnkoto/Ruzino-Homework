@@ -22,6 +22,7 @@
 #include "pxr/usd/usd/primRange.h"
 #include "pxr/usd/usd/stage.h"
 #include "pxr/usd/usdGeom/camera.h"
+#include "pxr/base/tf/setenv.h"
 
 // Hydra includes
 #include "pxr/base/gf/camera.h"
@@ -66,17 +67,18 @@ UsdGeomCamera GetCamera(
             available_cameras.push_back(prim.GetPath().GetString());
         }
     }
-    
+
     // Print available cameras
     if (available_cameras.empty()) {
         spdlog::warn("No cameras found in the scene");
-    } else {
+    }
+    else {
         spdlog::info("Available cameras in scene:");
         for (const auto& cam_path : available_cameras) {
             spdlog::info("  - {}", cam_path);
         }
     }
-    
+
     // If camera_path is specified, try to use it
     if (!camera_path.empty()) {
         SdfPath path(camera_path);
@@ -100,7 +102,7 @@ UsdGeomCamera GetCamera(
         spdlog::info("Using camera: {}", available_cameras[0]);
         return UsdGeomCamera(prim);
     }
-    
+
     return UsdGeomCamera();
 }
 
@@ -358,6 +360,17 @@ int main(int argc, char* argv[])
 
     parser.parse_check(argc, argv);
 
+    // Set MaterialX standard library path using USD's TfSetenv (preferred
+    // method)
+    std::string mtlx_stdlib = "libraries";
+    if (std::filesystem::exists(mtlx_stdlib)) {
+        pxr::TfSetenv("PXR_MTLX_STDLIB_SEARCH_PATHS", mtlx_stdlib.c_str());
+        spdlog::info("Set PXR_MTLX_STDLIB_SEARCH_PATHS={}", mtlx_stdlib);
+    }
+    else {
+        spdlog::warn("MaterialX stdlib not found at {}", mtlx_stdlib);
+    }
+
     // Extract settings
     std::string usd_file = parser.get<std::string>("usd");
     std::string json_script = parser.get<std::string>("json");
@@ -461,7 +474,7 @@ int main(int argc, char* argv[])
         auto render_start = std::chrono::high_resolution_clock::now();
         long long total_sample_time = 0;
         int timed_samples = 0;
-        
+
         for (int sample = 0; sample < spp; ++sample) {
             auto sample_start = std::chrono::high_resolution_clock::now();
 
@@ -479,8 +492,10 @@ int main(int argc, char* argv[])
             // Skip first sample for timing (shader compilation, etc.)
             if (sample == 0) {
                 render_start = std::chrono::high_resolution_clock::now();
-                printf("Sample 1/%d completed in %.2fs (warmup)\n", 
-                       spp, sample_duration / 1000.0);
+                printf(
+                    "Sample 1/%d completed in %.2fs (warmup)\n",
+                    spp,
+                    sample_duration / 1000.0);
                 fflush(stdout);
                 continue;
             }
@@ -490,9 +505,11 @@ int main(int argc, char* argv[])
 
             // Calculate progress and ETA (based on samples after warmup)
             int progress_percent = ((sample + 1) * 100) / spp;
-            double avg_time_per_sample = (double)total_sample_time / timed_samples;
+            double avg_time_per_sample =
+                (double)total_sample_time / timed_samples;
             int remaining_samples = spp - (sample + 1);
-            double eta_seconds = (avg_time_per_sample * remaining_samples) / 1000.0;
+            double eta_seconds =
+                (avg_time_per_sample * remaining_samples) / 1000.0;
 
             // Create progress bar
             const int bar_width = 40;
@@ -510,22 +527,29 @@ int main(int argc, char* argv[])
             // Format ETA
             int eta_minutes = (int)(eta_seconds / 60);
             int eta_secs = (int)(eta_seconds) % 60;
-            
+
             // Print progress bar with ETA using printf
-            printf("\r[%s] %d%% (%d/%d) Sample: %.4fs Avg: %.4fs ", 
-                   bar, progress_percent, sample + 1, spp,
-                   sample_duration / 1000.0, avg_time_per_sample / 1000.0);
-            
+            printf(
+                "\r[%s] %d%% (%d/%d) Sample: %.4fs Avg: %.4fs ",
+                bar,
+                progress_percent,
+                sample + 1,
+                spp,
+                sample_duration / 1000.0,
+                avg_time_per_sample / 1000.0);
+
             if (remaining_samples > 0) {
                 if (eta_minutes > 0) {
                     printf("ETA: %dm %ds", eta_minutes, eta_secs);
-                } else {
+                }
+                else {
                     printf("ETA: %ds", eta_secs);
                 }
-            } else {
+            }
+            else {
                 printf("Complete!");
             }
-            
+
             fflush(stdout);
         }
         printf("\n");
@@ -536,11 +560,13 @@ int main(int argc, char* argv[])
                 render_end - render_start)
                 .count();
 
-        printf("Render complete. Total time: %.2fs (excluding warmup)", 
-               total_duration / 1000.0);
+        printf(
+            "Render complete. Total time: %.2fs (excluding warmup)",
+            total_duration / 1000.0);
         if (timed_samples > 0) {
-            printf(", Avg per sample: %.2fs", 
-                   total_sample_time / (double)timed_samples / 1000.0);
+            printf(
+                ", Avg per sample: %.2fs",
+                total_sample_time / (double)timed_samples / 1000.0);
         }
         printf("\n");
         fflush(stdout);
