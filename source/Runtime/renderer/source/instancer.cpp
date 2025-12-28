@@ -20,8 +20,9 @@
 // distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
 // KIND, either express or implied. See the Apache License for the specific
 // language governing permissions and limitations under the Apache License.
-//
 #include "instancer.h"
+
+#include <spdlog/spdlog.h>
 
 #include "gpu_compute.h"
 #include "pxr/base/gf/matrix4d.h"
@@ -33,6 +34,7 @@
 #include "pxr/base/tf/staticTokens.h"
 #include "pxr/imaging/hd/sceneDelegate.h"
 #include "pxr/imaging/hd/tokens.h"
+
 
 USTC_CG_NAMESPACE_OPEN_SCOPE
 using namespace pxr;
@@ -219,10 +221,18 @@ void Hd_USTC_CG_Instancer::ComputeInstanceTransforms(
     VtIntArray instanceIndices =
         GetDelegate()->GetInstanceIndices(GetId(), prototypeId);
 
+    spdlog::info(
+        "GPU ComputeInstanceTransforms: prototype={}, instanceCount={}, "
+        "geometryID={}, materialID={}",
+        prototypeId.GetText(),
+        instanceIndices.size(),
+        geometry_id,
+        material_id);
+
     const GfVec3f* translations = nullptr;
     const GfVec3f* scales = nullptr;
     const GfMatrix4d* instanceTransforms = nullptr;
-    
+
     // For rotations, we need to convert from half to float
     VtArray<GfQuatf> rotationsFloat;
     const GfQuatf* rotations = nullptr;
@@ -236,7 +246,7 @@ void Hd_USTC_CG_Instancer::ComputeInstanceTransforms(
     if (_primvarMap.count(HdInstancerTokens->instanceRotations) > 0) {
         const GfQuath* rotationsHalf = static_cast<const GfQuath*>(
             _primvarMap[HdInstancerTokens->instanceRotations]->GetData());
-        
+
         // Convert half precision to float
         size_t count = instanceIndices.size();
         rotationsFloat.resize(count);

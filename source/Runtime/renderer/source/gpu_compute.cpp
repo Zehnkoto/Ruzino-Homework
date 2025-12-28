@@ -1,5 +1,7 @@
 #include "gpu_compute.h"
 
+#include <spdlog/spdlog.h>
+
 #include "GPUContext/compute_context.hpp"
 #include "GPUContext/program_vars.hpp"
 #include "RHI/internal/resources.hpp"
@@ -9,6 +11,7 @@
 #include "pxr/base/gf/matrix4f.h"
 #include "pxr/base/gf/quatf.h"
 #include "pxr/base/gf/vec3f.h"
+
 
 USTC_CG_NAMESPACE_OPEN_SCOPE
 using namespace pxr;
@@ -28,6 +31,7 @@ class RAII_resource_cleaner_local {
     }
     ~RAII_resource_cleaner_local()
     {
+        allocator_.destroy(data);
     }
 
    private:
@@ -57,8 +61,20 @@ void GPUSceneAssember::fill_instances(
     unsigned geometry_id)
 {
     if (instance_indices.empty()) {
+        spdlog::warn(
+            "GPUSceneAssember::fill_instances called with empty "
+            "instance_indices");
         return;
     }
+
+    spdlog::info(
+        "GPUSceneAssember::fill_instances: count={}, geometryID={}, "
+        "materialID={}, "
+        "base_index={}",
+        instance_indices.size(),
+        geometry_id,
+        material_id,
+        geometry_instance_buffer->index());
 
     auto program_desc =
         ProgramDesc()

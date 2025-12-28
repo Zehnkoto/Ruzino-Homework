@@ -373,18 +373,27 @@ void Hd_USTC_CG_Mesh::updateTLAS(
     }
 
     size_t instance_count = 1;
-    
+
     // Determine instance count
     if (!GetInstancerId().IsEmpty()) {
         HdRenderIndex& renderIndex = sceneDelegate->GetRenderIndex();
         HdInstancer* instancer = renderIndex.GetInstancer(GetInstancerId());
-        VtIntArray instanceIndices = 
+        VtIntArray instanceIndices =
             sceneDelegate->GetInstanceIndices(GetInstancerId(), GetId());
         instance_count = instanceIndices.size();
+        spdlog::info(
+            "Mesh {} has instancer {} with {} instances",
+            id.GetText(),
+            GetInstancerId().GetText(),
+            instance_count);
+    }
+    else {
+        spdlog::info(
+            "Mesh {} has no instancer, using single instance", id.GetText());
     }
 
     auto& rt_instance_pool = render_param->InstanceCollection->rt_instance_pool;
-    
+
     rt_instanceBuffer = rt_instance_pool.allocate(instance_count);
     instanceBuffer = render_param->InstanceCollection->instance_pool.allocate(
         instance_count);
@@ -407,24 +416,32 @@ void Hd_USTC_CG_Mesh::updateTLAS(
         // CPU path: Single instance, no instancer
         GeometryInstanceData instance_data;
         instance_data.geometryID = mesh_desc_buffer->index();
-        instance_data.materialID = material ? material->GetMaterialLocation() : -1;
-        memcpy(&instance_data.transform, transform.data(), sizeof(pxr::GfMatrix4f));
+        instance_data.materialID =
+            material ? material->GetMaterialLocation() : -1;
+        memcpy(
+            &instance_data.transform,
+            transform.data(),
+            sizeof(pxr::GfMatrix4f));
         instance_data.flags = 0;
-        
+
         instanceBuffer->write_data(&instance_data);
 
         nvrhi::rt::InstanceDesc rt_instance;
         rt_instance.blasDeviceAddress = BLAS->getDeviceAddress();
         rt_instance.instanceMask = 1;
-        rt_instance.flags = nvrhi::rt::InstanceFlags::TriangleFrontCounterclockwise;
-        
+        rt_instance.flags =
+            nvrhi::rt::InstanceFlags::TriangleFrontCounterclockwise;
+
         GfMatrix4f mat_transposed = transform.GetTranspose();
-        memcpy(rt_instance.transform, mat_transposed.data(), sizeof(nvrhi::rt::AffineTransform));
+        memcpy(
+            rt_instance.transform,
+            mat_transposed.data(),
+            sizeof(nvrhi::rt::AffineTransform));
         rt_instance.instanceID = instanceBuffer->index();
-        
+
         rt_instanceBuffer->write_data(&rt_instance);
     }
-    
+
     render_param->InstanceCollection->set_require_rebuild_tlas();
 
     draw_indirect =
