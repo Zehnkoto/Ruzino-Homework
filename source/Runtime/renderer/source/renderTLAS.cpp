@@ -5,7 +5,10 @@
 USTC_CG_NAMESPACE_OPEN_SCOPE
 
 Hd_USTC_CG_RenderInstanceCollection::Hd_USTC_CG_RenderInstanceCollection()
-    : rt_instance_pool(BufferDesc{}.setIsAccelStructBuildInput(true)),
+    : rt_instance_pool(
+          BufferDesc{}
+              .setIsAccelStructBuildInput(true)
+              .setCanHaveRawViews(true)),
       draw_indirect_pool(BufferDesc{}.setIsDrawIndirectArgs(true))
 {
     nvrhi::rt::AccelStructDesc tlasDesc;
