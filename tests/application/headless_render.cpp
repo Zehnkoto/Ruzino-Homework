@@ -19,10 +19,10 @@
 #include "usd_nodejson.hpp"
 
 // USD includes
+#include "pxr/base/tf/setenv.h"
 #include "pxr/usd/usd/primRange.h"
 #include "pxr/usd/usd/stage.h"
 #include "pxr/usd/usdGeom/camera.h"
-#include "pxr/base/tf/setenv.h"
 
 // Hydra includes
 #include "pxr/base/gf/camera.h"
@@ -407,7 +407,7 @@ int main(int argc, char* argv[])
         // Initialize RHI first (headless mode, with DX12 backend)
         // This must happen before any USD rendering operations
         RHI::init(false, true);  // with_window=false (headless), use_dx12=true
-        
+
         // Initialize OpenGL context
         CreateGLContext();
         GarchGLApiLoad();
@@ -617,8 +617,7 @@ int main(int argc, char* argv[])
         deinit_gpu_geometry_algorithms();
 #endif
         // Shutdown RHI at the end
-        RHI::shutdown();
-        
+
         return 0;
     }
     catch (const std::exception& e) {

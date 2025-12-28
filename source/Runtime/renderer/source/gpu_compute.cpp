@@ -12,7 +12,6 @@
 #include "pxr/base/gf/quatf.h"
 #include "pxr/base/gf/vec3f.h"
 
-
 USTC_CG_NAMESPACE_OPEN_SCOPE
 using namespace pxr;
 
@@ -66,15 +65,6 @@ void GPUSceneAssember::fill_instances(
             "instance_indices");
         return;
     }
-
-    spdlog::info(
-        "GPUSceneAssember::fill_instances: count={}, geometryID={}, "
-        "materialID={}, "
-        "base_index={}",
-        instance_indices.size(),
-        geometry_id,
-        material_id,
-        geometry_instance_buffer->index());
 
     auto program_desc =
         ProgramDesc()
@@ -237,7 +227,10 @@ void GPUSceneAssember::fill_instances(
     filler_program_vars["g_InstanceIndices"] = index_buffer;
     filler_program_vars["g_GeometryInstances"] =
         geometry_instance_buffer->get_descriptor();
-    filler_program_vars["g_RTInstances"] = rt_instance_buffer->get_descriptor();
+
+    // Important: Use RawBuffer_UAV for RWByteAddressBuffer in shader
+    filler_program_vars["g_RTInstances"] =
+        rt_instance_buffer->get_descriptor(nvrhi::ResourceType::RawBuffer_UAV);
 
     if (translations) {
         filler_program_vars["g_Translations"] = translations_buffer;
