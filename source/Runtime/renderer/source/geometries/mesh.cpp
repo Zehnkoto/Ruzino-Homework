@@ -349,7 +349,6 @@ void Hd_USTC_CG_Mesh::updateTLAS(
             spdlog::info(
                 "Mesh {} has no material assigned. Using default material.",
                 id.GetText());
-            render_param->InstanceCollection->mark_materials_dirty();
         }
         else {
             spdlog::info(
