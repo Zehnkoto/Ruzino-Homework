@@ -59,6 +59,8 @@ void GPUSceneAssember::fill_instances(
     unsigned material_id,
     unsigned geometry_id)
 {
+    std::lock_guard lock(execution_launch_mutex);
+
     if (instance_indices.empty()) {
         spdlog::warn(
             "GPUSceneAssember::fill_instances called with empty "

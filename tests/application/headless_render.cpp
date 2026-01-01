@@ -175,8 +175,14 @@ bool SaveImageToFile(
     const std::string& filename,
     int width,
     int height,
-    const std::vector<uint8_t>& data)
+    const std::vector<uint8_t>& data,
+    bool skip_save = false)
 {
+    if (skip_save) {
+        spdlog::info("Skipping image save (profiling mode): {}", filename);
+        return true;
+    }
+
     // Create directory if it doesn't exist
     std::filesystem::path filepath(filename);
     if (filepath.has_parent_path()) {
@@ -421,6 +427,10 @@ int main(int argc, char* argv[])
         "Frames per second (for animation delta time)",
         false,
         60.0f);
+    parser.add(
+        "no-save",
+        'n',
+        "Skip saving images (for profiling)");
 
     parser.parse_check(argc, argv);
 
@@ -444,6 +454,7 @@ int main(int argc, char* argv[])
     int spp = parser.get<int>("spp");
     std::string camera_path = parser.get<std::string>("camera");
     bool verbose = parser.exist("verbose");
+    bool skip_save = parser.exist("no-save");
     int num_frames = parser.get<int>("frames");
     float fps = parser.get<float>("fps");
     float delta_time = 1.0f / fps;
@@ -716,11 +727,11 @@ int main(int argc, char* argv[])
             // Launch async save task (capture by value to avoid data races)
             previous_save_task = std::async(
                 std::launch::async,
-                [frame_output, width, height, texture_data]() {
+                [frame_output, width, height, texture_data, skip_save]() {
                     auto save_start = std::chrono::high_resolution_clock::now();
 
                     if (!SaveImageToFile(
-                            frame_output, width, height, texture_data)) {
+                            frame_output, width, height, texture_data, skip_save)) {
                         fprintf(
                             stderr,
                             "Error: Failed to save image to %s\n",

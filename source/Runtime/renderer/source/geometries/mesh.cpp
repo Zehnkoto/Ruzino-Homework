@@ -375,8 +375,6 @@ void Hd_USTC_CG_Mesh::updateTLAS(
 
     // Determine instance count
     if (!GetInstancerId().IsEmpty()) {
-        HdRenderIndex& renderIndex = sceneDelegate->GetRenderIndex();
-        HdInstancer* instancer = renderIndex.GetInstancer(GetInstancerId());
         VtIntArray instanceIndices =
             sceneDelegate->GetInstanceIndices(GetInstancerId(), GetId());
         instance_count = instanceIndices.size();
