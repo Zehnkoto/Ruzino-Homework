@@ -60,7 +60,7 @@ class HD_RUZINO_API Hd_RUZINO_Mesh final : public HdMesh {
     nvrhi::rt::AccelStructHandle BLAS;
 
    protected:
-    nvrhi::BufferHandle vertexBuffer;
+    nvrhi::BufferHandle vertexBuffer = nullptr;
     DescriptorHandle descriptor_handle;
     CommandListHandle copy_commandlist;
 

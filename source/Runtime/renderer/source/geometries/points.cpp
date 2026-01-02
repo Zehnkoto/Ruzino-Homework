@@ -45,8 +45,7 @@ HdDirtyBits Hd_RUZINO_Points::_PropagateDirtyBits(HdDirtyBits bits) const
     return bits;
 }
 
-void Hd_RUZINO_Points::create_gpu_resources(
-    Hd_RUZINO_RenderParam* render_param)
+void Hd_RUZINO_Points::create_gpu_resources(Hd_RUZINO_RenderParam* render_param)
 {
     auto device = RHI::get_device();
 

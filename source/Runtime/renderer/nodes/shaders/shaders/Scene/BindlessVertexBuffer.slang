@@ -45,6 +45,23 @@ StaticVertexData load_vertex(MeshDesc mesh_data, uint vertex_id, ByteAddressBuff
                 4 * vertex_id * 4 + mesh_data.tangentOffset));
         }
     }
+    else {
+        // Generate a tangent perpendicular to the normal
+        float3 normalized_normal = normalize(normal);
+        float3 tangent_dir;
+        
+        // Choose a reference vector that is not parallel to the normal
+        if (abs(normalized_normal.z) < 0.999) {
+            // Normal is not primarily along Z-axis, use Z as reference
+            tangent_dir = cross(normalized_normal, float3(0, 0, 1));
+        }
+        else {
+            // Normal is primarily along Z-axis, use Y as reference
+            tangent_dir = cross(normalized_normal, float3(0, 1, 0));
+        }
+        
+        tangent = float4(normalize(tangent_dir), 1.0);
+    }
 
     float2 texCrd;
 

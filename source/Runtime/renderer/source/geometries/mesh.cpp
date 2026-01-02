@@ -49,15 +49,6 @@ Hd_RUZINO_Mesh::Hd_RUZINO_Mesh(const SdfPath& id)
       _normalInterp(HdInterpolationVertex),
       _refined(false)
 {
-    // create model buffer (constant buffer, CPU writable)
-    auto device = RHI::get_device();
-    nvrhi::BufferDesc buffer_desc =
-        nvrhi::BufferDesc{}
-            .setByteSize(sizeof(GfMatrix4f))
-            .setStructStride(sizeof(GfMatrix4f))
-            .setInitialState(nvrhi::ResourceStates::ShaderResource)
-            .setCpuAccess(nvrhi::CpuAccessMode::Write)
-            .setDebugName("modelBuffer");
 }
 
 Hd_RUZINO_Mesh::~Hd_RUZINO_Mesh()
@@ -170,17 +161,28 @@ void Hd_RUZINO_Mesh::create_gpu_resources(Hd_RUZINO_RenderParam* render_param)
     size_t texcoord_buffer_offset = 0;
     size_t subset_mat_id_offset = 0;
 
+    // Helper lambda to conditionally add buffer data and update offset
+    auto add_buffer_offset =
+        [](size_t& offset, size_t& total_size, size_t data_size) {
+            if (data_size > 0) {
+                offset = total_size;
+                total_size += data_size;
+            }
+            else {
+                offset = 0;  // Signal shader that data doesn't exist
+            }
+        };
+
     size_t total_buffer_size = points.size() * 3 * sizeof(float);
     index_buffer_offset = total_buffer_size;
     total_buffer_size += triangulatedIndices.size() * 3 * sizeof(uint);
-    normal_buffer_offset = total_buffer_size;
-    total_buffer_size += normals.size() * 3 * sizeof(float);
-    tangent_buffer_offset = total_buffer_size;
-    total_buffer_size += tangents.size() * 4 * sizeof(float);
-    texcoord_buffer_offset = total_buffer_size;
+
+    add_buffer_offset(
+        normal_buffer_offset,
+        total_buffer_size,
+        normals.size() * 3 * sizeof(float));
 
     VtVec2fArray texcoords;
-
     InterpolationType texCrdInterpolation = InterpolationType::Vertex;
     for (auto pv : _primvarSourceMap) {
         if (pv.first == pxr::TfToken("UVMap") ||
@@ -195,7 +197,14 @@ void Hd_RUZINO_Mesh::create_gpu_resources(Hd_RUZINO_RenderParam* render_param)
         }
     }
 
-    total_buffer_size += texcoords.size() * 2 * sizeof(float);
+    add_buffer_offset(
+        tangent_buffer_offset,
+        total_buffer_size,
+        tangents.size() * 4 * sizeof(float));
+    add_buffer_offset(
+        texcoord_buffer_offset,
+        total_buffer_size,
+        texcoords.size() * 2 * sizeof(float));
 
     VtArray<unsigned> subset_material_id;
 
@@ -291,17 +300,15 @@ void Hd_RUZINO_Mesh::create_gpu_resources(Hd_RUZINO_RenderParam* render_param)
         blas_desc.isTopLevel = false;
         BLAS = device->createAccelStruct(blas_desc);
 
-        auto m_CommandList = device->createCommandList();
-
-        m_CommandList->open();
+        copy_commandlist->open();
         nvrhi::utils::BuildBottomLevelAccelStruct(
-            m_CommandList, BLAS, blas_desc);
-        m_CommandList->close();
-        device->executeCommandList(m_CommandList);
+            copy_commandlist, BLAS, blas_desc);
+        copy_commandlist->close();
+        device->executeCommandList(copy_commandlist);
         device->waitForIdle();
 
         descriptor_handle = descriptor_table->CreateDescriptorHandle(
-            nvrhi::BindingSetItem::RawBuffer_SRV(0, vertexBuffer));
+            nvrhi::BindingSetItem::RawBuffer_SRV(0, vertexBuffer.Get()));
     }
 
     MeshDesc mesh_desc;
@@ -404,15 +411,14 @@ void Hd_RUZINO_Mesh::updateTLAS(
         // GPU path: Let instancer compute transforms on GPU
         HdRenderIndex& renderIndex = sceneDelegate->GetRenderIndex();
         HdInstancer* instancer = renderIndex.GetInstancer(GetInstancerId());
-        static_cast<Hd_RUZINO_Instancer*>(instancer)
-            ->ComputeInstanceTransforms(
-                GetId(),
-                instanceBuffer,
-                rt_instanceBuffer,
-                BLAS->getDeviceAddress(),
-                transform,
-                material ? material->GetMaterialLocation() : -1,
-                mesh_desc_buffer->index());
+        static_cast<Hd_RUZINO_Instancer*>(instancer)->ComputeInstanceTransforms(
+            GetId(),
+            instanceBuffer,
+            rt_instanceBuffer,
+            BLAS->getDeviceAddress(),
+            transform,
+            material ? material->GetMaterialLocation() : -1,
+            mesh_desc_buffer->index());
     }
     else {
         // CPU path: Single instance, no instancer
@@ -431,8 +437,7 @@ void Hd_RUZINO_Mesh::updateTLAS(
         nvrhi::rt::InstanceDesc rt_instance;
         rt_instance.blasDeviceAddress = BLAS->getDeviceAddress();
         rt_instance.instanceMask = 1;
-        rt_instance.flags =
-            nvrhi::rt::InstanceFlags::TriangleFrontCounterclockwise;
+        rt_instance.flags = nvrhi::rt::InstanceFlags::None;
 
         GfMatrix4f mat_transposed = transform.GetTranspose();
         memcpy(
@@ -458,9 +463,7 @@ void Hd_RUZINO_Mesh::updateTLAS(
     draw_indirect->write_data(&args);
 }
 
-void Hd_RUZINO_Mesh::_InitRepr(
-    const TfToken& reprToken,
-    HdDirtyBits* dirtyBits)
+void Hd_RUZINO_Mesh::_InitRepr(const TfToken& reprToken, HdDirtyBits* dirtyBits)
 {
 }
 
@@ -532,21 +535,33 @@ void Hd_RUZINO_Mesh::Sync(
 
             auto& geom_subsets = topology.GetGeomSubsets();
 
+            // Triangulate all FaceVarying primvars including normals
             for (auto& primvar : _primvarSourceMap) {
                 if (primvar.second.interpolation ==
                     HdInterpolationFaceVarying) {
                     VtValue value = primvar.second.data;
 
                     if (value.IsArrayValued()) {
+                        size_t original_size = value.GetArraySize();
+                        size_t expected_face_vertex_size =
+                            topology.GetFaceVertexIndices().size();
+
+                        spdlog::info(
+                            "Mesh {}: Triangulating FaceVarying primvar '{}' - "
+                            "original size: {}, face vertex indices: {}",
+                            GetId().GetText(),
+                            primvar.first.GetText(),
+                            original_size,
+                            expected_face_vertex_size);
+
                         if (value.IsHolding<VtVec3fArray>()) {
-                            if (value.Get<VtVec3fArray>().size() !=
-                                topology.GetFaceVertexIndices().size()) {
+                            if (original_size != expected_face_vertex_size) {
                                 spdlog::error(
                                     "FaceVarying primvar size mismatch: {}, "
-                                    "expected %d, have %d",
+                                    "expected {}, have {}",
                                     primvar.first.GetText(),
-                                    topology.GetFaceVertexIndices().size(),
-                                    value.Get<VtVec2fArray>().size());
+                                    expected_face_vertex_size,
+                                    original_size);
                             }
                             meshUtil.ComputeTriangulatedFaceVaryingPrimvar(
                                 value.Get<VtVec3fArray>().data(),
@@ -555,9 +570,14 @@ void Hd_RUZINO_Mesh::Sync(
                                 &primvar.second.data);
                         }
                         else if (value.IsHolding<VtVec2fArray>()) {
-                            assert(
-                                value.Get<VtVec2fArray>().size() ==
-                                topology.GetFaceVertexIndices().size());
+                            if (original_size != expected_face_vertex_size) {
+                                spdlog::error(
+                                    "FaceVarying primvar size mismatch: {}, "
+                                    "expected {}, have {}",
+                                    primvar.first.GetText(),
+                                    expected_face_vertex_size,
+                                    original_size);
+                            }
                             meshUtil.ComputeTriangulatedFaceVaryingPrimvar(
                                 value.Get<VtVec2fArray>().data(),
                                 value.GetArraySize(),
@@ -565,9 +585,14 @@ void Hd_RUZINO_Mesh::Sync(
                                 &primvar.second.data);
                         }
                         else if (value.IsHolding<VtVec4fArray>()) {
-                            assert(
-                                value.Get<VtVec4fArray>().size() ==
-                                topology.GetFaceVertexIndices().size());
+                            if (original_size != expected_face_vertex_size) {
+                                spdlog::error(
+                                    "FaceVarying primvar size mismatch: {}, "
+                                    "expected {}, have {}",
+                                    primvar.first.GetText(),
+                                    expected_face_vertex_size,
+                                    original_size);
+                            }
                             spdlog::info(
                                 "Get a VtVec4fArray, named {}",
                                 primvar.first.GetText());
@@ -577,16 +602,30 @@ void Hd_RUZINO_Mesh::Sync(
                                 HdTypeFloatVec4,
                                 &primvar.second.data);
                         }
-                    }
 
-                    if (primvar.second.data.GetArraySize() !=
-                        triangulatedIndices.size() * 3) {
-                        spdlog::error(
-                            "FaceVarying primvar size mismatch: {}, expected "
-                            "%d, have %d",
-                            primvar.first.GetText(),
-                            triangulatedIndices.size() * 3,
-                            primvar.second.data.GetArraySize());
+                        size_t triangulated_size =
+                            primvar.second.data.GetArraySize();
+                        size_t expected_triangulated_size =
+                            triangulatedIndices.size() * 3;
+
+                        if (triangulated_size != expected_triangulated_size) {
+                            spdlog::error(
+                                "FaceVarying primvar size mismatch after "
+                                "triangulation: {}, "
+                                "expected {}, have {}",
+                                primvar.first.GetText(),
+                                expected_triangulated_size,
+                                triangulated_size);
+                        }
+                        else {
+                            spdlog::info(
+                                "Mesh {}: Successfully triangulated primvar "
+                                "'{}' - "
+                                "result size: {}",
+                                GetId().GetText(),
+                                primvar.first.GetText(),
+                                triangulated_size);
+                        }
                     }
                 }
             }
@@ -678,10 +717,20 @@ void Hd_RUZINO_Mesh::Sync(
                 normal_primvar = _primvarSourceMap[HdTokens->normals].data;
                 normal_interp =
                     _primvarSourceMap[HdTokens->normals].interpolation;
+                spdlog::info(
+                    "Mesh {}: Found normals in primvar map - size: {}, "
+                    "interpolation: {}",
+                    GetId().GetText(),
+                    normal_primvar.GetArraySize(),
+                    normal_interp == HdInterpolationFaceVarying ? "FaceVarying"
+                                                                : "Vertex");
             }
             else {
                 normal_primvar = GetNormals(sceneDelegate);
-                spdlog::info(GetId().GetAsString().c_str());
+                spdlog::info(
+                    "Mesh {}: GetNormals from sceneDelegate - size: {}",
+                    GetId().GetAsString().c_str(),
+                    normal_primvar.GetArraySize());
             }
 
             if (normal_primvar.IsEmpty() ||
@@ -704,19 +753,44 @@ void Hd_RUZINO_Mesh::Sync(
                     &_adjacency, points.size(), points.cdata());
                 assert(points.size() == normals.size());
                 normal_interp = HdInterpolationVertex;
+                spdlog::info(
+                    "Mesh {}: Computed smooth normals - size: {}",
+                    GetId().GetText(),
+                    normals.size());
             }
             else {
                 // If normals are authored, we use them.
                 normals = normal_primvar.Get<VtVec3fArray>();
 
-                // Handle indexed normals (primvars:normals:indices)
-                // When normals are indexed, expand them to FaceVarying
+                // Handle FaceVarying normals - they should already have been
+                // triangulated in the topology update loop above with other
+                // primvars Check if they were already processed
                 if (normal_interp == HdInterpolationFaceVarying) {
-                    // Check if normals size matches faceVertexIndices (already
-                    // expanded)
-                    if (normals.size() ==
+                    // The normals should have been triangulated when we
+                    // processed all FaceVarying primvars above. Verify the
+                    // size.
+                    size_t expected_size = triangulatedIndices.size() * 3;
+
+                    if (normals.size() == expected_size) {
+                        // Already triangulated - good!
+                        spdlog::info(
+                            "Mesh {}: FaceVarying normals already triangulated "
+                            "- "
+                            "size: {}",
+                            GetId().GetText(),
+                            normals.size());
+                    }
+                    else if (
+                        normals.size() ==
                         topology.GetFaceVertexIndices().size()) {
-                        // Already in FaceVarying format, triangulate it
+                        // Need to triangulate
+                        spdlog::info(
+                            "Mesh {}: Triangulating FaceVarying normals - "
+                            "from size: {} to expected: {}",
+                            GetId().GetText(),
+                            normals.size(),
+                            expected_size);
+
                         HdMeshUtil meshUtil(&topology, GetId());
                         VtValue triangulated_normals;
                         meshUtil.ComputeTriangulatedFaceVaryingPrimvar(
@@ -732,30 +806,35 @@ void Hd_RUZINO_Mesh::Sync(
                             GetId().GetText(),
                             normals.size());
                     }
-                    else if (
-                        normals.size() <
-                        topology.GetFaceVertexIndices().size()) {
-                        // This is indexed normals case
-                        // normals array contains unique values
-                        // faceVertexIndices (or a separate normal indices
-                        // array) tells us which to use
+                    else if (normals.size() == points.size()) {
+                        // Size matches vertices - treat as Vertex interpolation
+                        normal_interp = HdInterpolationVertex;
                         spdlog::info(
-                            "Mesh {}: Detected indexed normals - "
-                            "unique normals: {}, face vertex count: {}",
+                            "Mesh {}: FaceVarying normals size matches "
+                            "vertices, "
+                            "treating as Vertex interpolation - size: {}",
+                            GetId().GetText(),
+                            normals.size());
+                    }
+                    else {
+                        // Unexpected size
+                        spdlog::error(
+                            "Mesh {}: FaceVarying normals size mismatch - "
+                            "normals: {}, faceVertexIndices: {}, triangulated "
+                            "expected: {}, vertices: {}",
                             GetId().GetText(),
                             normals.size(),
-                            topology.GetFaceVertexIndices().size());
-
-                        // For now, treat as Vertex interpolation if size
-                        // matches points
-                        if (normals.size() == points.size()) {
-                            normal_interp = HdInterpolationVertex;
-                            spdlog::info(
-                                "Mesh {}: Treating indexed normals as Vertex "
-                                "interpolation",
-                                GetId().GetText());
-                        }
+                            topology.GetFaceVertexIndices().size(),
+                            expected_size,
+                            points.size());
                     }
+                }
+                else {
+                    // Vertex interpolation - no triangulation needed
+                    spdlog::info(
+                        "Mesh {}: Using Vertex normals - size: {}",
+                        GetId().GetText(),
+                        normals.size());
                 }
             }
 

@@ -43,6 +43,36 @@ DescriptorHandle::~DescriptorHandle()
         m_DescriptorIndex = -1;
     }
 }
+void DescriptorHandle::Reset()
+{
+    if (m_DescriptorIndex >= 0) {
+        auto managerPtr = m_Manager.lock();
+        if (managerPtr)
+            managerPtr->ReleaseDescriptor(m_DescriptorIndex);
+        m_DescriptorIndex = -1;
+    }
+    m_DescriptorIndex = -1;
+    m_Manager.reset();
+}
+DescriptorHandle& DescriptorHandle::operator=(DescriptorHandle&& other) noexcept
+{
+    if (this != &other) {
+        // Release current descriptor
+        if (m_DescriptorIndex >= 0) {
+            auto managerPtr = m_Manager.lock();
+            if (managerPtr)
+                managerPtr->ReleaseDescriptor(m_DescriptorIndex);
+        }
+
+        // Move from other
+        m_Manager = std::move(other.m_Manager);
+        m_DescriptorIndex = other.m_DescriptorIndex;
+
+        // Clear other
+        other.m_DescriptorIndex = -1;
+    }
+    return *this;
+}
 
 DescriptorTableManager::DescriptorTableManager(
     nvrhi::IDevice* device,

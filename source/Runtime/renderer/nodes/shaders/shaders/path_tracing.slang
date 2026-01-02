@@ -44,7 +44,7 @@ void RayGen()
     Spectrum output_color = Spectrum(0.0);
 
     const int spp = 1;
-    const int max_depth = 16;
+    const int max_depth = 20;
 
     ray.TMax = 50000.0;
 
@@ -161,6 +161,10 @@ void RayGen()
 
             // Process hit - material evaluation
             VertexInfo vertex = payload.vertex;
+
+            // output_color = Spectrum(vertex.tangentW.xyz * 0.5 + 0.5);
+            // output_color = Spectrum(float3(payload.eta_flipped, 0, 0));
+            // break;
             uint material_id = payload.materialID;
             uint eta_flipped = payload.eta_flipped;
 
@@ -276,7 +280,7 @@ void ClosestHit(
         prim_id,
         float2(attribs.barycentrics.x, attribs.barycentrics.y));
 
-    // Fix normal orientation
+    // Fix normal orientation based on geometric normal (faceNormalW)
     uint eta_flipped = 0;
     if (dot(WorldRayDirection(), vertex.normalW) >= 0.0) {
         vertex.normalW = -vertex.normalW;
@@ -344,6 +348,7 @@ void SphereClosestHit(
     vertex.subsetMaterialID = -1;
 
     // Fix normal orientation based on ray direction
+    // For spheres, geometric normal and shading normal are the same
     uint eta_flipped = 0;
     if (dot(worldRayDirection, normal) >= 0.0) {
         vertex.normalW = -normal;

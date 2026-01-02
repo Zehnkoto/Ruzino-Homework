@@ -65,7 +65,7 @@ NODE_EXECUTION_FUNCTION(points_to_mesh)
 {
     auto points_geometry = params.get_input<Geometry>("Points");
 
-    auto points = points_geometry.get_component<PointsComponent>();
+    auto points = points_geometry.get_const_component<PointsComponent>();
 
     if (!points || points->get_vertices().empty()) {
         return false;
@@ -115,16 +115,19 @@ NODE_EXECUTION_FUNCTION(points_to_mesh)
 
     for (int i = 0; i < converted_quads.size(); ++i) {
         mesh_faceVertexCounts.emplace_back(4);
-        for (int j = 0; j < 4; ++j) {
-            mesh_faceVertexIndices.emplace_back(converted_quads[i][j]);
-        }
+        // Reverse winding order: CCW -> CW or CW -> CCW
+        mesh_faceVertexIndices.emplace_back(converted_quads[i][0]);
+        mesh_faceVertexIndices.emplace_back(converted_quads[i][3]);
+        mesh_faceVertexIndices.emplace_back(converted_quads[i][2]);
+        mesh_faceVertexIndices.emplace_back(converted_quads[i][1]);
     }
 
     for (int i = 0; i < converted_triangles.size(); ++i) {
         mesh_faceVertexCounts.emplace_back(3);
-        for (int j = 0; j < 3; ++j) {
-            mesh_faceVertexIndices.emplace_back(converted_triangles[i][j]);
-        }
+        // Reverse winding order: CCW -> CW or CW -> CCW
+        mesh_faceVertexIndices.emplace_back(converted_triangles[i][0]);
+        mesh_faceVertexIndices.emplace_back(converted_triangles[i][2]);
+        mesh_faceVertexIndices.emplace_back(converted_triangles[i][1]);
     }
 
     mesh_component->set_vertices(mesh_vertices);

@@ -59,17 +59,13 @@ class HD_RUZINO_API DescriptorHandle {
             assert(!m_Manager.expired());
         return m_DescriptorIndex;
     }
-    void Reset()
-    {
-        m_DescriptorIndex = -1;
-        m_Manager.reset();
-    }
+    void Reset();
 
     // Movable but non-copyable
     DescriptorHandle(const DescriptorHandle&) = delete;
     DescriptorHandle(DescriptorHandle&&) = default;
     DescriptorHandle& operator=(const DescriptorHandle&) = delete;
-    DescriptorHandle& operator=(DescriptorHandle&&) = default;
+    DescriptorHandle& operator=(DescriptorHandle&&) noexcept;
 };
 
 class HD_RUZINO_API DescriptorTableManager
