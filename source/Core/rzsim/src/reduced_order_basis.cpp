@@ -200,9 +200,9 @@ void ReducedOrderedBasis::compute_eigenmodes(int num_modes)
     Spectra::SymEigsSolver<Spectra::SparseSymMatProd<double>> eigs(op, num_modes, ncv);
     
     // Initialize and compute
-    // Use SmallestMagn to get eigenvalues closest to zero (in ascending order)
+    // Use SmallestAlge to get smallest eigenvalues in algebraic order (ascending)
     eigs.init();
-    int nconv = eigs.compute(Spectra::SortRule::SmallestMagn, 1000, 1e-10);
+    int nconv = eigs.compute(Spectra::SortRule::SmallestAlge, 4000, 1e-12);
     
     if (eigs.info() != Spectra::CompInfo::Successful) {
         std::cerr << "Spectra eigenvalue computation failed, falling back to dense solver..." << std::endl;
@@ -233,14 +233,23 @@ void ReducedOrderedBasis::compute_eigenmodes(int num_modes)
         Eigen::VectorXd eigenvalues_d = eigs.eigenvalues();
         Eigen::MatrixXd eigenvectors_d = eigs.eigenvectors();
         
+        // Sort eigenvalues and eigenvectors in ascending order
+        std::vector<std::pair<double, int>> sorted_indices;
+        int actual_modes = std::min(nconv, num_modes);
+        for (int i = 0; i < actual_modes; i++) {
+            sorted_indices.push_back({eigenvalues_d(i), i});
+        }
+        std::sort(sorted_indices.begin(), sorted_indices.end());
+        
         basis.clear();
         eigenvalues.clear();
         
-        int actual_modes = std::min(nconv, num_modes);
         for (int i = 0; i < actual_modes; i++) {
-            eigenvalues.push_back(static_cast<float>(eigenvalues_d(i)));
-            basis.push_back(eigenvectors_d.col(i).cast<float>());
-            std::cout << "  Mode " << i << ": eigenvalue = " << eigenvalues_d(i) << std::endl;
+            int original_index = sorted_indices[i].second;
+            double eigenvalue = sorted_indices[i].first;
+            eigenvalues.push_back(static_cast<float>(eigenvalue));
+            basis.push_back(eigenvectors_d.col(original_index).cast<float>());
+            std::cout << "  Mode " << i << ": eigenvalue = " << eigenvalue << std::endl;
         }
     }
 
