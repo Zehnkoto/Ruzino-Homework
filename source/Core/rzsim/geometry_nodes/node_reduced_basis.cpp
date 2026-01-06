@@ -1,4 +1,5 @@
 #include <glm/glm.hpp>
+#include <memory>
 
 #include "GCore/Components/MeshComponent.h"
 #include "GCore/geom_payload.hpp"
@@ -15,7 +16,7 @@ NODE_DEF_OPEN_SCOPE
 struct ReducedBasisStorage {
     constexpr static bool has_storage = false;
 
-    std::unique_ptr<ReducedOrderedBasis> cached_basis;
+    std::shared_ptr<ReducedOrderedBasis> cached_basis;
     std::string cached_geometry_hash;
     int cached_num_modes = 0;
     bool cached_use_libigl = false;
@@ -33,6 +34,7 @@ NODE_DECLARATION_FUNCTION(reduced_basis)
     b.add_input<std::string>("Attribute Name").default_val("mode");
 
     b.add_output<Geometry>("Geometry");
+    b.add_output<std::shared_ptr<ReducedOrderedBasis>>("Reduced Basis");
 }
 
 NODE_EXECUTION_FUNCTION(reduced_basis)
@@ -75,7 +77,7 @@ NODE_EXECUTION_FUNCTION(reduced_basis)
         storage.cached_use_libigl != use_libigl || !storage.cached_basis) {
         try {
             storage.cached_basis =
-                std::make_unique<ReducedOrderedBasis>(input_geom, num_modes, dimension, use_libigl);
+                std::make_shared<ReducedOrderedBasis>(input_geom, num_modes, dimension, use_libigl);
             storage.cached_num_modes = num_modes;
             storage.cached_use_libigl = use_libigl;
             storage.initialized = true;
@@ -112,6 +114,7 @@ NODE_EXECUTION_FUNCTION(reduced_basis)
     mesh_component->add_vertex_scalar_quantity(attr_name, mode_values);
 
     params.set_output<Geometry>("Geometry", std::move(input_geom));
+    params.set_output<std::shared_ptr<ReducedOrderedBasis>>("Reduced Basis", std::shared_ptr<ReducedOrderedBasis>(storage.cached_basis));
     return true;
 }
 
