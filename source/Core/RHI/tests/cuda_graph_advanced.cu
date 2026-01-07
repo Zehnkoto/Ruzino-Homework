@@ -83,7 +83,7 @@ void advanced_cuda_graph_examples()
             &memsetNode, graph, &allocNode, 1, &memsetParams);
 
         // 3. 添加核函数节点
-        auto d_temp = create_cuda_linear_buffer<float>(2.0f, N);
+        auto d_temp = create_cuda_linear_buffer_with_value<float>(2.0f, N);
 
         // Prepare kernel arguments
         auto dataPtr = allocParams.dptr;
@@ -125,9 +125,9 @@ void advanced_cuda_graph_examples()
     // Example 2: 条件图和分支 (Conditional Graphs)
     std::cout << "\n--- Example 2: Conditional Execution ---" << std::endl;
     {
-        auto d_data = create_cuda_linear_buffer<float>(1.0f, N);
-        auto d_temp = create_cuda_linear_buffer<float>(0.5f, N);
-        auto d_result = create_cuda_linear_buffer<float>(0.0f, 1);
+        auto d_data = create_cuda_linear_buffer_with_value<float>(1.0f, N);
+        auto d_temp = create_cuda_linear_buffer_with_value<float>(0.5f, N);
+        auto d_result = create_cuda_linear_buffer_with_value<float>(0.0f, 1);
 
         // 创建条件图：根据条件选择不同的处理路径
         auto conditional_graph = with_cuda_graph(stream, [=]() {
@@ -167,9 +167,9 @@ void advanced_cuda_graph_examples()
         cudaStreamCreate(&stream2);
         cudaStreamCreate(&stream3);
 
-        auto d_data1 = create_cuda_linear_buffer<float>(1.0f, N);
-        auto d_data2 = create_cuda_linear_buffer<float>(2.0f, N);
-        auto d_data3 = create_cuda_linear_buffer<float>(3.0f, N);
+        auto d_data1 = create_cuda_linear_buffer_with_value<float>(1.0f, N);
+        auto d_data2 = create_cuda_linear_buffer_with_value<float>(2.0f, N);
+        auto d_data3 = create_cuda_linear_buffer_with_value<float>(3.0f, N);
 
         try {
             // 阶段1：创建第一个图
@@ -248,8 +248,8 @@ void advanced_cuda_graph_examples()
     // Example 4: 图更新和参数修改 (Graph Updates)
     std::cout << "\n--- Example 4: Dynamic Graph Updates ---" << std::endl;
     {
-        auto d_data = create_cuda_linear_buffer<float>(1.0f, N);
-        auto d_temp = create_cuda_linear_buffer<float>(1.0f, N);
+        auto d_data = create_cuda_linear_buffer_with_value<float>(1.0f, N);
+        auto d_temp = create_cuda_linear_buffer_with_value<float>(1.0f, N);
 
         // 创建基础图
         auto base_graph = capture_graph(stream, [=]() {
@@ -363,8 +363,8 @@ void advanced_cuda_graph_examples()
         // 创建不带内存池的图构建器
         auto builder = create_advanced_graph();
 
-        auto d_input = create_cuda_linear_buffer<float>(5.0f, N);
-        auto d_output = create_cuda_linear_buffer<float>(0.0f, N);
+        auto d_input = create_cuda_linear_buffer_with_value<float>(5.0f, N);
+        auto d_output = create_cuda_linear_buffer_with_value<float>(0.0f, N);
 
         // 使用图构建器构建更复杂的图
         float scale_factor = 3.14f;
@@ -413,8 +413,8 @@ void advanced_cuda_graph_examples()
               << std::endl;
     {
         // 简化的工作队列实现
-        auto d_input = create_cuda_linear_buffer<float>(1.0f, N);
-        auto d_output = create_cuda_linear_buffer<float>(0.0f, N);
+        auto d_input = create_cuda_linear_buffer_with_value<float>(1.0f, N);
+        auto d_output = create_cuda_linear_buffer_with_value<float>(0.0f, N);
 
         auto queue_graph = with_cuda_graph(stream, [=]() {
             dim3 grid((N + 255) / 256);

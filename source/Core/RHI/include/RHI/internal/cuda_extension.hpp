@@ -157,25 +157,28 @@ RHI_API CUDALinearBufferHandle create_cuda_linear_buffer(
     const CUDALinearBufferDesc& d,
     void* init_data = nullptr);
 
+// Create buffer with specified count (no default to avoid ambiguity)
 template<typename T>
-CUDALinearBufferHandle create_cuda_linear_buffer(size_t count = 1)
+CUDALinearBufferHandle create_cuda_linear_buffer(size_t count)
 {
     CUDALinearBufferDesc desc(count, sizeof(T));
     auto ret = create_cuda_linear_buffer(desc);
     return ret;
 }
 
+// Create buffer with initial value and count
 template<typename T>
-CUDALinearBufferHandle create_cuda_linear_buffer(
-    const T& init,
-    size_t count = 1)
+CUDALinearBufferHandle create_cuda_linear_buffer_with_value(
+    const T& init_value,
+    size_t count)
 {
     CUDALinearBufferDesc desc(count, sizeof(T));
     auto ret = create_cuda_linear_buffer(desc);
-    ret->assign_host_vector(std::vector(count, init));
+    ret->assign_host_vector(std::vector(count, init_value));
     return ret;
 }
 
+// Create buffer from vector
 template<typename T>
 CUDALinearBufferHandle create_cuda_linear_buffer(const std::vector<T>& d)
 {

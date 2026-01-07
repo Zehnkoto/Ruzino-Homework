@@ -26,8 +26,8 @@ __global__ void add_kernel(float* a, float* b, int n)
 void cuda_graph_example()
 {
     const int N = 1024;
-    auto d_data = create_cuda_linear_buffer<float>(1.0f, N);  // 初始化为1.0f
-    auto d_temp = create_cuda_linear_buffer<float>(1.0f, N);  // 初始化为1.0f
+    auto d_data = create_cuda_linear_buffer_with_value<float>(1.0f, N);  // 初始化为1.0f
+    auto d_temp = create_cuda_linear_buffer_with_value<float>(1.0f, N);  // 初始化为1.0f
 
     cudaStream_t stream;
     cudaStreamCreate(
