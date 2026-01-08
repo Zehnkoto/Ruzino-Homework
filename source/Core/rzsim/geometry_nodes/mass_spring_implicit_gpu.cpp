@@ -168,50 +168,6 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
     auto positions_debug = d_positions->get_host_vector<glm::vec3>();
     auto velocities_debug = d_velocities->get_host_vector<glm::vec3>();
 
-    // Print all positions if geometry is small
-    if (num_particles <= 10) {
-        printf("[GPU Before] All positions:\n");
-        for (int i = 0; i < num_particles; i++) {
-            printf(
-                "  p[%d]=(%.6f, %.6f, %.6f)\n",
-                i,
-                positions_debug[i].x,
-                positions_debug[i].y,
-                positions_debug[i].z);
-        }
-        printf("[GPU Before] All velocities:\n");
-        for (int i = 0; i < num_particles; i++) {
-            printf(
-                "  v[%d]=(%.6f, %.6f, %.6f)\n",
-                i,
-                velocities_debug[i].x,
-                velocities_debug[i].y,
-                velocities_debug[i].z);
-        }
-    }
-    else {
-        printf(
-            "[GPU Before] p[0]=(%.6f, %.6f, %.6f), p[1]=(%.6f, %.6f, %.6f), "
-            "p[2]=(%.6f, %.6f, %.6f)\n",
-            positions_debug[0].x,
-            positions_debug[0].y,
-            positions_debug[0].z,
-            positions_debug[1].x,
-            positions_debug[1].y,
-            positions_debug[1].z,
-            positions_debug[2].x,
-            positions_debug[2].y,
-            positions_debug[2].z);
-        printf(
-            "[GPU Before] v[0]=(%.6f, %.6f, %.6f), v[1]=(%.6f, %.6f, %.6f)\n",
-            velocities_debug[0].x,
-            velocities_debug[0].y,
-            velocities_debug[0].z,
-            velocities_debug[1].x,
-            velocities_debug[1].y,
-            velocities_debug[1].z);
-    }
-
     // Newton's method iterations
     auto d_x_new = cuda::create_cuda_linear_buffer<float>(num_particles * 3);
     // Initialize x_new = x (current position, NOT x_tilde) - matching CPU
@@ -236,17 +192,6 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
 
         // Debug: print current x_new at start of iteration
         auto x_curr_debug = d_x_new->get_host_vector<float>();
-        if (iter <= 2) {
-            printf(
-                "[GPU Debug] Start iter %d: x[0:3]=(%.12e, %.12e, %.12e), x[6:9]=(%.12e, %.12e, %.12e)\n",
-                iter,
-                x_curr_debug[0],
-                x_curr_debug[1],
-                x_curr_debug[2],
-                x_curr_debug[6],
-                x_curr_debug[7],
-                x_curr_debug[8]);
-        }
 
         // Create fresh buffer for Newton direction each iteration to avoid warm
         // start issues
@@ -270,21 +215,6 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
         float grad_inf_norm = 0.0f;
         for (int i = 0; i < num_particles * 3; i++) {
             grad_inf_norm = std::max(grad_inf_norm, std::abs(grad_host[i]));
-        }
-
-        // Print full gradient for small problems (iter 0 and 1)
-        if ((iter == 0 || iter == 1) && num_particles * 3 <= 100) {
-            printf("[GPU] === Full gradient at iter %d ===\n", iter);
-            for (int i = 0; i < num_particles * 3; i++) {
-                printf("  grad[%d] = %.12e\n", i, grad_host[i]);
-            }
-            printf("[GPU] === End gradient ===\n");
-        }
-        else if (iter == 0) {
-            printf("[GPU] First 10 gradient elements at iter 0:\n");
-            for (int i = 0; i < std::min(10, num_particles * 3); i++) {
-                printf("  grad[%d] = %.6e\n", i, grad_host[i]);
-            }
         }
 
         spdlog::info(
@@ -320,64 +250,9 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
             num_particles);
 
         // Get Hessian data for printing
-        auto row_offsets_host =
-            hessian.row_offsets->get_host_vector<int>();
-        auto col_indices_host =
-            hessian.col_indices->get_host_vector<int>();
+        auto row_offsets_host = hessian.row_offsets->get_host_vector<int>();
+        auto col_indices_host = hessian.col_indices->get_host_vector<int>();
         auto values_host = hessian.values->get_host_vector<float>();
-
-        // Print all entries for iter 0 and 1 if small matrix
-        if (hessian.num_rows <= 100 && (iter == 0 || iter == 1)) {
-            printf("[GPU] Assembling Hessian at iter %d: %d particles, %zu springs\n",
-                iter, num_particles, storage.springs_buffer->getDesc().element_count / 2);
-            printf("[GPU] === Full Hessian at iter %d (CSR format) ===\n", iter);
-            for (int row = 0; row < hessian.num_rows; row++) {
-                for (int idx = row_offsets_host[row];
-                     idx < row_offsets_host[row + 1];
-                     idx++) {
-                    printf(
-                        "  H(%d, %d) = %.12e\n",
-                        row,
-                        col_indices_host[idx],
-                        values_host[idx]);
-                }
-            }
-            printf("[GPU] === End Hessian ===\n");
-        }
-        else if (iter == 0) {
-            printf(
-                "[GPU] Assembling Hessian: %d particles, %zu springs\n",
-                num_particles,
-                storage.springs_buffer->getDesc().element_count / 2);
-            printf("[GPU] dt = %.6f, stiffness = %.6f\n", dt, stiffness);
-            printf(
-                "[GPU] Matrix size: %d x %d\n",
-                hessian.num_rows,
-                hessian.num_cols);
-            spdlog::info("[GPU] Hessian non-zeros: {}", hessian.nnz);
-
-            printf("[GPU] First 10 non-zero entries (COO format):\n");
-            int count = 0;
-            for (int row = 0; row < hessian.num_rows && count < 10; row++) {
-                for (int idx = row_offsets_host[row];
-                     idx < row_offsets_host[row + 1] && count < 10;
-                     idx++) {
-                    printf(
-                        "  (%d, %d) = %.6e\n",
-                        row,
-                        col_indices_host[idx],
-                        values_host[idx]);
-                    count++;
-                }
-            }
-
-            printf("[GPU] CSR Format:\n");
-            printf("  First 5 row_offsets: ");
-            for (int i = 0; i < std::min(5, hessian.num_rows + 1); i++) {
-                printf("%d ", row_offsets_host[i]);
-            }
-            printf("\n");
-        }
 
         // Solve H * p = -grad using CUDA CG
         auto solver = Ruzino::Solver::SolverFactory::create(
@@ -398,7 +273,9 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
             printf(
                 "[GPU] Iter %d: CG tolerance set to %.6e (grad_inf_norm = "
                 "%.6e)\n",
-                iter, cg_tol, grad_inf_norm);
+                iter,
+                cg_tol,
+                grad_inf_norm);
         }
 
         // Negate gradient for RHS: -grad
@@ -437,26 +314,8 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
             reinterpret_cast<float*>(d_p->get_device_ptr()),
             solver_config);
 
-        //Debug: check what CG actually wrote to d_p
+        // Debug: check what CG actually wrote to d_p
         auto p_after_cg = d_p->get_host_vector<float>();
-        if ((iter == 0 || iter == 1) && num_particles * 3 <= 100) {
-            printf("[GPU] === Full Newton direction p at iter %d ===\n", iter);
-            for (int i = 0; i < num_particles * 3; i++) {
-                printf("  p[%d] = %.12e\n", i, p_after_cg[i]);
-            }
-            printf("[GPU] === End p ===\n");
-        }
-        else if (iter <= 2) {
-            printf(
-                "[GPU Debug] Iter %d CG result: p[0:3]=(%.6e, %.6e, %.6e), p[3:6]=(%.6e, %.6e, %.6e)\n",
-                iter,
-                p_after_cg[0],
-                p_after_cg[1],
-                p_after_cg[2],
-                p_after_cg[3],
-                p_after_cg[4],
-                p_after_cg[5]);
-        }
 
         // Check if p is a descent direction: p^T * grad should be < 0
         float p_dot_grad = 0.0f;
@@ -583,12 +442,13 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
 
                 auto x_cand_final = d_x_candidate->get_host_vector<float>();
                 d_x_new->assign_host_vector(x_cand_final);
-                
+
                 // Debug: verify x_new was actually updated
                 if (iter <= 2) {
                     auto x_new_verify = d_x_new->get_host_vector<float>();
                     printf(
-                        "[GPU Debug] After update iter %d: x[0:3]=(%.12e, %.12e, %.12e), x[6:9]=(%.12e, %.12e, %.12e)\n",
+                        "[GPU Debug] After update iter %d: x[0:3]=(%.12e, "
+                        "%.12e, %.12e), x[6:9]=(%.12e, %.12e, %.12e)\n",
                         iter,
                         x_new_verify[0],
                         x_new_verify[1],
@@ -627,9 +487,12 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
     auto x_n_host = d_positions->get_host_vector<glm::vec3>();
     std::vector<float> v_new(num_particles * 3);
     for (int i = 0; i < num_particles; i++) {
-        v_new[i * 3 + 0] = (x_new_final[i * 3 + 0] - x_n_host[i].x) / dt * damping;
-        v_new[i * 3 + 1] = (x_new_final[i * 3 + 1] - x_n_host[i].y) / dt * damping;
-        v_new[i * 3 + 2] = (x_new_final[i * 3 + 2] - x_n_host[i].z) / dt * damping;
+        v_new[i * 3 + 0] =
+            (x_new_final[i * 3 + 0] - x_n_host[i].x) / dt * damping;
+        v_new[i * 3 + 1] =
+            (x_new_final[i * 3 + 1] - x_n_host[i].y) / dt * damping;
+        v_new[i * 3 + 2] =
+            (x_new_final[i * 3 + 2] - x_n_host[i].z) / dt * damping;
     }
     d_velocities->assign_host_vector(v_new);
     d_positions->assign_host_vector(x_new_final);
@@ -637,50 +500,6 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
     // Debug print
     auto positions_debug_after = d_positions->get_host_vector<glm::vec3>();
     auto velocities_debug_after = d_velocities->get_host_vector<glm::vec3>();
-
-    // Print all positions if geometry is small
-    if (num_particles <= 10) {
-        printf("[GPU After] All positions:\n");
-        for (int i = 0; i < num_particles; i++) {
-            printf(
-                "  p[%d]=(%.6f, %.6f, %.6f)\n",
-                i,
-                positions_debug_after[i].x,
-                positions_debug_after[i].y,
-                positions_debug_after[i].z);
-        }
-        printf("[GPU After] All velocities:\n");
-        for (int i = 0; i < num_particles; i++) {
-            printf(
-                "  v[%d]=(%.6f, %.6f, %.6f)\n",
-                i,
-                velocities_debug_after[i].x,
-                velocities_debug_after[i].y,
-                velocities_debug_after[i].z);
-        }
-    }
-    else {
-        printf(
-            "[GPU After]  p[0]=(%.6f, %.6f, %.6f), p[1]=(%.6f, %.6f, %.6f), "
-            "p[2]=(%.6f, %.6f, %.6f)\n",
-            positions_debug_after[0].x,
-            positions_debug_after[0].y,
-            positions_debug_after[0].z,
-            positions_debug_after[1].x,
-            positions_debug_after[1].y,
-            positions_debug_after[1].z,
-            positions_debug_after[2].x,
-            positions_debug_after[2].y,
-            positions_debug_after[2].z);
-        printf(
-            "[GPU After]  v[0]=(%.6f, %.6f, %.6f), v[1]=(%.6f, %.6f, %.6f)\n",
-            velocities_debug_after[0].x,
-            velocities_debug_after[0].y,
-            velocities_debug_after[0].z,
-            velocities_debug_after[1].x,
-            velocities_debug_after[1].y,
-            velocities_debug_after[1].z);
-    }
 
     // Convert to output format
     std::vector<glm::vec3> new_positions = positions_debug_after;
