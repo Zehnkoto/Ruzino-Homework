@@ -359,8 +359,8 @@ static bool solve_newton(
             spdlog::warn("Newton solve failed at iteration {}", iter);
             return false;
         }
-        // Print full p for small problems (iter 0 and 1)
-        if ((iter == 0 || iter == 1) && p.size() <= 100) {
+        // Print full p for small problems (iter 0 to 4)
+        if ((iter < 5) && p.size() <= 100) {
             printf("[CPU] === Full Newton direction p at iter %d ===\n", iter);
             for (int i = 0; i < p.size(); i++) {
                 printf("  p[%d] = %.12e\n", i, p[i]);
@@ -437,7 +437,7 @@ NODE_DECLARATION_FUNCTION(mass_spring_implicit)
         .default_val(1000.0f)
         .min(1.0f)
         .max(10000.0f);
-    b.add_input<float>("Damping").default_val(0.99f).min(0.0f).max(1.0f);
+    b.add_input<float>("Damping").default_val(1.0f).min(0.0f).max(1.0f);
     b.add_input<int>("Newton Iterations").default_val(3).min(1).max(20);
     b.add_input<float>("Newton Tolerance")
         .default_val(1e-3f)

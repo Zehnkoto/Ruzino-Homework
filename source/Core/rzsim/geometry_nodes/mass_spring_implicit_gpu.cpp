@@ -39,7 +39,7 @@ NODE_DECLARATION_FUNCTION(mass_spring_implicit_gpu)
         .default_val(1000.0f)
         .min(1.0f)
         .max(10000.0f);
-    b.add_input<float>("Damping").default_val(0.99f).min(0.0f).max(1.0f);
+    b.add_input<float>("Damping").default_val(1.0f).min(0.0f).max(1.0f);
     b.add_input<int>("Newton Iterations").default_val(30).min(1).max(100);
     b.add_input<float>("Newton Tolerance")
         .default_val(1e-2f)
@@ -69,7 +69,7 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
     float damping = params.get_input<float>("Damping");
     int max_iterations = params.get_input<int>("Newton Iterations");
     float tolerance = params.get_input<float>("Newton Tolerance");
-    tolerance = std::max(tolerance, 1e-8f);
+    tolerance = std::max(tolerance, 1e-4f);
     float gravity = params.get_input<float>("Gravity");
     float restitution = params.get_input<float>("Ground Restitution");
     bool flip_normal = params.get_input<bool>("Flip Normal");
