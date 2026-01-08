@@ -919,20 +919,6 @@ float compute_energy_gpu(
 
     float total_energy = E_inertial + dt * dt * E_spring + E_potential;
 
-    // Debug: check which energy component is inf
-    static int debug_counter = 0;
-    if (debug_counter < 3) {
-        printf(
-            "[GPU Energy] E_inertial=%.6e, E_spring=%.6e, E_potential=%.6e, "
-            "total=%.6e\n",
-            E_inertial,
-            E_spring,
-            E_potential,
-            total_energy);
-        cudaDeviceSynchronize();
-        debug_counter++;
-    }
-
     return total_energy;
 }
 

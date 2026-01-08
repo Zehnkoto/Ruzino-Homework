@@ -26,7 +26,8 @@ struct MassSpringImplicitGPUStorage {
     cuda::CUDALinearBufferHandle gradients_buffer;
     cuda::CUDALinearBufferHandle f_ext_buffer;
 
-    size_t geom_hash = 0;
+    bool initialized = false;
+    int num_particles = 0;
 
     constexpr static bool has_storage = false;
 };
@@ -69,7 +70,7 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
     float damping = params.get_input<float>("Damping");
     int max_iterations = params.get_input<int>("Newton Iterations");
     float tolerance = params.get_input<float>("Newton Tolerance");
-    tolerance = std::max(tolerance, 1e-4f);
+    tolerance = std::max(tolerance, 1e-5f);
     float gravity = params.get_input<float>("Gravity");
     float restitution = params.get_input<float>("Ground Restitution");
     bool flip_normal = params.get_input<bool>("Flip Normal");
@@ -101,11 +102,17 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
         return true;
     }
 
-    if (input_geom.hash() != storage.geom_hash) {
+    // Initialize buffers only once or when particle count changes
+    if (!storage.initialized || storage.num_particles != num_particles) {
         // Write positions to GPU buffer
         storage.positions_buffer = cuda::create_cuda_linear_buffer(positions);
+
+        // Initialize velocities to zero
+        std::vector<glm::vec3> initial_velocities(
+            num_particles, glm::vec3(0.0f));
         storage.velocities_buffer =
-            cuda::create_cuda_linear_buffer<glm::vec3>(num_particles);
+            cuda::create_cuda_linear_buffer(initial_velocities);
+
         storage.next_positions_buffer =
             cuda::create_cuda_linear_buffer<float>(num_particles * 3);
         storage.gradients_buffer =
@@ -127,7 +134,8 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
         storage.rest_lengths_buffer = rzsim_cuda::compute_rest_lengths_gpu(
             storage.positions_buffer, storage.springs_buffer);
 
-        storage.geom_hash = input_geom.hash();
+        storage.initialized = true;
+        storage.num_particles = num_particles;
     }
 
     auto d_positions = storage.positions_buffer;
@@ -165,24 +173,17 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
         d_positions, d_velocities, dt, num_particles, d_next_positions);
 
     // Newton's method iterations
+    // Initialize x_new = x_tilde (predictive position) for better convergence
     auto d_x_new = cuda::create_cuda_linear_buffer<float>(num_particles * 3);
-    // Initialize x_new = x (current position, NOT x_tilde) - matching CPU
-    // implementation
-    auto positions_flat = d_positions->get_host_vector<glm::vec3>();
-    std::vector<float> x_init_flat(num_particles * 3);
-    for (int i = 0; i < num_particles; i++) {
-        x_init_flat[i * 3 + 0] = positions_flat[i].x;
-        x_init_flat[i * 3 + 1] = positions_flat[i].y;
-        x_init_flat[i * 3 + 2] = positions_flat[i].z;
-    }
-    d_x_new->assign_host_vector(x_init_flat);
+    auto x_tilde_host = d_next_positions->get_host_vector<float>();
+    d_x_new->assign_host_vector(x_tilde_host);
 
     spdlog::info(
-        "[GPU] Starting Newton iterations, max_iter={}, tol={:.2e}",
-        max_iterations,
-        tolerance);
+        "[GPU] Starting Newton iterations, max_iter={}",
+        max_iterations);
 
     bool converged = false;
+    float initial_grad_norm = 0.0f;
     for (int iter = 0; iter < max_iterations; iter++) {
         spdlog::info("[GPU] === Newton iteration {} ===", iter);
 
@@ -205,29 +206,41 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
 
         // Check gradient norm for convergence
         auto grad_host = d_gradients->get_host_vector<float>();
-        float grad_inf_norm = 0.0f;
+        float grad_norm = 0.0f;
         for (int i = 0; i < num_particles * 3; i++) {
-            grad_inf_norm = std::max(grad_inf_norm, std::abs(grad_host[i]));
+            grad_norm += grad_host[i] * grad_host[i];
+        }
+        grad_norm = std::sqrt(grad_norm);
+
+        // Record initial gradient norm
+        if (iter == 0) {
+            initial_grad_norm = grad_norm;
+            spdlog::info(
+                "[GPU] Initial gradient norm={:.6e}, target={:.6e}",
+                initial_grad_norm,
+                initial_grad_norm / 1000.0f);
         }
 
         spdlog::info(
-            "[GPU] Iteration {}: grad_inf_norm={:.6e}, grad_inf_norm/dt={:.6e}",
+            "[GPU] Iteration {}: grad_norm={:.6e}, ratio={:.6e}",
             iter,
-            grad_inf_norm,
-            grad_inf_norm / dt);
+            grad_norm,
+            grad_norm / (initial_grad_norm + 1e-20f));
 
         // Check for convergence
-        if (!std::isfinite(grad_inf_norm)) {
+        if (!std::isfinite(grad_norm)) {
             spdlog::error(
                 "[GPU] Gradient contains NaN/Inf at iteration {}", iter);
             break;
         }
 
-        if (grad_inf_norm / dt < tolerance) {
+        // Converge when gradient is 1/1000 of initial gradient
+        if (iter > 0 && grad_norm < initial_grad_norm / 100.0f) {
             spdlog::info(
-                "[GPU] Converged at iteration {} with grad_norm={:.6e}",
+                "[GPU] Converged at iteration {} with grad_norm={:.6e} (ratio={:.6e})",
                 iter,
-                grad_inf_norm / dt);
+                grad_norm,
+                grad_norm / initial_grad_norm);
             converged = true;
             break;
         }
@@ -253,7 +266,7 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
 
         // Adaptive CG tolerance based on gradient magnitude
         // CG residual should be 0.1% of gradient norm, but not too small
-        float cg_tol = std::max(1e-8f, grad_inf_norm * 1e-3f);
+        float cg_tol = std::max(1e-8f, grad_norm * 1e-2f);
 
         Ruzino::Solver::SolverConfig solver_config;
         solver_config.tolerance = cg_tol;
@@ -264,11 +277,11 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
 
         if (iter <= 1) {
             printf(
-                "[GPU] Iter %d: CG tolerance set to %.6e (grad_inf_norm = "
+                "[GPU] Iter %d: CG tolerance set to %.6e (grad_norm = "
                 "%.6e)\n",
                 iter,
                 cg_tol,
-                grad_inf_norm);
+                grad_norm);
         }
 
         // Negate gradient for RHS: -grad
@@ -316,9 +329,8 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
             p_norm_sq += p_host[i] * p_host[i];
         }
         float p_norm = std::sqrt(p_norm_sq);
-        float grad_norm_sq = grad_inf_norm * grad_inf_norm;
-        float cosine = p_dot_grad / (p_norm * grad_inf_norm + 1e-20f);
-        
+        float cosine = p_dot_grad / (p_norm * grad_norm + 1e-20f);
+
         if (!result.converged) {
             spdlog::error(
                 "[GPU] Newton solve failed at iteration {}: {} (iters={}, "
@@ -329,7 +341,7 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
                 result.final_residual);
             break;
         }
-        
+
         spdlog::info(
             "[GPU] Iter {}: p^T * grad = {:.6e}, cos(angle)={:.6f}",
             iter,
@@ -354,7 +366,7 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
         spdlog::info(
             "[GPU] Newton iter {}: grad_norm={:.6e}, CG_iters={}",
             iter,
-            grad_inf_norm / dt,
+            grad_norm / dt,
             result.iterations);
 
         // Line search with energy descent
@@ -451,14 +463,11 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
     // Update velocities: v = (x_new - x_n) / dt and apply damping
     auto x_new_final = d_x_new->get_host_vector<float>();
     auto x_n_host = d_positions->get_host_vector<glm::vec3>();
-    std::vector<float> v_new(num_particles * 3);
+    std::vector<glm::vec3> v_new(num_particles);
     for (int i = 0; i < num_particles; i++) {
-        v_new[i * 3 + 0] =
-            (x_new_final[i * 3 + 0] - x_n_host[i].x) / dt * damping;
-        v_new[i * 3 + 1] =
-            (x_new_final[i * 3 + 1] - x_n_host[i].y) / dt * damping;
-        v_new[i * 3 + 2] =
-            (x_new_final[i * 3 + 2] - x_n_host[i].z) / dt * damping;
+        v_new[i].x = (x_new_final[i * 3 + 0] - x_n_host[i].x) / dt * damping;
+        v_new[i].y = (x_new_final[i * 3 + 1] - x_n_host[i].y) / dt * damping;
+        v_new[i].z = (x_new_final[i * 3 + 2] - x_n_host[i].z) / dt * damping;
     }
 
     // Handle ground collision (z = 0)
@@ -469,11 +478,11 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
             x_new_final[i * 3 + 2] = 0.0f;
 
             // Apply collision response to velocity
-            if (v_new[i * 3 + 2] < 0.0f) {  // Moving downward
-                v_new[i * 3 + 2] = -v_new[i * 3 + 2] * restitution;
+            if (v_new[i].z < 0.0f) {  // Moving downward
+                v_new[i].z = -v_new[i].z * restitution;
                 float friction = 0.8f;
-                v_new[i * 3 + 0] *= friction;
-                v_new[i * 3 + 1] *= friction;
+                v_new[i].x *= friction;
+                v_new[i].y *= friction;
             }
             num_collisions++;
         }
@@ -483,9 +492,6 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
         spdlog::debug("[GPU] Ground collisions: {} particles", num_collisions);
     }
 
-    d_velocities->assign_host_vector(v_new);
-    d_positions->assign_host_vector(x_new_final);
-
     // Convert to output format
     std::vector<glm::vec3> new_positions(num_particles);
     for (int i = 0; i < num_particles; i++) {
@@ -493,6 +499,9 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
         new_positions[i].y = x_new_final[i * 3 + 1];
         new_positions[i].z = x_new_final[i * 3 + 2];
     }
+
+    d_velocities->assign_host_vector(v_new);
+    d_positions->assign_host_vector(new_positions);
 
     // Update geometry with new positions
     if (mesh_component) {

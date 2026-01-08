@@ -253,18 +253,18 @@ static bool solve_newton(
             spring_stiffness,
             dt);
 
-        double grad_inf_norm = grad.lpNorm<Eigen::Infinity>();
+        double grad_norm = grad.norm();
 
-        if (!std::isfinite(grad_inf_norm)) {
+        if (!std::isfinite(grad_norm)) {
             spdlog::error("Gradient contains NaN/Inf at iteration {}", iter);
             return false;
         }
 
-        if (grad_inf_norm / dt < tolerance) {
+        if (grad_norm / dt < tolerance) {
             spdlog::info(
                 "Converged at iteration {} with grad_norm={:.6e}",
                 iter,
-                grad_inf_norm / dt);
+                grad_norm / dt);
             return true;
         }
 
@@ -307,7 +307,7 @@ static bool solve_newton(
         spdlog::debug(
             "Newton iter {}: grad_norm={:.6e}, solver_iters={}",
             iter,
-            grad_inf_norm / dt,
+            grad_norm / dt,
             solver.iterations());
 
         // Energy-based line search (like CUDA version)
