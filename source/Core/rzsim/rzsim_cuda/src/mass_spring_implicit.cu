@@ -467,23 +467,6 @@ __device__ Eigen::Matrix3f project_psd_custom(const Eigen::Matrix3f& H)
     return result;
 }
 
-// Kernel to compute 3x3 eigenvalues and eigenvectors using analytical solution
-__device__ Eigen::Matrix3f project_psd(const Eigen::Matrix3f& H)
-{
-    Eigen::SelfAdjointEigenSolver<Eigen::Matrix3f> eigensolver(H);
-    Eigen::Vector3f eigenvalues = eigensolver.eigenvalues();
-    Eigen::Matrix3f eigenvectors = eigensolver.eigenvectors();
-
-    // Clamp negative eigenvalues to zero
-    for (int i = 0; i < 3; i++) {
-        if (eigenvalues(i) < 0.0f)
-            eigenvalues(i) = 0.0f;
-    }
-
-    // Reconstruct: H_psd = V * Lambda * V^T
-    return eigenvectors * eigenvalues.asDiagonal() * eigenvectors.transpose();
-}
-
 // Kernel to compute triplets for spring Hessian blocks
 __global__ void compute_spring_hessian_kernel(
     const float* x_curr,
@@ -527,7 +510,7 @@ __global__ void compute_spring_hessian_kernel(
 
     // TEMPORARY: Disable PSD projection to debug
     // Use custom PSD projection (Eigen's solver doesn't work on CUDA device)
-    // H_diff = project_psd_custom(H_diff);
+    H_diff = project_psd_custom(H_diff);
 
     // Scale by dt^2
     float scale = dt * dt;
@@ -923,13 +906,22 @@ float compute_energy_gpu(
     return total_energy;
 }
 
-// Functors for thrust operations (must be defined outside functions for CUDA compatibility)
+// Functors for thrust operations (must be defined outside functions for CUDA
+// compatibility)
 struct square_op {
-    __device__ float operator()(float x) const { return x * x; }
+    __device__ float operator()(float x) const
+    {
+        return x * x;
+    }
 };
 
 // Kernel for axpy: result = y + alpha * x
-__global__ void axpy_kernel(float alpha, const float* x, const float* y, float* result, int size)
+__global__ void axpy_kernel(
+    float alpha,
+    const float* x,
+    const float* y,
+    float* result,
+    int size)
 {
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     if (tid < size) {
@@ -951,7 +943,7 @@ float compute_vector_norm_gpu(cuda::CUDALinearBufferHandle vec, int size)
 {
     float* vec_ptr = reinterpret_cast<float*>(vec->get_device_ptr());
     thrust::device_ptr<float> d_vec(vec_ptr);
-    
+
     // Compute sum of squares using functor
     float sum_sq = thrust::transform_reduce(
         thrust::device,
@@ -960,7 +952,7 @@ float compute_vector_norm_gpu(cuda::CUDALinearBufferHandle vec, int size)
         square_op(),
         0.0f,
         thrust::plus<float>());
-    
+
     return sqrtf(sum_sq);
 }
 
@@ -971,16 +963,12 @@ float compute_dot_product_gpu(
 {
     float* vec1_ptr = reinterpret_cast<float*>(vec1->get_device_ptr());
     float* vec2_ptr = reinterpret_cast<float*>(vec2->get_device_ptr());
-    
+
     thrust::device_ptr<float> d_vec1(vec1_ptr);
     thrust::device_ptr<float> d_vec2(vec2_ptr);
-    
+
     return thrust::inner_product(
-        thrust::device,
-        d_vec1,
-        d_vec1 + size,
-        d_vec2,
-        0.0f);
+        thrust::device, d_vec1, d_vec1 + size, d_vec2, 0.0f);
 }
 
 void axpy_gpu(
@@ -993,10 +981,11 @@ void axpy_gpu(
     float* x_ptr = reinterpret_cast<float*>(x->get_device_ptr());
     float* y_ptr = reinterpret_cast<float*>(y->get_device_ptr());
     float* result_ptr = reinterpret_cast<float*>(result->get_device_ptr());
-    
+
     int block_size = 256;
     int num_blocks = (size + block_size - 1) / block_size;
-    axpy_kernel<<<num_blocks, block_size>>>(alpha, x_ptr, y_ptr, result_ptr, size);
+    axpy_kernel<<<num_blocks, block_size>>>(
+        alpha, x_ptr, y_ptr, result_ptr, size);
     cudaDeviceSynchronize();
 }
 
@@ -1007,7 +996,7 @@ void negate_gpu(
 {
     float* in_ptr = reinterpret_cast<float*>(in->get_device_ptr());
     float* out_ptr = reinterpret_cast<float*>(out->get_device_ptr());
-    
+
     int block_size = 256;
     int num_blocks = (size + block_size - 1) / block_size;
     negate_kernel<<<num_blocks, block_size>>>(in_ptr, out_ptr, size);
