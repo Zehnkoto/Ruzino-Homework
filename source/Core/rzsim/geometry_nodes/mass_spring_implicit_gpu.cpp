@@ -30,6 +30,25 @@ struct MassSpringImplicitGPUStorage {
     cuda::CUDALinearBufferHandle spring_indices_per_vertex;
     cuda::CUDALinearBufferHandle vertex_spring_offsets;
 
+    // Temporary buffers for Newton iterations (reused across iterations)
+    cuda::CUDALinearBufferHandle x_new_buffer;
+    cuda::CUDALinearBufferHandle newton_direction_buffer;
+    cuda::CUDALinearBufferHandle neg_gradient_buffer;
+    cuda::CUDALinearBufferHandle x_candidate_buffer;
+
+    // Temporary buffers for energy computation (reused)
+    cuda::CUDALinearBufferHandle inertial_terms_buffer;
+    cuda::CUDALinearBufferHandle spring_energies_buffer;
+    cuda::CUDALinearBufferHandle potential_terms_buffer;
+
+    // Temporary buffers for Hessian assembly (reused)
+    cuda::CUDALinearBufferHandle hessian_triplet_rows;
+    cuda::CUDALinearBufferHandle hessian_triplet_cols;
+    cuda::CUDALinearBufferHandle hessian_triplet_vals;
+    cuda::CUDALinearBufferHandle hessian_unique_rows;
+    cuda::CUDALinearBufferHandle hessian_unique_cols;
+    cuda::CUDALinearBufferHandle hessian_unique_vals;
+
     bool initialized = false;
     int num_particles = 0;
 
@@ -76,7 +95,7 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
     int substeps = params.get_input<int>("Substeps");
     int max_iterations = params.get_input<int>("Newton Iterations");
     float tolerance = params.get_input<float>("Newton Tolerance");
-    tolerance = std::max(tolerance, 1e-6f);
+    tolerance = std::max(tolerance, 1e-8f);
     float gravity = params.get_input<float>("Gravity");
     float restitution = params.get_input<float>("Ground Restitution");
     bool flip_normal = params.get_input<bool>("Flip Normal");
@@ -147,6 +166,43 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
         storage.spring_indices_per_vertex = spring_indices;
         storage.vertex_spring_offsets = vertex_offsets;
 
+        // Allocate temporary buffers for Newton iterations (reused)
+        storage.x_new_buffer =
+            cuda::create_cuda_linear_buffer<float>(num_particles * 3);
+        storage.newton_direction_buffer =
+            cuda::create_cuda_linear_buffer<float>(num_particles * 3);
+        storage.neg_gradient_buffer =
+            cuda::create_cuda_linear_buffer<float>(num_particles * 3);
+        storage.x_candidate_buffer =
+            cuda::create_cuda_linear_buffer<float>(num_particles * 3);
+
+        // Allocate temporary buffers for energy computation
+        storage.inertial_terms_buffer =
+            cuda::create_cuda_linear_buffer<float>(num_particles * 3);
+        int num_springs = storage.springs_buffer->getDesc().element_count / 2;
+        storage.spring_energies_buffer =
+            cuda::create_cuda_linear_buffer<float>(num_springs);
+        storage.potential_terms_buffer =
+            cuda::create_cuda_linear_buffer<float>(num_particles * 3);
+
+        // Allocate temporary buffers for Hessian assembly
+        size_t max_spring_triplets = (size_t)num_springs * 36;
+        size_t max_total_triplets = num_particles * 3 + max_spring_triplets;
+        storage.hessian_triplet_rows =
+            cuda::create_cuda_linear_buffer<int>(max_total_triplets);
+        storage.hessian_triplet_cols =
+            cuda::create_cuda_linear_buffer<int>(max_total_triplets);
+        storage.hessian_triplet_vals =
+            cuda::create_cuda_linear_buffer<float>(max_total_triplets);
+        
+        // Buffers for unique entries after reduce_by_key
+        storage.hessian_unique_rows =
+            cuda::create_cuda_linear_buffer<int>(max_total_triplets);
+        storage.hessian_unique_cols =
+            cuda::create_cuda_linear_buffer<int>(max_total_triplets);
+        storage.hessian_unique_vals =
+            cuda::create_cuda_linear_buffer<float>(max_total_triplets);
+
         storage.initialized = true;
         storage.num_particles = num_particles;
     }
@@ -174,20 +230,13 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
         // Newton's method iterations
         // Initialize x_new = x_tilde (predictive position) for better
         // convergence
-        auto d_x_new =
-            cuda::create_cuda_linear_buffer<float>(num_particles * 3);
-        d_x_new->copy_from_device(d_next_positions.Get());
+        storage.x_new_buffer->copy_from_device(d_next_positions.Get());
 
         bool converged = false;
         for (int iter = 0; iter < max_iterations; iter++) {
-            // Create fresh buffer for Newton direction each iteration to avoid
-            // warm start issues
-            auto d_p =
-                cuda::create_cuda_linear_buffer<float>(num_particles * 3);
-
             // Compute gradient at current x_new
             rzsim_cuda::compute_gradient_gpu(
-                d_x_new,
+                storage.x_new_buffer,
                 d_next_positions,  // x_tilde (unchanged)
                 d_M_diag,
                 d_f_ext,
@@ -221,13 +270,19 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
 
             // Assemble Hessian matrix
             auto hessian = rzsim_cuda::assemble_hessian_gpu(
-                d_x_new,
+                storage.x_new_buffer,
                 d_M_diag,
                 d_springs,
                 d_rest_lengths,
                 stiffness,
                 dt_sub,
-                num_particles);
+                num_particles,
+                storage.hessian_triplet_rows,
+                storage.hessian_triplet_cols,
+                storage.hessian_triplet_vals,
+                storage.hessian_unique_rows,
+                storage.hessian_unique_cols,
+                storage.hessian_unique_vals);
 
             // Solve H * p = -grad using CUDA CG
             auto solver = Ruzino::Solver::SolverFactory::create(
@@ -244,10 +299,8 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
             solver_config.verbose = false;
 
             // Negate gradient for RHS: -grad (do on GPU)
-            auto d_neg_grad =
-                cuda::create_cuda_linear_buffer<float>(num_particles * 3);
-
-            rzsim_cuda::negate_gpu(d_gradients, d_neg_grad, num_particles * 3);
+            rzsim_cuda::negate_gpu(
+                d_gradients, storage.neg_gradient_buffer, num_particles * 3);
 
             // Solve on GPU
             auto result = solver->solveGPU(
@@ -259,8 +312,10 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
                     hessian.col_indices->get_device_ptr()),
                 reinterpret_cast<const float*>(
                     hessian.values->get_device_ptr()),
-                reinterpret_cast<const float*>(d_neg_grad->get_device_ptr()),
-                reinterpret_cast<float*>(d_p->get_device_ptr()),
+                reinterpret_cast<const float*>(
+                    storage.neg_gradient_buffer->get_device_ptr()),
+                reinterpret_cast<float*>(
+                    storage.newton_direction_buffer->get_device_ptr()),
                 solver_config);
 
             if (!result.converged) {
@@ -269,7 +324,7 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
 
             // Line search with energy descent
             float E_current = rzsim_cuda::compute_energy_gpu(
-                d_x_new,
+                storage.x_new_buffer,
                 d_next_positions,  // x_tilde
                 d_M_diag,
                 d_f_ext,
@@ -277,12 +332,12 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
                 d_rest_lengths,
                 stiffness,
                 dt_sub,
-                num_particles);
+                num_particles,
+                storage.inertial_terms_buffer,
+                storage.spring_energies_buffer,
+                storage.potential_terms_buffer);
 
             float alpha = 1.0f;
-            auto d_x_candidate =
-                cuda::create_cuda_linear_buffer<float>(num_particles * 3);
-
             int ls_iter = 0;
             float E_candidate =
                 std::numeric_limits<float>::infinity();  // Start with +infinity
@@ -292,10 +347,14 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
             while (E_candidate > E_current && ls_iter < 50) {
                 // x_candidate = x_new + alpha * p (computed on GPU)
                 rzsim_cuda::axpy_gpu(
-                    alpha, d_p, d_x_new, d_x_candidate, num_particles * 3);
+                    alpha,
+                    storage.newton_direction_buffer,
+                    storage.x_new_buffer,
+                    storage.x_candidate_buffer,
+                    num_particles * 3);
 
                 E_candidate = rzsim_cuda::compute_energy_gpu(
-                    d_x_candidate,
+                    storage.x_candidate_buffer,
                     d_next_positions,
                     d_M_diag,
                     d_f_ext,
@@ -303,13 +362,18 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
                     d_rest_lengths,
                     stiffness,
                     dt_sub,
-                    num_particles);
+                    num_particles,
+                    storage.inertial_terms_buffer,
+                    storage.spring_energies_buffer,
+                    storage.potential_terms_buffer);
 
                 if (E_candidate <= E_current) {
                     // Accept step - copy result directly on GPU
                     // Copy d_x_candidate to d_x_new on GPU
-                    float* x_cand_ptr = d_x_candidate->get_device_ptr<float>();
-                    float* x_new_ptr = d_x_new->get_device_ptr<float>();
+                    float* x_cand_ptr =
+                        storage.x_candidate_buffer->get_device_ptr<float>();
+                    float* x_new_ptr =
+                        storage.x_new_buffer->get_device_ptr<float>();
                     cudaMemcpy(
                         x_new_ptr,
                         x_cand_ptr,
@@ -324,7 +388,7 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
         }
 
         // Update velocities: v = (x_new - x_n) / dt_sub and apply damping
-        auto x_new_final = d_x_new->get_host_vector<float>();
+        auto x_new_final = storage.x_new_buffer->get_host_vector<float>();
         auto x_n_host = d_positions->get_host_vector<glm::vec3>();
         std::vector<glm::vec3> v_new(num_particles);
         for (int i = 0; i < num_particles; i++) {

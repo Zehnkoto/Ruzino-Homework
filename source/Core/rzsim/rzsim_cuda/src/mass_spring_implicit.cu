@@ -739,7 +739,13 @@ CSRMatrix assemble_hessian_gpu(
     cuda::CUDALinearBufferHandle rest_lengths,
     float stiffness,
     float dt,
-    int num_particles)
+    int num_particles,
+    cuda::CUDALinearBufferHandle d_triplet_rows,
+    cuda::CUDALinearBufferHandle d_triplet_cols,
+    cuda::CUDALinearBufferHandle d_triplet_vals,
+    cuda::CUDALinearBufferHandle d_unique_rows,
+    cuda::CUDALinearBufferHandle d_unique_cols,
+    cuda::CUDALinearBufferHandle d_unique_vals)
 {
     CSRMatrix result;
     int num_springs = springs->getDesc().element_count / 2;
@@ -750,15 +756,8 @@ CSRMatrix assemble_hessian_gpu(
     // Spring contributions: num_springs * 36 entries (4 blocks * 9)
     int num_mass_triplets = num_particles * 3;
     size_t max_spring_triplets = (size_t)num_springs * 36;
-    size_t max_total_triplets = num_mass_triplets + max_spring_triplets;
 
-    // Allocate temporary buffers for triplets
-    auto d_triplet_rows =
-        cuda::create_cuda_linear_buffer<int>(max_total_triplets);
-    auto d_triplet_cols =
-        cuda::create_cuda_linear_buffer<int>(max_total_triplets);
-    auto d_triplet_vals =
-        cuda::create_cuda_linear_buffer<float>(max_total_triplets);
+    // Use pre-allocated buffers instead of creating new ones
     auto d_num_triplets_per_spring =
         cuda::create_cuda_linear_buffer<int>(num_springs);
 
@@ -795,24 +794,34 @@ CSRMatrix assemble_hessian_gpu(
     // Total number of triplets (all valid ones)
     size_t total_triplets = num_mass_triplets + max_spring_triplets;
 
-    // Sort triplets by (row, col) using Thrust
+    // Get device pointers
     thrust::device_ptr<int> rows_ptr(d_triplet_rows->get_device_ptr<int>());
     thrust::device_ptr<int> cols_ptr(d_triplet_cols->get_device_ptr<int>());
     thrust::device_ptr<float> vals_ptr(d_triplet_vals->get_device_ptr<float>());
 
-    // Create zip iterator for sorting
-    auto zip_begin = thrust::make_zip_iterator(
-        thrust::make_tuple(rows_ptr, cols_ptr, vals_ptr));
-    auto zip_end = zip_begin + total_triplets;
-
-    thrust::sort(thrust::device, zip_begin, zip_end, TripletComparator());
+    // Optimization: Use stable_sort_by_key which is faster and preserves order
+    // Sort by (row, col) - first sort by col, then by row for correct ordering
+    thrust::stable_sort_by_key(
+        thrust::device,
+        cols_ptr,
+        cols_ptr + total_triplets,
+        thrust::make_zip_iterator(thrust::make_tuple(rows_ptr, vals_ptr)));
+    
+    thrust::stable_sort_by_key(
+        thrust::device,
+        rows_ptr,
+        rows_ptr + total_triplets,
+        thrust::make_zip_iterator(thrust::make_tuple(cols_ptr, vals_ptr)));
 
     cudaDeviceSynchronize();
 
-    // Sum duplicate entries using thrust::reduce_by_key
-    thrust::device_vector<int> unique_rows(total_triplets);
-    thrust::device_vector<int> unique_cols(total_triplets);
-    thrust::device_vector<float> unique_vals(total_triplets);
+    // Use pre-allocated unique buffers
+    thrust::device_ptr<int> unique_rows_ptr(
+        d_unique_rows->get_device_ptr<int>());
+    thrust::device_ptr<int> unique_cols_ptr(
+        d_unique_cols->get_device_ptr<int>());
+    thrust::device_ptr<float> unique_vals_ptr(
+        d_unique_vals->get_device_ptr<float>());
 
     auto key_begin =
         thrust::make_zip_iterator(thrust::make_tuple(rows_ptr, cols_ptr));
@@ -824,11 +833,11 @@ CSRMatrix assemble_hessian_gpu(
         key_end,
         vals_ptr,
         thrust::make_zip_iterator(
-            thrust::make_tuple(unique_rows.begin(), unique_cols.begin())),
-        unique_vals.begin(),
+            thrust::make_tuple(unique_rows_ptr, unique_cols_ptr)),
+        unique_vals_ptr,
         KeyEqual());
 
-    int nnz = new_end.second - unique_vals.begin();
+    int nnz = new_end.second - unique_vals_ptr;
 
     // Convert to CSR format
     result.num_rows = n;
@@ -839,15 +848,18 @@ CSRMatrix assemble_hessian_gpu(
     result.values = cuda::create_cuda_linear_buffer<float>(nnz);
     result.row_offsets = cuda::create_cuda_linear_buffer<int>(n + 1);
 
-    // Copy unique cols and vals
-    thrust::copy(
-        unique_cols.begin(),
-        unique_cols.begin() + nnz,
-        thrust::device_ptr<int>(result.col_indices->get_device_ptr<int>()));
-    thrust::copy(
-        unique_vals.begin(),
-        unique_vals.begin() + nnz,
-        thrust::device_ptr<float>(result.values->get_device_ptr<float>()));
+    // Direct copy from unique buffers to final CSR buffers
+    cudaMemcpy(
+        result.col_indices->get_device_ptr<int>(),
+        d_unique_cols->get_device_ptr<int>(),
+        nnz * sizeof(int),
+        cudaMemcpyDeviceToDevice);
+    
+    cudaMemcpy(
+        result.values->get_device_ptr<float>(),
+        d_unique_vals->get_device_ptr<float>(),
+        nnz * sizeof(float),
+        cudaMemcpyDeviceToDevice);
 
     // Build row_offsets: histogram approach
     thrust::device_ptr<int> row_offsets_ptr(
@@ -858,7 +870,6 @@ CSRMatrix assemble_hessian_gpu(
     thrust::fill(thrust::device, row_offsets_ptr, row_offsets_ptr + n + 1, 0);
 
     // Count entries per row using histogram
-    thrust::device_ptr<int> unique_rows_ptr(unique_rows.data());
     int* unique_rows_raw = thrust::raw_pointer_cast(unique_rows_ptr);
 
     thrust::for_each(
@@ -927,7 +938,10 @@ float compute_energy_gpu(
     cuda::CUDALinearBufferHandle rest_lengths,
     float stiffness,
     float dt,
-    int num_particles)
+    int num_particles,
+    cuda::CUDALinearBufferHandle d_inertial_terms,
+    cuda::CUDALinearBufferHandle d_spring_energies,
+    cuda::CUDALinearBufferHandle d_potential_terms)
 {
     int n = num_particles * 3;
     int num_springs = springs->getDesc().element_count / 2;
@@ -937,8 +951,7 @@ float compute_energy_gpu(
     float* M_ptr = reinterpret_cast<float*>(M_diag->get_device_ptr());
     float* f_ptr = reinterpret_cast<float*>(f_ext->get_device_ptr());
 
-    // Compute inertial energy: 0.5 * M * ||x - x_tilde||^2
-    auto d_inertial_terms = cuda::create_cuda_linear_buffer<float>(n);
+    // Use pre-allocated buffers instead of creating new ones
     float* inertial_ptr =
         reinterpret_cast<float*>(d_inertial_terms->get_device_ptr());
 
@@ -953,9 +966,7 @@ float compute_energy_gpu(
     float E_inertial =
         thrust::reduce(d_inertial_thrust, d_inertial_thrust + n, 0.0f);
 
-    // Compute spring energy
-    auto d_spring_energies =
-        cuda::create_cuda_linear_buffer<float>(num_springs);
+    // Use pre-allocated buffer for spring energies
     float* spring_energy_ptr =
         reinterpret_cast<float*>(d_spring_energies->get_device_ptr());
 
@@ -976,8 +987,7 @@ float compute_energy_gpu(
     float E_spring =
         thrust::reduce(d_spring_thrust, d_spring_thrust + num_springs, 0.0f);
 
-    // Compute potential energy: -f_ext^T * x
-    auto d_potential_terms = cuda::create_cuda_linear_buffer<float>(n);
+    // Use pre-allocated buffer for potential energy
     float* potential_ptr =
         reinterpret_cast<float*>(d_potential_terms->get_device_ptr());
 

@@ -75,7 +75,13 @@ CSRMatrix assemble_hessian_gpu(
     cuda::CUDALinearBufferHandle rest_lengths,
     float stiffness,
     float dt,
-    int num_particles);
+    int num_particles,
+    cuda::CUDALinearBufferHandle triplet_rows,
+    cuda::CUDALinearBufferHandle triplet_cols,
+    cuda::CUDALinearBufferHandle triplet_vals,
+    cuda::CUDALinearBufferHandle unique_rows,
+    cuda::CUDALinearBufferHandle unique_cols,
+    cuda::CUDALinearBufferHandle unique_vals);
 
 RZSIM_CUDA_API
 float compute_energy_gpu(
@@ -87,7 +93,10 @@ float compute_energy_gpu(
     cuda::CUDALinearBufferHandle rest_lengths,
     float stiffness,
     float dt,
-    int num_particles);
+    int num_particles,
+    cuda::CUDALinearBufferHandle inertial_terms,
+    cuda::CUDALinearBufferHandle spring_energies,
+    cuda::CUDALinearBufferHandle potential_terms);
 
 // GPU vector operations to avoid CPU-GPU transfers
 RZSIM_CUDA_API
