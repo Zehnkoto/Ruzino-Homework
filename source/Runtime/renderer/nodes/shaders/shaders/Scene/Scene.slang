@@ -507,6 +507,9 @@ VertexInfo computeVertexData(
 
     v.normalW = normalize(v.normalW);
     v.faceNormalW = normalize(v.faceNormalW);
+    if (dot(v.normalW, v.faceNormalW) < 0.0f) {
+        v.faceNormalW = -v.faceNormalW;
+    }
     v.tangentW.xyz = normalize(v.tangentW.xyz);
     return v;
 }

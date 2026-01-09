@@ -895,6 +895,258 @@ CSRMatrix assemble_hessian_gpu(
     return result;
 }
 
+// ============================================================================
+// NEW: Zero-sort direct-fill implementation
+// ============================================================================
+
+// Build CSR sparsity pattern once during initialization
+CSRStructure build_hessian_structure_gpu(
+    cuda::CUDALinearBufferHandle springs,
+    int num_particles)
+{
+    CSRStructure structure;
+    int num_springs = springs->getDesc().element_count / 2;
+    int n = num_particles * 3;
+    
+    // Get springs on host to build structure
+    std::vector<int> h_springs = springs->get_host_vector<int>();
+    
+    // Build sparsity pattern on CPU (one-time cost)
+    std::map<std::pair<int, int>, int> position_map;  // (row,col) -> position in values array
+    int nnz = 0;
+    
+    // Add all entries: mass diagonal + spring blocks
+    // 1. Mass diagonal (guaranteed to exist)
+    for (int i = 0; i < n; ++i) {
+        position_map[{i, i}] = nnz++;
+    }
+    
+    // 2. Spring contributions (4 3x3 blocks per spring)
+    for (int sid = 0; sid < num_springs; ++sid) {
+        int vi = h_springs[sid * 2];
+        int vj = h_springs[sid * 2 + 1];
+        
+        // 4 blocks: (vi,vi), (vi,vj), (vj,vi), (vj,vj)
+        for (int block_r = 0; block_r < 2; ++block_r) {
+            for (int block_c = 0; block_c < 2; ++block_c) {
+                int v_row = (block_r == 0) ? vi : vj;
+                int v_col = (block_c == 0) ? vi : vj;
+                
+                // Each block is 3x3
+                for (int r = 0; r < 3; ++r) {
+                    for (int c = 0; c < 3; ++c) {
+                        int global_row = v_row * 3 + r;
+                        int global_col = v_col * 3 + c;
+                        
+                        auto key = std::make_pair(global_row, global_col);
+                        if (position_map.find(key) == position_map.end()) {
+                            position_map[key] = nnz++;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Build CSR arrays
+    std::vector<int> h_row_offsets(n + 1, 0);
+    std::vector<int> h_col_indices(nnz);
+    std::vector<int> h_spring_positions(num_springs * 36);
+    std::vector<int> h_mass_positions(n);
+    
+    // Sort entries by (row, col) and build CSR
+    std::vector<std::pair<std::pair<int,int>, int>> sorted_entries;
+    for (const auto& entry : position_map) {
+        sorted_entries.push_back(entry);
+    }
+    std::sort(sorted_entries.begin(), sorted_entries.end());
+    
+    // Build col_indices and update position_map with sorted positions
+    std::map<std::pair<int, int>, int> sorted_position_map;
+    for (int i = 0; i < nnz; ++i) {
+        auto [row_col, old_pos] = sorted_entries[i];
+        h_col_indices[i] = row_col.second;
+        sorted_position_map[row_col] = i;
+        h_row_offsets[row_col.first + 1]++;
+    }
+    
+    // Convert counts to offsets
+    for (int i = 1; i <= n; ++i) {
+        h_row_offsets[i] += h_row_offsets[i - 1];
+    }
+    
+    // Build position mappings for fast updates
+    // Mass diagonal positions
+    for (int i = 0; i < n; ++i) {
+        h_mass_positions[i] = sorted_position_map[{i, i}];
+    }
+    
+    // Spring block positions (36 entries per spring)
+    for (int sid = 0; sid < num_springs; ++sid) {
+        int vi = h_springs[sid * 2];
+        int vj = h_springs[sid * 2 + 1];
+        int base_idx = sid * 36;
+        int count = 0;
+        
+        // Same order as kernel: (vi,vi), (vi,vj), (vj,vi), (vj,vj)
+        for (int block_r = 0; block_r < 2; ++block_r) {
+            for (int block_c = 0; block_c < 2; ++block_c) {
+                int v_row = (block_r == 0) ? vi : vj;
+                int v_col = (block_c == 0) ? vi : vj;
+                
+                for (int r = 0; r < 3; ++r) {
+                    for (int c = 0; c < 3; ++c) {
+                        int global_row = v_row * 3 + r;
+                        int global_col = v_col * 3 + c;
+                        h_spring_positions[base_idx + count++] = 
+                            sorted_position_map[{global_row, global_col}];
+                    }
+                }
+            }
+        }
+    }
+    
+    // Upload to GPU
+    structure.row_offsets = cuda::create_cuda_linear_buffer(h_row_offsets);
+    structure.col_indices = cuda::create_cuda_linear_buffer(h_col_indices);
+    structure.spring_value_positions = cuda::create_cuda_linear_buffer(h_spring_positions);
+    structure.mass_value_positions = cuda::create_cuda_linear_buffer(h_mass_positions);
+    structure.num_rows = n;
+    structure.num_cols = n;
+    structure.nnz = nnz;
+    
+    return structure;
+}
+
+// Kernel: Directly fill spring Hessian values into CSR (no sorting needed!)
+__global__ void fill_spring_hessian_values_kernel(
+    const float* x_curr,
+    const int* springs,
+    const float* rest_lengths,
+    const int* value_positions,  // Pre-computed positions in values array
+    float stiffness,
+    float dt,
+    int num_springs,
+    float* values)  // Output CSR values array
+{
+    int sid = blockIdx.x * blockDim.x + threadIdx.x;
+    if (sid >= num_springs)
+        return;
+    
+    int vi = springs[sid * 2];
+    int vj = springs[sid * 2 + 1];
+    float l0 = rest_lengths[sid];
+    
+    if (l0 < 1e-10f) {
+        return;  // Skip degenerate springs
+    }
+    
+    float k = stiffness;
+    float l0_sq = l0 * l0;
+    
+    // Get positions
+    Eigen::Vector3f xi(x_curr[vi * 3], x_curr[vi * 3 + 1], x_curr[vi * 3 + 2]);
+    Eigen::Vector3f xj(x_curr[vj * 3], x_curr[vj * 3 + 1], x_curr[vj * 3 + 2]);
+    Eigen::Vector3f diff = xi - xj;
+    float diff_sq = diff.squaredNorm();
+    
+    // H_diff = 2*k/l0^2 * (2*outer(diff,diff) + (diff_sq - l0^2)*I)
+    Eigen::Matrix3f outer = diff * diff.transpose();
+    Eigen::Matrix3f H_diff =
+        2.0f * k / l0_sq *
+        (2.0f * outer + (diff_sq - l0_sq) * Eigen::Matrix3f::Identity());
+    
+    // PSD projection
+    H_diff = project_psd_custom(H_diff);
+    
+    // Scale by dt^2
+    float scale = dt * dt;
+    H_diff *= scale;
+    
+    // Directly write to pre-computed positions (using atomic add for safety)
+    int base_idx = sid * 36;
+    int count = 0;
+    
+    // 4 blocks: (vi,vi), (vi,vj), (vj,vi), (vj,vj)
+    for (int block_r = 0; block_r < 2; ++block_r) {
+        for (int block_c = 0; block_c < 2; ++block_c) {
+            float sign_row = (block_r == 0) ? 1.0f : -1.0f;
+            float sign_col = (block_c == 0) ? 1.0f : -1.0f;
+            
+            for (int r = 0; r < 3; ++r) {
+                for (int c = 0; c < 3; ++c) {
+                    float val = H_diff(r, c) * sign_row * sign_col;
+                    int pos = value_positions[base_idx + count++];
+                    atomicAdd(&values[pos], val);
+                }
+            }
+        }
+    }
+}
+
+// Kernel: Directly fill mass diagonal into CSR
+__global__ void fill_mass_diagonal_kernel(
+    const float* M_diag,
+    const int* mass_positions,
+    int num_dofs,
+    float* values)
+{
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    if (tid >= num_dofs)
+        return;
+    
+    float regularization = 1e-6f;
+    int pos = mass_positions[tid];
+    values[pos] = M_diag[tid] + regularization;
+}
+
+// Fast update: directly fill values (NO SORTING!)
+void update_hessian_values_gpu(
+    const CSRStructure& csr_structure,
+    cuda::CUDALinearBufferHandle x_curr,
+    cuda::CUDALinearBufferHandle M_diag,
+    cuda::CUDALinearBufferHandle springs,
+    cuda::CUDALinearBufferHandle rest_lengths,
+    float stiffness,
+    float dt,
+    int num_particles,
+    cuda::CUDALinearBufferHandle values)
+{
+    int num_springs = springs->getDesc().element_count / 2;
+    int num_dofs = num_particles * 3;
+    int block_size = 256;
+    
+    // Zero out values array
+    cudaMemset(values->get_device_ptr<float>(), 0, 
+               csr_structure.nnz * sizeof(float));
+    
+    // Fill mass diagonal
+    int mass_blocks = (num_dofs + block_size - 1) / block_size;
+    fill_mass_diagonal_kernel<<<mass_blocks, block_size>>>(
+        M_diag->get_device_ptr<float>(),
+        csr_structure.mass_value_positions->get_device_ptr<int>(),
+        num_dofs,
+        values->get_device_ptr<float>());
+    
+    // Fill spring contributions
+    int spring_blocks = (num_springs + block_size - 1) / block_size;
+    fill_spring_hessian_values_kernel<<<spring_blocks, block_size>>>(
+        x_curr->get_device_ptr<float>(),
+        springs->get_device_ptr<int>(),
+        rest_lengths->get_device_ptr<float>(),
+        csr_structure.spring_value_positions->get_device_ptr<int>(),
+        stiffness,
+        dt,
+        num_springs,
+        values->get_device_ptr<float>());
+    
+    cudaDeviceSynchronize();
+}
+
+// ============================================================================
+// End of zero-sort implementation
+// ============================================================================
+
 // Kernel to compute spring energy on GPU
 __global__ void compute_spring_energy_kernel(
     const float* x_curr,

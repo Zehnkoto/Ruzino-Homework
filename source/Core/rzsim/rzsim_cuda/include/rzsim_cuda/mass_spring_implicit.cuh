@@ -18,6 +18,19 @@ struct CSRMatrix {
     int nnz;
 };
 
+// Pre-built CSR structure with position mapping for fast value updates
+struct CSRStructure {
+    cuda::CUDALinearBufferHandle row_offsets;
+    cuda::CUDALinearBufferHandle col_indices;
+    // For each spring, stores where its 36 Hessian entries go in the values array
+    cuda::CUDALinearBufferHandle spring_value_positions;  // [num_springs * 36]
+    // For each particle DOF, stores where its mass diagonal entry goes
+    cuda::CUDALinearBufferHandle mass_value_positions;    // [num_particles * 3]
+    int num_rows;
+    int num_cols;
+    int nnz;
+};
+
 RZSIM_CUDA_API
 cuda::CUDALinearBufferHandle build_edge_set_gpu(
     cuda::CUDALinearBufferHandle positions,
@@ -67,6 +80,26 @@ void compute_gradient_gpu(
     int num_particles,
     cuda::CUDALinearBufferHandle grad);
 
+// Build CSR structure once during initialization (sparsity pattern only)
+RZSIM_CUDA_API
+CSRStructure build_hessian_structure_gpu(
+    cuda::CUDALinearBufferHandle springs,
+    int num_particles);
+
+// Fast update: directly fill values into pre-built CSR structure (NO SORTING)
+RZSIM_CUDA_API
+void update_hessian_values_gpu(
+    const CSRStructure& csr_structure,
+    cuda::CUDALinearBufferHandle x_curr,
+    cuda::CUDALinearBufferHandle M_diag,
+    cuda::CUDALinearBufferHandle springs,
+    cuda::CUDALinearBufferHandle rest_lengths,
+    float stiffness,
+    float dt,
+    int num_particles,
+    cuda::CUDALinearBufferHandle values);  // Output values array
+
+// Legacy function (kept for compatibility, but slow due to sorting)
 RZSIM_CUDA_API
 CSRMatrix assemble_hessian_gpu(
     cuda::CUDALinearBufferHandle x_curr,

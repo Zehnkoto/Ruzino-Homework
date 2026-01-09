@@ -14,29 +14,30 @@ void eval_custom_checkerboard_material(inout EvalCallableData data)
     float3 pos = data.vertexInfo.posW;
     float scale = 1;
     float3 scaledPos = pos * scale;
-    float checker = ((int(floor(scaledPos.x)) + int(floor(scaledPos.y)) + int(floor(scaledPos.z))) % 2) == 0 ? 1.0 : 0.0;
-    
+    float checker = ((int(floor(scaledPos.x)) + int(floor(scaledPos.y)) +
+                      int(floor(scaledPos.z))) %
+                     2) == 0
+                        ? 1.0
+                        : 0.0;
+
     // Mix between two colors
-    float3 color1 = float3(1.0, 1.0, 1.0); // White
-    float3 color2 = float3(0.2); // Dark gray
+    float3 color1 = float3(1.0, 1.0, 1.0);  // White
+    float3 color2 = float3(0.2);            // Dark gray
     float3 baseColor = lerp(color1, color2, checker);
-    
+
     // Lambertian BRDF evaluation
-    float NdotL = max(0.0, dot(data.vertexInfo.normalW, data.L));
-    data.color = Spectrum(baseColor * NdotL / 3.14159265359);
-    
+    data.color = Spectrum(baseColor / 3.14159265359);
+
     // Sample next direction using cosine-weighted hemisphere sampling
-    data.sampledDir = sample_cosine_hemisphere_concentric(
-        random_float2(data.seed), data.pdf);
-    
+    data.sampledDir =
+        sample_cosine_hemisphere_concentric(random_float2(data.seed), data.pdf);
+
     // Transform from local to world space
     bool valid;
     ShadingFrame sf = ShadingFrame.createSafe(
-        data.vertexInfo.normalW, 
-        data.vertexInfo.tangentW, 
-        valid);
+        data.vertexInfo.normalW, data.vertexInfo.tangentW, valid);
     data.sampledDir = sf.fromLocal(data.sampledDir);
-    
+
     // Lambertian BRDF for throughput
     float NdotSampled = max(0.0, dot(data.vertexInfo.normalW, data.sampledDir));
     data.throughput = Spectrum(baseColor * NdotSampled / 3.14159265359);

@@ -30,6 +30,10 @@ struct MassSpringImplicitGPUStorage {
     cuda::CUDALinearBufferHandle spring_indices_per_vertex;
     cuda::CUDALinearBufferHandle vertex_spring_offsets;
 
+    // NEW: Pre-built CSR structure (built once, reused forever)
+    rzsim_cuda::CSRStructure hessian_structure;
+    cuda::CUDALinearBufferHandle hessian_values;  // Only values change each iteration
+
     // Temporary buffers for Newton iterations (reused across iterations)
     cuda::CUDALinearBufferHandle x_new_buffer;
     cuda::CUDALinearBufferHandle newton_direction_buffer;
@@ -40,14 +44,6 @@ struct MassSpringImplicitGPUStorage {
     cuda::CUDALinearBufferHandle inertial_terms_buffer;
     cuda::CUDALinearBufferHandle spring_energies_buffer;
     cuda::CUDALinearBufferHandle potential_terms_buffer;
-
-    // Temporary buffers for Hessian assembly (reused)
-    cuda::CUDALinearBufferHandle hessian_triplet_rows;
-    cuda::CUDALinearBufferHandle hessian_triplet_cols;
-    cuda::CUDALinearBufferHandle hessian_triplet_vals;
-    cuda::CUDALinearBufferHandle hessian_unique_rows;
-    cuda::CUDALinearBufferHandle hessian_unique_cols;
-    cuda::CUDALinearBufferHandle hessian_unique_vals;
 
     bool initialized = false;
     int num_particles = 0;
@@ -166,6 +162,15 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
         storage.spring_indices_per_vertex = spring_indices;
         storage.vertex_spring_offsets = vertex_offsets;
 
+        // NEW: Build CSR structure once (this is the key optimization!)
+        // Sparsity pattern is fixed, so we only need to update values later
+        storage.hessian_structure = 
+            rzsim_cuda::build_hessian_structure_gpu(storage.springs_buffer, num_particles);
+        
+        // Allocate values buffer (will be filled each iteration)
+        storage.hessian_values = 
+            cuda::create_cuda_linear_buffer<float>(storage.hessian_structure.nnz);
+
         // Allocate temporary buffers for Newton iterations (reused)
         storage.x_new_buffer =
             cuda::create_cuda_linear_buffer<float>(num_particles * 3);
@@ -184,24 +189,6 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
             cuda::create_cuda_linear_buffer<float>(num_springs);
         storage.potential_terms_buffer =
             cuda::create_cuda_linear_buffer<float>(num_particles * 3);
-
-        // Allocate temporary buffers for Hessian assembly
-        size_t max_spring_triplets = (size_t)num_springs * 36;
-        size_t max_total_triplets = num_particles * 3 + max_spring_triplets;
-        storage.hessian_triplet_rows =
-            cuda::create_cuda_linear_buffer<int>(max_total_triplets);
-        storage.hessian_triplet_cols =
-            cuda::create_cuda_linear_buffer<int>(max_total_triplets);
-        storage.hessian_triplet_vals =
-            cuda::create_cuda_linear_buffer<float>(max_total_triplets);
-        
-        // Buffers for unique entries after reduce_by_key
-        storage.hessian_unique_rows =
-            cuda::create_cuda_linear_buffer<int>(max_total_triplets);
-        storage.hessian_unique_cols =
-            cuda::create_cuda_linear_buffer<int>(max_total_triplets);
-        storage.hessian_unique_vals =
-            cuda::create_cuda_linear_buffer<float>(max_total_triplets);
 
         storage.initialized = true;
         storage.num_particles = num_particles;
@@ -268,8 +255,10 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
                 break;
             }
 
-            // Assemble Hessian matrix
-            auto hessian = rzsim_cuda::assemble_hessian_gpu(
+            // NEW: Fast Hessian update (NO SORTING!)
+            // Directly fill values into pre-built CSR structure
+            rzsim_cuda::update_hessian_values_gpu(
+                storage.hessian_structure,
                 storage.x_new_buffer,
                 d_M_diag,
                 d_springs,
@@ -277,12 +266,7 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
                 stiffness,
                 dt_sub,
                 num_particles,
-                storage.hessian_triplet_rows,
-                storage.hessian_triplet_cols,
-                storage.hessian_triplet_vals,
-                storage.hessian_unique_rows,
-                storage.hessian_unique_cols,
-                storage.hessian_unique_vals);
+                storage.hessian_values);
 
             // Solve H * p = -grad using CUDA CG
             auto solver = Ruzino::Solver::SolverFactory::create(
@@ -304,14 +288,14 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
 
             // Solve on GPU
             auto result = solver->solveGPU(
-                hessian.num_rows,
-                hessian.nnz,
+                storage.hessian_structure.num_rows,
+                storage.hessian_structure.nnz,
                 reinterpret_cast<const int*>(
-                    hessian.row_offsets->get_device_ptr()),
+                    storage.hessian_structure.row_offsets->get_device_ptr()),
                 reinterpret_cast<const int*>(
-                    hessian.col_indices->get_device_ptr()),
+                    storage.hessian_structure.col_indices->get_device_ptr()),
                 reinterpret_cast<const float*>(
-                    hessian.values->get_device_ptr()),
+                    storage.hessian_values->get_device_ptr()),
                 reinterpret_cast<const float*>(
                     storage.neg_gradient_buffer->get_device_ptr()),
                 reinterpret_cast<float*>(
