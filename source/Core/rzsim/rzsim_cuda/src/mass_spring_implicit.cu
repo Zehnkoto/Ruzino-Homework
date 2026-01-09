@@ -18,35 +18,6 @@ RUZINO_NAMESPACE_OPEN_SCOPE
 
 namespace rzsim_cuda {
 
-// Kernel to extract edges from triangles
-__global__ void
-extract_edges_kernel(const int* triangles, int num_triangles, int* edge_pairs)
-{
-    int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    if (tid >= num_triangles)
-        return;
-
-    int base_idx = tid * 3;
-    int v0 = triangles[base_idx];
-    int v1 = triangles[base_idx + 1];
-    int v2 = triangles[base_idx + 2];
-
-    // Each triangle produces 3 edges
-    int output_base = tid * 6;
-
-    // Edge 0-1
-    edge_pairs[output_base + 0] = min(v0, v1);
-    edge_pairs[output_base + 1] = max(v0, v1);
-
-    // Edge 1-2
-    edge_pairs[output_base + 2] = min(v1, v2);
-    edge_pairs[output_base + 3] = max(v1, v2);
-
-    // Edge 2-0
-    edge_pairs[output_base + 4] = min(v2, v0);
-    edge_pairs[output_base + 5] = max(v2, v0);
-}
-
 // Functor for comparing edge pairs
 struct EdgePairEqual {
     __host__ __device__ bool operator()(
@@ -58,36 +29,6 @@ struct EdgePairEqual {
     }
 };
 
-// Kernel to separate interleaved edges
-__global__ void separate_edges_kernel(
-    const int* interleaved,
-    int* first,
-    int* second,
-    int num_edges)
-{
-    int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    if (tid >= num_edges)
-        return;
-
-    first[tid] = interleaved[tid * 2];
-    second[tid] = interleaved[tid * 2 + 1];
-}
-
-// Kernel to copy separated edges back to interleaved format
-__global__ void interleave_edges_kernel(
-    const int* edge_first,
-    const int* edge_second,
-    int* output,
-    int num_edges)
-{
-    int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    if (tid >= num_edges)
-        return;
-
-    output[tid * 2] = edge_first[tid];
-    output[tid * 2 + 1] = edge_second[tid];
-}
-
 cuda::CUDALinearBufferHandle build_edge_set_gpu(
     cuda::CUDALinearBufferHandle positions,
     cuda::CUDALinearBufferHandle edges)
@@ -97,31 +38,42 @@ cuda::CUDALinearBufferHandle build_edge_set_gpu(
 
     // Allocate temporary buffer for all edges (3 edges per triangle)
     thrust::device_vector<int> all_edges(num_triangles * 6);
+    const int* triangles = edges->get_device_ptr<int>();
+    int* edge_pairs = thrust::raw_pointer_cast(all_edges.data());
 
-    // Launch kernel to extract edges
-    int block_size = 256;
-    int num_blocks = (num_triangles + block_size - 1) / block_size;
+    // Extract edges from triangles
+    cuda::GPUParallelFor(
+        "extract_edges", num_triangles, GPU_LAMBDA_Ex(int tid) {
+            int base_idx = tid * 3;
+            int v0 = triangles[base_idx];
+            int v1 = triangles[base_idx + 1];
+            int v2 = triangles[base_idx + 2];
 
-    extract_edges_kernel<<<num_blocks, block_size>>>(
-        edges->get_device_ptr<int>(),
-        num_triangles,
-        thrust::raw_pointer_cast(all_edges.data()));
-
-    cudaDeviceSynchronize();
+            int output_base = tid * 6;
+            // Edge 0-1
+            edge_pairs[output_base + 0] = min(v0, v1);
+            edge_pairs[output_base + 1] = max(v0, v1);
+            // Edge 1-2
+            edge_pairs[output_base + 2] = min(v1, v2);
+            edge_pairs[output_base + 3] = max(v1, v2);
+            // Edge 2-0
+            edge_pairs[output_base + 4] = min(v2, v0);
+            edge_pairs[output_base + 5] = max(v2, v0);
+        });
 
     // Create vectors for edge pairs
     thrust::device_vector<int> edge_first(num_triangles * 3);
     thrust::device_vector<int> edge_second(num_triangles * 3);
+    const int* interleaved = thrust::raw_pointer_cast(all_edges.data());
+    int* first = thrust::raw_pointer_cast(edge_first.data());
+    int* second = thrust::raw_pointer_cast(edge_second.data());
 
-    // Separate the interleaved edge data using kernel
-    int sep_blocks = (num_triangles * 3 + block_size - 1) / block_size;
-    separate_edges_kernel<<<sep_blocks, block_size>>>(
-        thrust::raw_pointer_cast(all_edges.data()),
-        thrust::raw_pointer_cast(edge_first.data()),
-        thrust::raw_pointer_cast(edge_second.data()),
-        num_triangles * 3);
-
-    cudaDeviceSynchronize();
+    // Separate the interleaved edge data
+    cuda::GPUParallelFor(
+        "separate_edges", num_triangles * 3, GPU_LAMBDA_Ex(int tid) {
+            first[tid] = interleaved[tid * 2];
+            second[tid] = interleaved[tid * 2 + 1];
+        });
 
     // Create zip iterator
     auto edge_begin = thrust::make_zip_iterator(
@@ -150,18 +102,16 @@ cuda::CUDALinearBufferHandle build_edge_set_gpu(
     // Copy unique edges to output buffer (interleaved format)
     auto output_buffer =
         cuda::create_cuda_linear_buffer<int>(size_t(num_unique_edges * 2));
-
     int* output_ptr = output_buffer->get_device_ptr<int>();
+    const int* edge_first_ptr = thrust::raw_pointer_cast(edge_first.data());
+    const int* edge_second_ptr = thrust::raw_pointer_cast(edge_second.data());
 
-    // Use kernel to interleave the data
-    int copy_blocks = (num_unique_edges + block_size - 1) / block_size;
-    interleave_edges_kernel<<<copy_blocks, block_size>>>(
-        thrust::raw_pointer_cast(edge_first.data()),
-        thrust::raw_pointer_cast(edge_second.data()),
-        output_ptr,
-        num_unique_edges);
-
-    cudaDeviceSynchronize();
+    // Interleave the data
+    cuda::GPUParallelFor(
+        "interleave_edges", num_unique_edges, GPU_LAMBDA_Ex(int tid) {
+            output_ptr[tid * 2] = edge_first_ptr[tid];
+            output_ptr[tid * 2 + 1] = edge_second_ptr[tid];
+        });
 
     return output_buffer;
 }
@@ -268,60 +218,6 @@ build_adjacency_list_gpu(
     return { d_adjacent_vertices, d_offsets, d_rest_lengths };
 }
 
-// Kernel to compute explicit step: x_tilde = x + dt * v
-__global__ void explicit_step_kernel(
-    const float* x,
-    const float* v,
-    float dt,
-    int num_particles,
-    float* x_tilde)
-{
-    int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    if (tid >= num_particles)
-        return;
-
-    x_tilde[tid * 3 + 0] = x[tid * 3 + 0] + dt * v[tid * 3 + 0];
-    x_tilde[tid * 3 + 1] = x[tid * 3 + 1] + dt * v[tid * 3 + 1];
-    x_tilde[tid * 3 + 2] = x[tid * 3 + 2] + dt * v[tid * 3 + 2];
-}
-
-// Kernel to setup external forces (gravity)
-__global__ void setup_external_forces_kernel(
-    float mass,
-    float gravity,
-    int num_particles,
-    float* f_ext)
-{
-    int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    if (tid >= num_particles)
-        return;
-
-    f_ext[tid * 3 + 0] = 0.0f;
-    f_ext[tid * 3 + 1] = 0.0f;
-    f_ext[tid * 3 + 2] = mass * gravity;  // gravity in z direction
-}
-
-// Kernel to compute rest lengths from initial positions
-__global__ void compute_rest_lengths_kernel(
-    const float* positions,
-    const int* springs,
-    float* rest_lengths,
-    int num_springs)
-{
-    int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    if (tid >= num_springs)
-        return;
-
-    int i = springs[tid * 2];
-    int j = springs[tid * 2 + 1];
-
-    float dx = positions[i * 3 + 0] - positions[j * 3 + 0];
-    float dy = positions[i * 3 + 1] - positions[j * 3 + 1];
-    float dz = positions[i * 3 + 2] - positions[j * 3 + 2];
-
-    rest_lengths[tid] = sqrtf(dx * dx + dy * dy + dz * dz);
-}
-
 void explicit_step_gpu(
     cuda::CUDALinearBufferHandle x,
     cuda::CUDALinearBufferHandle v,
@@ -329,17 +225,16 @@ void explicit_step_gpu(
     int num_particles,
     cuda::CUDALinearBufferHandle x_tilde)
 {
-    int block_size = 256;
-    int num_blocks = (num_particles + block_size - 1) / block_size;
+    const float* x_ptr = x->get_device_ptr<float>();
+    const float* v_ptr = v->get_device_ptr<float>();
+    float* x_tilde_ptr = x_tilde->get_device_ptr<float>();
 
-    explicit_step_kernel<<<num_blocks, block_size>>>(
-        x->get_device_ptr<float>(),
-        v->get_device_ptr<float>(),
-        dt,
-        num_particles,
-        x_tilde->get_device_ptr<float>());
-
-    cudaDeviceSynchronize();
+    cuda::GPUParallelFor(
+        "explicit_step", num_particles, GPU_LAMBDA_Ex(int i) {
+            x_tilde_ptr[i * 3 + 0] = x_ptr[i * 3 + 0] + dt * v_ptr[i * 3 + 0];
+            x_tilde_ptr[i * 3 + 1] = x_ptr[i * 3 + 1] + dt * v_ptr[i * 3 + 1];
+            x_tilde_ptr[i * 3 + 2] = x_ptr[i * 3 + 2] + dt * v_ptr[i * 3 + 2];
+        });
 }
 
 void setup_external_forces_gpu(
@@ -348,13 +243,14 @@ void setup_external_forces_gpu(
     int num_particles,
     cuda::CUDALinearBufferHandle f_ext)
 {
-    int block_size = 256;
-    int num_blocks = (num_particles + block_size - 1) / block_size;
+    float* f_ext_ptr = f_ext->get_device_ptr<float>();
 
-    setup_external_forces_kernel<<<num_blocks, block_size>>>(
-        mass, gravity, num_particles, f_ext->get_device_ptr<float>());
-
-    cudaDeviceSynchronize();
+    cuda::GPUParallelFor(
+        "setup_forces", num_particles, GPU_LAMBDA_Ex(int i) {
+            f_ext_ptr[i * 3 + 0] = 0.0f;
+            f_ext_ptr[i * 3 + 1] = 0.0f;
+            f_ext_ptr[i * 3 + 2] = mass * gravity;
+        });
 }
 
 cuda::CUDALinearBufferHandle compute_rest_lengths_gpu(
@@ -362,20 +258,24 @@ cuda::CUDALinearBufferHandle compute_rest_lengths_gpu(
     cuda::CUDALinearBufferHandle springs)
 {
     size_t num_springs = springs->getDesc().element_count / 2;
-
     auto rest_lengths_buffer =
         cuda::create_cuda_linear_buffer<float>(num_springs);
 
-    int block_size = 256;
-    int num_blocks = (num_springs + block_size - 1) / block_size;
+    const float* pos_ptr = positions->get_device_ptr<float>();
+    const int* springs_ptr = springs->get_device_ptr<int>();
+    float* rest_ptr = rest_lengths_buffer->get_device_ptr<float>();
 
-    compute_rest_lengths_kernel<<<num_blocks, block_size>>>(
-        positions->get_device_ptr<float>(),
-        springs->get_device_ptr<int>(),
-        rest_lengths_buffer->get_device_ptr<float>(),
-        num_springs);
+    cuda::GPUParallelFor(
+        "compute_rest_lengths", num_springs, GPU_LAMBDA_Ex(int s) {
+            int i = springs_ptr[s * 2];
+            int j = springs_ptr[s * 2 + 1];
 
-    cudaDeviceSynchronize();
+            float dx = pos_ptr[i * 3] - pos_ptr[j * 3];
+            float dy = pos_ptr[i * 3 + 1] - pos_ptr[j * 3 + 1];
+            float dz = pos_ptr[i * 3 + 2] - pos_ptr[j * 3 + 2];
+
+            rest_ptr[s] = sqrtf(dx * dx + dy * dy + dz * dz);
+        });
 
     return rest_lengths_buffer;
 }
@@ -702,7 +602,7 @@ __global__ void build_spring_positions_kernel(
     for (int idx = start; idx < end; idx++) {
         int j = adjacent_vertices[idx];
         int base_out = idx * 36;
-        
+
         if (j <= i) {
             // Mark as unused
             for (int k = 0; k < 36; k++) {
@@ -713,7 +613,7 @@ __global__ void build_spring_positions_kernel(
 
         // Store 36 positions for this edge
         int count = 0;
-        
+
         // Same order as generation: (i,i), (i,j), (j,i), (j,j)
         for (int block_r = 0; block_r < 2; block_r++) {
             for (int block_c = 0; block_c < 2; block_c++) {
@@ -831,7 +731,7 @@ CSRStructure build_hessian_structure_gpu(
         vertex_offsets->get_device_ptr<int>() + num_particles,
         sizeof(int),
         cudaMemcpyDeviceToHost);
-    
+
     // Allocate CSR arrays
     structure.col_indices = cuda::create_cuda_linear_buffer<int>(nnz);
     structure.row_offsets = cuda::create_cuda_linear_buffer<int>(n + 1);
@@ -909,7 +809,8 @@ __global__ void fill_spring_hessian_values_kernel(
     const int* adjacent_vertices,
     const int* vertex_offsets,
     const float* rest_lengths,
-    const int* value_positions,  // Pre-computed positions: [total_adjacencies * 36]
+    const int*
+        value_positions,  // Pre-computed positions: [total_adjacencies * 36]
     float stiffness,
     float dt,
     int num_particles,
@@ -975,22 +876,6 @@ __global__ void fill_spring_hessian_values_kernel(
     }
 }
 
-// Kernel: Directly fill mass diagonal into CSR
-__global__ void fill_mass_diagonal_kernel(
-    const float* M_diag,
-    const int* mass_positions,
-    int num_dofs,
-    float* values)
-{
-    int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    if (tid >= num_dofs)
-        return;
-
-    float regularization = 1e-6f;
-    int pos = mass_positions[tid];
-    values[pos] = M_diag[tid] + regularization;
-}
-
 // Fast update: directly fill values (NO SORTING!)
 void update_hessian_values_gpu(
     const CSRStructure& csr_structure,
@@ -1012,12 +897,17 @@ void update_hessian_values_gpu(
         values->get_device_ptr<float>(), 0, csr_structure.nnz * sizeof(float));
 
     // Fill mass diagonal
-    int mass_blocks = (num_dofs + block_size - 1) / block_size;
-    fill_mass_diagonal_kernel<<<mass_blocks, block_size>>>(
-        M_diag->get_device_ptr<float>(),
-        csr_structure.mass_value_positions->get_device_ptr<int>(),
-        num_dofs,
-        values->get_device_ptr<float>());
+    const float* M_diag_ptr = M_diag->get_device_ptr<float>();
+    const int* mass_positions =
+        csr_structure.mass_value_positions->get_device_ptr<int>();
+    float* values_ptr = values->get_device_ptr<float>();
+
+    cuda::GPUParallelFor(
+        "fill_mass_diagonal", num_dofs, GPU_LAMBDA_Ex(int i) {
+            float regularization = 1e-6f;
+            int pos = mass_positions[i];
+            values_ptr[pos] = M_diag_ptr[i] + regularization;
+        });
 
     // Fill spring contributions - use vertex iteration
     int vertex_blocks = (num_particles + block_size - 1) / block_size;
@@ -1181,43 +1071,6 @@ struct square_op {
     }
 };
 
-// Kernel for axpy: result = y + alpha * x
-__global__ void axpy_kernel(
-    float alpha,
-    const float* x,
-    const float* y,
-    float* result,
-    int size)
-{
-    int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    if (tid < size) {
-        result[tid] = y[tid] + alpha * x[tid];
-    }
-}
-
-// Kernel for negation: out = -in
-__global__ void negate_kernel(const float* in, float* out, int size)
-{
-    int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    if (tid < size) {
-        out[tid] = -in[tid];
-    }
-}
-
-// Kernel to project positions to ground (enforce z >= ground_height)
-__global__ void project_to_ground_kernel(
-    float* positions,
-    int num_particles,
-    float ground_height)
-{
-    int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    if (tid < num_particles) {
-        if (positions[tid * 3 + 2] < ground_height) {
-            positions[tid * 3 + 2] = ground_height;
-        }
-    }
-}
-
 // GPU vector operations to avoid CPU-GPU transfers
 float compute_vector_norm_gpu(cuda::CUDALinearBufferHandle vec, int size)
 {
@@ -1258,15 +1111,14 @@ void axpy_gpu(
     cuda::CUDALinearBufferHandle result,
     int size)
 {
-    float* x_ptr = reinterpret_cast<float*>(x->get_device_ptr());
-    float* y_ptr = reinterpret_cast<float*>(y->get_device_ptr());
-    float* result_ptr = reinterpret_cast<float*>(result->get_device_ptr());
+    const float* x_ptr = x->get_device_ptr<float>();
+    const float* y_ptr = y->get_device_ptr<float>();
+    float* result_ptr = result->get_device_ptr<float>();
 
-    int block_size = 256;
-    int num_blocks = (size + block_size - 1) / block_size;
-    axpy_kernel<<<num_blocks, block_size>>>(
-        alpha, x_ptr, y_ptr, result_ptr, size);
-    cudaDeviceSynchronize();
+    cuda::GPUParallelFor(
+        "axpy", size, GPU_LAMBDA_Ex(int i) {
+            result_ptr[i] = y_ptr[i] + alpha * x_ptr[i];
+        });
 }
 
 void negate_gpu(
@@ -1274,13 +1126,11 @@ void negate_gpu(
     cuda::CUDALinearBufferHandle out,
     int size)
 {
-    float* in_ptr = reinterpret_cast<float*>(in->get_device_ptr());
-    float* out_ptr = reinterpret_cast<float*>(out->get_device_ptr());
+    const float* in_ptr = in->get_device_ptr<float>();
+    float* out_ptr = out->get_device_ptr<float>();
 
-    int block_size = 256;
-    int num_blocks = (size + block_size - 1) / block_size;
-    negate_kernel<<<num_blocks, block_size>>>(in_ptr, out_ptr, size);
-    cudaDeviceSynchronize();
+    cuda::GPUParallelFor(
+        "negate", size, GPU_LAMBDA_Ex(int i) { out_ptr[i] = -in_ptr[i]; });
 }
 
 void project_to_ground_gpu(
@@ -1288,20 +1138,22 @@ void project_to_ground_gpu(
     int num_particles,
     float ground_height)
 {
-    float* pos_ptr = reinterpret_cast<float*>(positions->get_device_ptr());
+    float* pos_ptr = positions->get_device_ptr<float>();
 
-    int block_size = 256;
-    int num_blocks = (num_particles + block_size - 1) / block_size;
-    project_to_ground_kernel<<<num_blocks, block_size>>>(
-        pos_ptr, num_particles, ground_height);
-    cudaDeviceSynchronize();
+    cuda::GPUParallelFor(
+        "project_to_ground", num_particles, GPU_LAMBDA_Ex(int i) {
+            if (pos_ptr[i * 3 + 2] < ground_height) {
+                pos_ptr[i * 3 + 2] = ground_height;
+            }
+        });
 }
 
-// Kernel to compute face normals
+// Kernel to compute face normals with precomputed face_offsets
 __global__ void compute_normals_kernel(
     const float* positions,
     const int* face_vertex_indices,
     const int* face_counts,
+    const int* face_offsets,  // Precomputed prefix sum
     int num_faces,
     bool flip_normal,
     float* normals)
@@ -1310,12 +1162,7 @@ __global__ void compute_normals_kernel(
     if (face_id >= num_faces)
         return;
 
-    // Find face start in face_vertex_indices
-    int face_start = 0;
-    for (int f = 0; f < face_id; f++) {
-        face_start += face_counts[f];
-    }
-
+    int face_start = face_offsets[face_id];
     int face_count = face_counts[face_id];
     if (face_count < 3)
         return;
@@ -1340,7 +1187,8 @@ __global__ void compute_normals_kernel(
         nx = e1y * e2z - e1z * e2y;
         ny = e1z * e2x - e1x * e2z;
         nz = e1x * e2y - e1y * e2x;
-    } else {
+    }
+    else {
         nx = e2y * e1z - e2z * e1y;
         ny = e2z * e1x - e2x * e1z;
         nz = e2x * e1y - e2y * e1x;
@@ -1352,7 +1200,8 @@ __global__ void compute_normals_kernel(
         nx /= length;
         ny /= length;
         nz /= length;
-    } else {
+    }
+    else {
         nx = 0.0f;
         ny = 0.0f;
         nz = 1.0f;
@@ -1376,6 +1225,16 @@ void compute_normals_gpu(
 {
     int num_faces = face_counts->getDesc().element_count;
 
+    // Precompute face offsets using prefix sum (exclusive scan)
+    thrust::device_vector<int> face_offsets(num_faces);
+    const int* face_counts_ptr = face_counts->get_device_ptr<int>();
+    thrust::device_ptr<const int> face_counts_thrust(face_counts_ptr);
+    thrust::exclusive_scan(
+        thrust::device,
+        face_counts_thrust,
+        face_counts_thrust + num_faces,
+        face_offsets.begin());
+
     int block_size = 256;
     int num_blocks = (num_faces + block_size - 1) / block_size;
 
@@ -1383,6 +1242,7 @@ void compute_normals_gpu(
         positions->get_device_ptr<float>(),
         face_vertex_indices->get_device_ptr<int>(),
         face_counts->get_device_ptr<int>(),
+        thrust::raw_pointer_cast(face_offsets.data()),
         num_faces,
         flip_normal,
         normals->get_device_ptr<float>());
