@@ -1,7 +1,6 @@
 #include <RHI/cuda.hpp>
 #include <glm/glm.hpp>
 #include <limits>
-#include <set>
 
 #include "GCore/Components/MeshComponent.h"
 #include "GCore/Components/PointsComponent.h"
@@ -9,7 +8,6 @@
 #include "RHI/internal/cuda_extension.hpp"
 #include "RZSolver/Solver.hpp"
 #include "nodes/core/def/node_def.hpp"
-#include "rzsim_cuda/adjacency_map.cuh"
 #include "rzsim_cuda/mass_spring_implicit.cuh"
 #include "spdlog/spdlog.h"
 
@@ -19,20 +17,21 @@ NODE_DEF_OPEN_SCOPE
 struct MassSpringImplicitGPUStorage {
     cuda::CUDALinearBufferHandle positions_buffer;
     cuda::CUDALinearBufferHandle velocities_buffer;
-    cuda::CUDALinearBufferHandle springs_buffer;
+    cuda::CUDALinearBufferHandle adjacent_vertices_buffer;
+    cuda::CUDALinearBufferHandle vertex_offsets_buffer;
     cuda::CUDALinearBufferHandle rest_lengths_buffer;
     cuda::CUDALinearBufferHandle next_positions_buffer;
     cuda::CUDALinearBufferHandle mass_matrix_buffer;
     cuda::CUDALinearBufferHandle gradients_buffer;
     cuda::CUDALinearBufferHandle f_ext_buffer;
 
-    // Per-vertex spring adjacency for efficient gradient/hessian computation
-    cuda::CUDALinearBufferHandle spring_indices_per_vertex;
-    cuda::CUDALinearBufferHandle vertex_spring_offsets;
+    // Edge offsets for Hessian structure
+    cuda::CUDALinearBufferHandle edge_offsets_buffer;
 
     // NEW: Pre-built CSR structure (built once, reused forever)
     rzsim_cuda::CSRStructure hessian_structure;
-    cuda::CUDALinearBufferHandle hessian_values;  // Only values change each iteration
+    cuda::CUDALinearBufferHandle
+        hessian_values;  // Only values change each iteration
 
     // Temporary buffers for Newton iterations (reused across iterations)
     cuda::CUDALinearBufferHandle x_new_buffer;
@@ -148,25 +147,59 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
         auto face_indices = mesh_component->get_face_vertex_indices();
         auto triangles = cuda::create_cuda_linear_buffer(face_indices);
 
-        // Build springs and vertex adjacency in one optimized pass
-        auto [springs, spring_indices, vertex_offsets] =
-            rzsim_cuda::build_springs_with_adjacency_gpu(triangles, num_particles);
-        storage.springs_buffer = springs;
-        storage.spring_indices_per_vertex = spring_indices;
-        storage.vertex_spring_offsets = vertex_offsets;
+        // Build adjacency list directly from triangles
+        auto [adjacent_vertices, vertex_offsets, rest_lengths] =
+            rzsim_cuda::build_adjacency_list_gpu(
+                triangles, storage.positions_buffer, num_particles);
 
-        // Compute rest lengths from initial positions
-        storage.rest_lengths_buffer = rzsim_cuda::compute_rest_lengths_gpu(
-            storage.positions_buffer, storage.springs_buffer);
+        storage.adjacent_vertices_buffer = adjacent_vertices;
+        storage.vertex_offsets_buffer = vertex_offsets;
+        storage.rest_lengths_buffer = rest_lengths;
 
         // NEW: Build CSR structure once (this is the key optimization!)
         // Sparsity pattern is fixed, so we only need to update values later
-        storage.hessian_structure = 
-            rzsim_cuda::build_hessian_structure_gpu(storage.springs_buffer, num_particles);
-        
+        storage.hessian_structure = rzsim_cuda::build_hessian_structure_gpu(
+            storage.adjacent_vertices_buffer,
+            storage.vertex_offsets_buffer,
+            num_particles);
+
         // Allocate values buffer (will be filled each iteration)
-        storage.hessian_values = 
-            cuda::create_cuda_linear_buffer<float>(storage.hessian_structure.nnz);
+        storage.hessian_values = cuda::create_cuda_linear_buffer<float>(
+            storage.hessian_structure.nnz);
+
+        // Allocate edge_offsets_buffer for Hessian updates
+        // This is computed during hessian structure build, we need to recreate
+        // it
+        auto d_edge_counts =
+            cuda::create_cuda_linear_buffer<int>(num_particles);
+        // Count edges where j > i for each vertex (simplified host version for
+        // initialization)
+        std::vector<int> edge_counts_host(num_particles, 0);
+        auto vertex_offsets_host =
+            storage.vertex_offsets_buffer->get_host_vector<int>();
+        auto adjacent_vertices_host =
+            storage.adjacent_vertices_buffer->get_host_vector<int>();
+
+        for (int i = 0; i < num_particles; i++) {
+            int start = vertex_offsets_host[i];
+            int end = vertex_offsets_host[i + 1];
+            for (int idx = start; idx < end; idx++) {
+                int j = adjacent_vertices_host[idx];
+                if (j > i)
+                    edge_counts_host[i]++;
+            }
+        }
+
+        // Compute prefix sum for edge offsets
+        std::vector<int> edge_offsets_host(num_particles + 1);
+        edge_offsets_host[0] = 0;
+        for (int i = 0; i < num_particles; i++) {
+            edge_offsets_host[i + 1] =
+                edge_offsets_host[i] + edge_counts_host[i];
+        }
+
+        storage.edge_offsets_buffer =
+            cuda::create_cuda_linear_buffer(edge_offsets_host);
 
         // Allocate temporary buffers for Newton iterations (reused)
         storage.x_new_buffer =
@@ -181,9 +214,9 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
         // Allocate temporary buffers for energy computation
         storage.inertial_terms_buffer =
             cuda::create_cuda_linear_buffer<float>(num_particles * 3);
-        int num_springs = storage.springs_buffer->getDesc().element_count / 2;
+        // Spring energies are computed per-vertex (not per-adjacency)
         storage.spring_energies_buffer =
-            cuda::create_cuda_linear_buffer<float>(num_springs);
+            cuda::create_cuda_linear_buffer<float>(num_particles);
         storage.potential_terms_buffer =
             cuda::create_cuda_linear_buffer<float>(num_particles * 3);
 
@@ -193,7 +226,6 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
 
     auto d_positions = storage.positions_buffer;
     auto d_velocities = storage.velocities_buffer;
-    auto d_springs = storage.springs_buffer;
     auto d_rest_lengths = storage.rest_lengths_buffer;
     auto d_next_positions = storage.next_positions_buffer;
     auto d_M_diag = storage.mass_matrix_buffer;
@@ -224,10 +256,9 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
                 d_next_positions,  // x_tilde (unchanged)
                 d_M_diag,
                 d_f_ext,
-                d_springs,
+                storage.adjacent_vertices_buffer,
+                storage.vertex_offsets_buffer,
                 d_rest_lengths,
-                storage.spring_indices_per_vertex,
-                storage.vertex_spring_offsets,
                 stiffness,
                 dt_sub,
                 num_particles,
@@ -258,7 +289,9 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
                 storage.hessian_structure,
                 storage.x_new_buffer,
                 d_M_diag,
-                d_springs,
+                storage.adjacent_vertices_buffer,
+                storage.vertex_offsets_buffer,
+                storage.edge_offsets_buffer,
                 d_rest_lengths,
                 stiffness,
                 dt_sub,
@@ -309,7 +342,8 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
                 d_next_positions,  // x_tilde
                 d_M_diag,
                 d_f_ext,
-                d_springs,
+                storage.adjacent_vertices_buffer,
+                storage.vertex_offsets_buffer,
                 d_rest_lengths,
                 stiffness,
                 dt_sub,
@@ -339,7 +373,8 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
                     d_next_positions,
                     d_M_diag,
                     d_f_ext,
-                    d_springs,
+                    storage.adjacent_vertices_buffer,
+                    storage.vertex_offsets_buffer,
                     d_rest_lengths,
                     stiffness,
                     dt_sub,
@@ -365,6 +400,10 @@ NODE_EXECUTION_FUNCTION(mass_spring_implicit_gpu)
 
                 alpha *= 0.5f;
                 ls_iter++;
+            }
+
+            if (alpha < 1e-4f) {
+                spdlog::warn("Line search failed to find a descent direction.");
             }
         }
 

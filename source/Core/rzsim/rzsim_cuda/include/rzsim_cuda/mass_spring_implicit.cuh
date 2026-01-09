@@ -36,22 +36,15 @@ cuda::CUDALinearBufferHandle build_edge_set_gpu(
     cuda::CUDALinearBufferHandle positions,
     cuda::CUDALinearBufferHandle edges);
 
-// Build per-vertex spring adjacency for efficient gradient/hessian computation
-// Returns: (spring_indices_per_vertex, vertex_spring_offsets)
-// Format: spring_indices_per_vertex[vertex_spring_offsets[v]..vertex_spring_offsets[v+1]] = spring indices for vertex v
-RZSIM_CUDA_API
-std::tuple<cuda::CUDALinearBufferHandle, cuda::CUDALinearBufferHandle>
-build_vertex_spring_adjacency_gpu(
-    cuda::CUDALinearBufferHandle springs,
-    int num_particles);
-
-// Combined function: extract edges from triangles AND build vertex-spring adjacency in one pass
-// More efficient than calling build_edge_set_gpu + build_vertex_spring_adjacency_gpu separately
-// Returns: (springs, spring_indices_per_vertex, vertex_spring_offsets)
+// Build adjacency list from triangles (for Hessian structure)
+// Returns: (adjacent_vertices, vertex_offsets, rest_lengths)
+// Format: adjacent_vertices[vertex_offsets[v]..vertex_offsets[v+1]] = neighbors of vertex v
+// rest_lengths has the same length as adjacent_vertices
 RZSIM_CUDA_API
 std::tuple<cuda::CUDALinearBufferHandle, cuda::CUDALinearBufferHandle, cuda::CUDALinearBufferHandle>
-build_springs_with_adjacency_gpu(
+build_adjacency_list_gpu(
     cuda::CUDALinearBufferHandle triangles,
+    cuda::CUDALinearBufferHandle positions,
     int num_particles);
 
 RZSIM_CUDA_API
@@ -80,10 +73,9 @@ void compute_gradient_gpu(
     cuda::CUDALinearBufferHandle x_tilde,
     cuda::CUDALinearBufferHandle M_diag,
     cuda::CUDALinearBufferHandle f_ext,
-    cuda::CUDALinearBufferHandle springs,
+    cuda::CUDALinearBufferHandle adjacent_vertices,
+    cuda::CUDALinearBufferHandle vertex_offsets,
     cuda::CUDALinearBufferHandle rest_lengths,
-    cuda::CUDALinearBufferHandle spring_indices_per_vertex,
-    cuda::CUDALinearBufferHandle vertex_spring_offsets,
     float stiffness,
     float dt,
     int num_particles,
@@ -92,7 +84,8 @@ void compute_gradient_gpu(
 // Build CSR structure once during initialization (sparsity pattern only)
 RZSIM_CUDA_API
 CSRStructure build_hessian_structure_gpu(
-    cuda::CUDALinearBufferHandle springs,
+    cuda::CUDALinearBufferHandle adjacent_vertices,
+    cuda::CUDALinearBufferHandle vertex_offsets,
     int num_particles);
 
 // Fast update: directly fill values into pre-built CSR structure (NO SORTING)
@@ -101,7 +94,9 @@ void update_hessian_values_gpu(
     const CSRStructure& csr_structure,
     cuda::CUDALinearBufferHandle x_curr,
     cuda::CUDALinearBufferHandle M_diag,
-    cuda::CUDALinearBufferHandle springs,
+    cuda::CUDALinearBufferHandle adjacent_vertices,
+    cuda::CUDALinearBufferHandle vertex_offsets,
+    cuda::CUDALinearBufferHandle edge_offsets,
     cuda::CUDALinearBufferHandle rest_lengths,
     float stiffness,
     float dt,
@@ -114,7 +109,8 @@ float compute_energy_gpu(
     cuda::CUDALinearBufferHandle x_tilde,
     cuda::CUDALinearBufferHandle M_diag,
     cuda::CUDALinearBufferHandle f_ext,
-    cuda::CUDALinearBufferHandle springs,
+    cuda::CUDALinearBufferHandle adjacent_vertices,
+    cuda::CUDALinearBufferHandle vertex_offsets,
     cuda::CUDALinearBufferHandle rest_lengths,
     float stiffness,
     float dt,
