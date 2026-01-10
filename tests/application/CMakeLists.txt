@@ -9,6 +9,7 @@ endforeach()
 
 add_dependencies(headless_render hd_RUZINO)
 add_dependencies(headless_render render_nodes)
+add_dependencies(headless_render rzsim_geometry_nodes)
 
 add_dependencies(Ruzino geometry_nodes)
 add_dependencies(Ruzino basic_nodes)
@@ -18,6 +19,7 @@ add_dependencies(Ruzino hd_RUZINO)
 add_dependencies(Ruzino render_nodes)
 # add_dependencies(Ruzino gl_based_render_nodes)
 add_dependencies(Ruzino RZFemBemNodes)
+add_dependencies(Ruzino rzsim_geometry_nodes)
 target_link_libraries(Ruzino PUBLIC rzpython)
 
 

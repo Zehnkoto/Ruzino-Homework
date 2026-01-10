@@ -105,7 +105,8 @@ RZSIM_CUDA_API
 std::tuple<cuda::CUDALinearBufferHandle, cuda::CUDALinearBufferHandle>
 compute_reference_data_gpu(
     cuda::CUDALinearBufferHandle positions,
-    cuda::CUDALinearBufferHandle tetrahedra,
+    cuda::CUDALinearBufferHandle adjacency,
+    cuda::CUDALinearBufferHandle offsets,
     int num_elements);
 
 // Vector operations (reuse from mass-spring where appropriate)

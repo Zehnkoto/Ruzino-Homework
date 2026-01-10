@@ -781,7 +781,8 @@ float compute_energy_nh_gpu(
 
 __global__ void compute_Dm_inv_kernel(
     const float* positions,
-    const int* tetrahedra,
+    const unsigned* adjacency,
+    const unsigned* offsets,
     int num_elements,
     float* Dm_inv,
     float* volumes)
@@ -790,7 +791,32 @@ __global__ void compute_Dm_inv_kernel(
     if (elem_idx >= num_elements)
         return;
 
-    const int* tet = &tetrahedra[elem_idx * 4];
+    // Extract tetrahedron from adjacency list
+    // Find which vertex and which opposite face this element corresponds to
+    int current_elem = 0;
+    int v_apex = 0;
+    int local_face_idx = 0;
+    
+    for (int v = 0; v < 100000; v++) {  // Upper bound on vertices
+        unsigned offset = offsets[v];
+        unsigned count = adjacency[offset];
+        
+        if (current_elem + count > elem_idx) {
+            v_apex = v;
+            local_face_idx = elem_idx - current_elem;
+            break;
+        }
+        current_elem += count;
+    }
+    
+    // Extract face vertices
+    unsigned offset = offsets[v_apex];
+    unsigned face_a = adjacency[offset + 1 + local_face_idx * 3 + 0];
+    unsigned face_b = adjacency[offset + 1 + local_face_idx * 3 + 1];
+    unsigned face_c = adjacency[offset + 1 + local_face_idx * 3 + 2];
+    
+    // Tetrahedron vertices: apex + face (v_apex, face_a, face_b, face_c)
+    int tet[4] = {(int)v_apex, (int)face_a, (int)face_b, (int)face_c};
 
     // Get rest positions
     Eigen::Vector3f x0(positions[tet[0] * 3 + 0], positions[tet[0] * 3 + 1], positions[tet[0] * 3 + 2]);
@@ -823,7 +849,8 @@ __global__ void compute_Dm_inv_kernel(
 std::tuple<cuda::CUDALinearBufferHandle, cuda::CUDALinearBufferHandle>
 compute_reference_data_gpu(
     cuda::CUDALinearBufferHandle positions,
-    cuda::CUDALinearBufferHandle tetrahedra,
+    cuda::CUDALinearBufferHandle adjacency,
+    cuda::CUDALinearBufferHandle offsets,
     int num_elements)
 {
     auto Dm_inv = cuda::create_cuda_linear_buffer<float>(num_elements * 9);
@@ -834,7 +861,8 @@ compute_reference_data_gpu(
 
     compute_Dm_inv_kernel<<<num_blocks, block_size>>>(
         positions->get_device_ptr<float>(),
-        tetrahedra->get_device_ptr<int>(),
+        adjacency->get_device_ptr<unsigned>(),
+        offsets->get_device_ptr<unsigned>(),
         num_elements,
         Dm_inv->get_device_ptr<float>(),
         volumes->get_device_ptr<float>());

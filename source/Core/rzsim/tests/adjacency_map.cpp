@@ -859,6 +859,96 @@ TEST(VolumeAdjacency, TetgenLargeMesh)
     std::cout << "Full OVM validation successful for " << num_tets << " tetrahedra\n";
 }
 
+TEST(VolumeAdjacency, SubDevidedTet)
+{
+    std::cout << "\n=== Subdivided Tetrahedron Tests ===\n";
+    
+    // Test subdivision level 1 (8 tets)
+    Geometry tet1 = create_subdivided_tetrahedron(1, 1.0f);
+    auto mesh1 = tet1.get_component<MeshComponent>();
+    
+    std::cout << "\n--- Subdivision Level 1 ---\n";
+    std::cout << "Vertices: " << mesh1->get_vertices().size() << "\n";
+    std::cout << "Faces: " << mesh1->get_face_vertex_counts().size() << "\n";
+    std::cout << "Face indices: " << mesh1->get_face_vertex_indices().size() << "\n";
+    
+    // Print first few triangles
+    const auto& indices1 = mesh1->get_face_vertex_indices();
+    const auto& counts1 = mesh1->get_face_vertex_counts();
+    std::cout << "First few triangles:\n";
+    for (size_t i = 0; i < std::min((size_t)5, counts1.size()); i++) {
+        std::cout << "  Triangle " << i << ": (" << indices1[i*3] << "," << indices1[i*3+1] << "," << indices1[i*3+2] << ")\n";
+    }
+    
+    auto [adj1, off1] = get_volume_adjacency(tet1);
+    
+    // Count total opposite faces
+    int total_opposite_1 = 0;
+    for (size_t v = 0; v < off1.size(); v++) {
+        total_opposite_1 += adj1[off1[v]];
+    }
+    std::cout << "Total opposite faces (subdivision 1): " << total_opposite_1 << "\n";
+    
+    // Print first few vertices' adjacency
+    for (size_t v = 0; v < std::min((size_t)5, off1.size()); v++) {
+        unsigned offset = off1[v];
+        unsigned count = adj1[offset];
+        std::cout << "V" << v << " (count=" << count << "): ";
+        for (unsigned i = 0; i < std::min(count, 3u); i++) {
+            unsigned a = adj1[offset + 1 + i * 3];
+            unsigned b = adj1[offset + 1 + i * 3 + 1];
+            unsigned c = adj1[offset + 1 + i * 3 + 2];
+            std::cout << "(" << a << "," << b << "," << c << ") ";
+        }
+        if (count > 3) std::cout << "...";
+        std::cout << "\n";
+    }
+    
+    EXPECT_GT(total_opposite_1, 0) << "Subdivision 1 should have opposite faces";
+    
+    // Test subdivision level 2 (64 tets)
+    Geometry tet2 = create_subdivided_tetrahedron(2, 1.0f);
+    auto mesh2 = tet2.get_component<MeshComponent>();
+    
+    std::cout << "\n--- Subdivision Level 2 ---\n";
+    std::cout << "Vertices: " << mesh2->get_vertices().size() << "\n";
+    std::cout << "Faces: " << mesh2->get_face_vertex_counts().size() << "\n";
+    std::cout << "Face indices: " << mesh2->get_face_vertex_indices().size() << "\n";
+    
+    auto [adj2, off2] = get_volume_adjacency(tet2);
+    
+    // Count total opposite faces
+    int total_opposite_2 = 0;
+    for (size_t v = 0; v < off2.size(); v++) {
+        total_opposite_2 += adj2[off2[v]];
+    }
+    std::cout << "Total opposite faces (subdivision 2): " << total_opposite_2 << "\n";
+    
+    // Print first few vertices' adjacency
+    for (size_t v = 0; v < std::min((size_t)5, off2.size()); v++) {
+        unsigned offset = off2[v];
+        unsigned count = adj2[offset];
+        std::cout << "V" << v << " (count=" << count << "): ";
+        for (unsigned i = 0; i < std::min(count, 3u); i++) {
+            unsigned a = adj2[offset + 1 + i * 3];
+            unsigned b = adj2[offset + 1 + i * 3 + 1];
+            unsigned c = adj2[offset + 1 + i * 3 + 2];
+            std::cout << "(" << a << "," << b << "," << c << ") ";
+        }
+        if (count > 3) std::cout << "...";
+        std::cout << "\n";
+    }
+    
+    EXPECT_GT(total_opposite_2, 0) << "Subdivision 2 should have opposite faces";
+    
+    // Verify with OpenVolumeMesh
+    std::cout << "\n--- OVM Validation for Subdivision 1 ---\n";
+    verify_against_openvolulemesh(tet1);
+    
+    std::cout << "\n--- OVM Validation for Subdivision 2 ---\n";
+    verify_against_openvolulemesh(tet2);
+}
+
 TEST(VolumeAdjacency, KnownVolumeMesh)
 {
     
