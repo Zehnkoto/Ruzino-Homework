@@ -392,22 +392,22 @@ NODE_EXECUTION_FUNCTION(neo_hookean_gpu)
             //            break;
             //        }
 
-            //        // Update Hessian values
-            //        spdlog::info("[NeoHookean] Updating Hessian values...");
-            //        rzsim_cuda::update_hessian_values_nh_gpu(
-            //            storage.hessian_structure,
-            //            storage.x_new_buffer,
-            //            d_M_diag,
-            //            storage.tetrahedra_buffer,
-            //            storage.Dm_inv_buffer,
-            //            storage.volumes_buffer,
-            //            mu,
-            //            lambda,
-            //            dt_sub,
-            //            num_particles,
-            //            storage.num_elements,
-            //            storage.hessian_values);
-            //        spdlog::info("[NeoHookean] Hessian updated");
+            // Update Hessian values
+            spdlog::info("[NeoHookean] Updating Hessian values...");
+            rzsim_cuda::update_hessian_values_nh_gpu(
+                storage.hessian_structure,
+                storage.x_new_buffer,
+                d_M_diag,
+                storage.tetrahedra_buffer,
+                storage.Dm_inv_buffer,
+                storage.volumes_buffer,
+                mu,
+                lambda,
+                dt_sub,
+                num_particles,
+                storage.num_elements,
+                storage.hessian_values);
+            spdlog::info("[NeoHookean] Hessian updated");
 
             //        // Solve H * p = -grad using CUDA CG
             //        float cg_tol = std::max(1e-9f, grad_norm * 1e-3f);

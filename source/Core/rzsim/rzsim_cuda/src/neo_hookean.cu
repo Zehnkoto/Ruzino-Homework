@@ -164,7 +164,7 @@ __device__ void compute_pk1_stress(
 }
 
 // Compute gradient contribution from one tetrahedron
-// REWRITTEN using raw float arrays to avoid Eigen::Matrix stack issues
+// Using raw float arrays instead of Eigen to avoid CUDA device code issues
 __device__ void add_element_gradient(
     const float* x_curr,
     const int* tet,
@@ -358,7 +358,7 @@ __global__ void accumulate_elastic_forces_kernel(
         return;
     }
 
-    // Compute gradient with raw float arrays
+    // Compute gradient using raw float arrays (Eigen version causes device errors)
     float grad_local[12] = { 0 };
     add_element_gradient(
         x_curr, tet, Dm_inv_local, volume, mu, lambda, grad_local);
