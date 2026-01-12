@@ -357,6 +357,42 @@ __device__ bool forms_tetrahedron_fast(
     return true;
 }
 
+// Compute signed volume of tetrahedron (v, a, b, c)
+// Positive if vertices are in right-hand orientation
+__device__ float compute_tet_signed_volume(
+    const float* positions,
+    unsigned v,
+    unsigned a,
+    unsigned b,
+    unsigned c)
+{
+    // Get vertex positions
+    float x0[3] = {
+        positions[v * 3 + 0], positions[v * 3 + 1], positions[v * 3 + 2]
+    };
+    float x1[3] = {
+        positions[a * 3 + 0], positions[a * 3 + 1], positions[a * 3 + 2]
+    };
+    float x2[3] = {
+        positions[b * 3 + 0], positions[b * 3 + 1], positions[b * 3 + 2]
+    };
+    float x3[3] = {
+        positions[c * 3 + 0], positions[c * 3 + 1], positions[c * 3 + 2]
+    };
+
+    // Compute edge vectors from v
+    float e1[3] = { x1[0] - x0[0], x1[1] - x0[1], x1[2] - x0[2] };
+    float e2[3] = { x2[0] - x0[0], x2[1] - x0[1], x2[2] - x0[2] };
+    float e3[3] = { x3[0] - x0[0], x3[1] - x0[1], x3[2] - x0[2] };
+
+    // Compute determinant: det([e1, e2, e3])
+    float det = e1[0] * (e2[1] * e3[2] - e2[2] * e3[1]) -
+                e1[1] * (e2[0] * e3[2] - e2[2] * e3[0]) +
+                e1[2] * (e2[0] * e3[1] - e2[1] * e3[0]);
+
+    return det / 6.0f;  // Signed volume
+}
+
 // Count valid opposite faces using 2D parallelization
 __global__ void count_vertex_opposite_faces_kernel(
     const unsigned* triangles_flat,
@@ -388,6 +424,7 @@ __global__ void count_vertex_opposite_faces_kernel(
 
 // Fill opposite face triplets using 2D parallelization
 __global__ void fill_volume_adjacency_kernel(
+    const float* positions,
     const unsigned* triangles_flat,
     unsigned num_triangles,
     const Triangle* triangles_sorted,
@@ -413,10 +450,24 @@ __global__ void fill_volume_adjacency_kernel(
     if (!contains_vertex(v0, v1, v2, v) &&
         forms_tetrahedron_fast(
             triangles_sorted, num_triangles, v, v0, v1, v2)) {
+        
+        // Check orientation: compute signed volume of tet (v, v0, v1, v2)
+        float signed_vol = compute_tet_signed_volume(positions, v, v0, v1, v2);
+        
         unsigned pos = atomicAdd(&write_positions[v], 3);
-        adjacency_list[offsets[v] + 1 + pos + 0] = v0;
-        adjacency_list[offsets[v] + 1 + pos + 1] = v1;
-        adjacency_list[offsets[v] + 1 + pos + 2] = v2;
+        
+        // Store vertices in order that gives positive volume
+        if (signed_vol > 0.0f) {
+            // Positive orientation: store as is
+            adjacency_list[offsets[v] + 1 + pos + 0] = v0;
+            adjacency_list[offsets[v] + 1 + pos + 1] = v1;
+            adjacency_list[offsets[v] + 1 + pos + 2] = v2;
+        } else {
+            // Negative orientation: swap v1 and v2 to flip
+            adjacency_list[offsets[v] + 1 + pos + 0] = v0;
+            adjacency_list[offsets[v] + 1 + pos + 1] = v2;
+            adjacency_list[offsets[v] + 1 + pos + 2] = v1;
+        }
     }
 }
 
@@ -537,7 +588,11 @@ compute_volume_adjacency_gpu(
     thrust::device_vector<unsigned> write_positions(num_vertices, 0);
     auto write_pos_ptr = thrust::raw_pointer_cast(write_positions.data());
 
+    // Get positions pointer for orientation check
+    const float* positions_ptr = vertices->get_device_ptr<float>();
+
     fill_volume_adjacency_kernel<<<blocks, threads>>>(
+        positions_ptr,
         unique_tri_ptr,
         num_unique_triangles,
         norm_tri_ptr_const,

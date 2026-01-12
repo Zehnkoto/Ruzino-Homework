@@ -154,12 +154,17 @@ __device__ void compute_pk1_stress(
 
     P = mu * (F - F_inv_T) + lambda * log_J * F_inv_T;
 
-    // Check result
+    // Check result and clamp stress to prevent numerical explosion
+    const float max_stress = 1e6f;
     for (int i = 0; i < 3; i++) {
         for (int j = 0; j < 3; j++) {
             if (!isfinite(P(i, j))) {
                 P.setZero();
                 return;
+            }
+            // Clamp extreme values
+            if (fabsf(P(i, j)) > max_stress) {
+                P(i, j) = (P(i, j) > 0.0f) ? max_stress : -max_stress;
             }
         }
     }
@@ -467,9 +472,13 @@ __device__ Eigen::Matrix3f project_psd_nh(const Eigen::Matrix3f& H)
 
     eigen_decomposition_3x3_nh(H, eigenvalues, eigenvectors);
 
-    // Clamp negative eigenvalues to small positive value for regularization
-    // This prevents singular matrices while maintaining positive definiteness
-    const float min_eigenvalue = 1e-8f;  // Small regularization
+    // Find max eigenvalue for relative thresholding
+    float max_eig = fmaxf(fmaxf(fabsf(eigenvalues(0)), fabsf(eigenvalues(1))), fabsf(eigenvalues(2)));
+    
+    // Use relative threshold: clamp to at least 0.1% of max eigenvalue
+    // This is less aggressive than absolute threshold
+    float min_eigenvalue = fmaxf(1e-8f, 0.001f * max_eig);
+    
     for (int i = 0; i < 3; i++) {
         if (eigenvalues(i) < min_eigenvalue)
             eigenvalues(i) = min_eigenvalue;
@@ -555,9 +564,6 @@ __device__ void compute_element_hessian(
             K_ab = volume * lambda * (grad_Na * grad_Nb.transpose());
             K_ab += volume * mu * (grad_Na * grad_Nb.transpose() + 
                                    grad_Nb * grad_Na.transpose());
-            
-            // Ensure strict symmetry (important for numerical stability)
-            K_ab = 0.5f * (K_ab + K_ab.transpose());
 
             // Project to PSD
             K_ab = project_psd_nh(K_ab);
@@ -1012,7 +1018,9 @@ void update_hessian_values_nh_gpu(
         "fill_mass_diagonal_nh", num_dofs, [=] __device__(int dof) {
             int pos = mass_positions[dof];
             if (pos >= 0) {
-                float regularization = 1e-6f;
+                // Stronger regularization for numerical stability
+                // Especially important for high Poisson ratios
+                float regularization = 1e-4f;  // Increased from 1e-6f
                 values_ptr[pos] = M_diag_ptr[dof] + regularization;
             }
         });
@@ -1258,11 +1266,41 @@ __global__ void compute_Dm_inv_kernel(
     Dm.col(1) = x2 - x0;
     Dm.col(2) = x3 - x0;
 
-    // Compute volume: V = |det(Dm)| / 6
+    // Check orientation: det(Dm) should be positive
     float det_Dm = Dm.determinant();
-    volumes[elem_idx] = fabsf(det_Dm) / 6.0f;
+    
+    // If negative orientation, swap vertices 2 and 3 to flip orientation
+    if (det_Dm < 0.0f) {
+        // Swap x2 and x3
+        Eigen::Vector3f temp = x2;
+        x2 = x3;
+        x3 = temp;
+        
+        // Swap in tet array for consistency
+        int temp_idx = tet[2];
+        tet[2] = tet[3];
+        tet[3] = temp_idx;
+        
+        // Recompute Dm with corrected orientation
+        Dm.col(0) = x1 - x0;
+        Dm.col(1) = x2 - x0;
+        Dm.col(2) = x3 - x0;
+        
+        det_Dm = Dm.determinant();
+    }
+    
+    // Compute volume: V = det(Dm) / 6 (now guaranteed positive)
+    float volume = det_Dm / 6.0f;
+    
+    // Sanity check: volume should be positive
+    if (volume <= 1e-12f) {
+        // Degenerate tetrahedron
+        volume = 1e-10f;
+    }
+    
+    volumes[elem_idx] = volume;
 
-    // Compute inverse
+    // Compute inverse (Dm is now properly oriented)
     Eigen::Matrix3f Dm_inv_mat = Dm.inverse();
 
     // Store in column-major order (Eigen's default, matches loading format)
