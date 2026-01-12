@@ -289,4 +289,19 @@ NODE_EXECUTION_FUNCTION(create_subdivided_tetrahedron)
     return true;
 }
 
+NODE_DECLARATION_FUNCTION(create_double_tetrahedron)
+{
+    b.add_input<float>("size").min(0.1).max(20).default_val(1.0f);
+    b.add_output<Geometry>("Geometry");
+}
+
+NODE_EXECUTION_FUNCTION(create_double_tetrahedron)
+{
+    float size = params.get_input<float>("size");
+
+    Geometry geometry = create_double_tetrahedron(size);
+    params.set_output("Geometry", std::move(geometry));
+    return true;
+}
+
 NODE_DEF_CLOSE_SCOPE

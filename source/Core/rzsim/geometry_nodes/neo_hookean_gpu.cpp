@@ -76,61 +76,14 @@ struct NeoHookeanGPUStorage {
         face_vertex_indices_buffer =
             cuda::create_cuda_linear_buffer(face_vertex_indices);
         face_counts_buffer = cuda::create_cuda_linear_buffer(face_counts);
-        // DEBUG: Print input mesh info
-        spdlog::info("[NeoHookean] ========== INITIALIZATION DEBUG ==========");
-        spdlog::info("[NeoHookean] Input vertices: {}", num_particles);
-        spdlog::info(
-            "[NeoHookean] Input triangles: {}", face_vertex_indices.size() / 3);
-        spdlog::info("[NeoHookean] Vertex positions:");
-        for (int i = 0; i < std::min(4, (int)positions.size()); i++) {
-            spdlog::info(
-                "  v[{}] = ({:.6f}, {:.6f}, {:.6f})",
-                i,
-                positions[i].x,
-                positions[i].y,
-                positions[i].z);
-        }
-        spdlog::info("[NeoHookean] Triangle indices:");
-        for (int i = 0; i < std::min(4, (int)face_vertex_indices.size() / 3);
-             i++) {
-            spdlog::info(
-                "  tri[{}] = ({}, {}, {})",
-                i,
-                face_vertex_indices[i * 3 + 0],
-                face_vertex_indices[i * 3 + 1],
-                face_vertex_indices[i * 3 + 2]);
-        }
 
         // Compute volume adjacency (tetrahedra reconstruction)
-        spdlog::info(
-            "[NeoHookean] Computing volume adjacency from {} triangles...",
-            face_vertex_indices.size() / 3);
         unsigned num_elements_gpu;
         std::tie(adjacency_buffer, offsets_buffer, num_elements_gpu) =
             rzsim_cuda::compute_volume_adjacency_gpu(
                 positions_buffer, face_vertex_indices_buffer);
 
         num_elements = num_elements_gpu;
-
-        spdlog::info(
-            "[NeoHookean] Extracted {} tetrahedra from adjacency map",
-            num_elements);
-
-        // DEBUG: Print adjacency structure
-        auto adjacency_host = adjacency_buffer->get_host_vector<unsigned>();
-        auto offsets_host = offsets_buffer->get_host_vector<unsigned>();
-        spdlog::info("[NeoHookean] Adjacency structure:");
-        for (int v = 0; v < num_particles; v++) {
-            unsigned offset = offsets_host[v];
-            unsigned count = adjacency_host[offset];
-            spdlog::info("  Vertex {} has {} opposite faces", v, count);
-            for (unsigned i = 0; i < count; i++) {
-                unsigned v0 = adjacency_host[offset + 1 + i * 3 + 0];
-                unsigned v1 = adjacency_host[offset + 1 + i * 3 + 1];
-                unsigned v2 = adjacency_host[offset + 1 + i * 3 + 2];
-                spdlog::info("    opposite[{}]: ({}, {}, {})", i, v0, v1, v2);
-            }
-        }
 
         if (num_elements == 0) {
             spdlog::error(
@@ -156,15 +109,6 @@ struct NeoHookeanGPUStorage {
         mass_matrix_buffer = cuda::create_cuda_linear_buffer(mass_diag);
 
         // Compute reference shape matrices and volumes
-        spdlog::info(
-            "[NeoHookean] Computing reference shape matrices and volumes...");
-        cudaError_t err = cudaGetLastError();
-        if (err != cudaSuccess) {
-            spdlog::error(
-                "[NeoHookean] CUDA error before Dm_inv compute: {}",
-                cudaGetErrorString(err));
-        }
-
         auto [Dm_inv, volumes, element_to_vertex, element_to_local_face] =
             rzsim_cuda::compute_reference_data_gpu(
                 positions_buffer,
@@ -173,56 +117,11 @@ struct NeoHookeanGPUStorage {
                 num_elements);
 
         Dm_inv_buffer = Dm_inv;
-        auto Dm_inv_host = Dm_inv_buffer->get_host_vector<float>();
         volumes_buffer = volumes;
-        auto volumes_host = volumes_buffer->get_host_vector<float>();
-
-        spdlog::info(
-            "[NeoHookean] Volumes element count: {}", volumes_host.size());
-        for (int i = 0; i < std::min(5, (int)volumes_host.size()); i++) {
-            spdlog::info(
-                "[NeoHookean] Volume[{}] = {:.6f}", i, volumes_host[i]);
-        }
-
         element_to_vertex_buffer = element_to_vertex;
-        auto etov_host = element_to_vertex_buffer->get_host_vector<int>();
         element_to_local_face_buffer = element_to_local_face;
-        auto etolf_host = element_to_local_face_buffer->get_host_vector<int>();
-
-        // DEBUG: Print element mapping
-        spdlog::info("[NeoHookean] Element to vertex/face mapping:");
-        for (int e = 0; e < std::min(8, (int)etov_host.size()); e++) {
-            int apex_v = etov_host[e];
-            int local_face = etolf_host[e];
-            unsigned offset = offsets_host[apex_v];
-            unsigned v0 = adjacency_host[offset + 1 + local_face * 3 + 0];
-            unsigned v1 = adjacency_host[offset + 1 + local_face * 3 + 1];
-            unsigned v2 = adjacency_host[offset + 1 + local_face * 3 + 2];
-            spdlog::info(
-                "  Element[{}]: apex={}, local_face={}, tet=({},{},{},{})",
-                e,
-                apex_v,
-                local_face,
-                apex_v,
-                v0,
-                v1,
-                v2);
-        }
-
-        // DEBUG: Print Dm_inv for first element
-        if (num_elements > 0) {
-            spdlog::info("[NeoHookean] Dm_inv matrix for element 0:");
-            for (int i = 0; i < 3; i++) {
-                spdlog::info(
-                    "  [{:.6f}, {:.6f}, {:.6f}]",
-                    Dm_inv_host[i * 3 + 0],
-                    Dm_inv_host[i * 3 + 1],
-                    Dm_inv_host[i * 3 + 2]);
-            }
-        }
 
         // Build Hessian CSR structure
-        spdlog::info("[NeoHookean] Building Hessian CSR structure...");
         hessian_structure = rzsim_cuda::build_hessian_structure_nh_gpu(
             adjacency_buffer,
             offsets_buffer,
@@ -230,12 +129,6 @@ struct NeoHookeanGPUStorage {
             element_to_local_face_buffer,
             num_particles,
             num_elements);
-        spdlog::info(
-            "[NeoHookean] Hessian structure built: nnz={}, num_rows={}, "
-            "num_cols={}",
-            hessian_structure.nnz,
-            hessian_structure.num_rows,
-            hessian_structure.num_cols);
 
         hessian_values =
             cuda::create_cuda_linear_buffer<float>(hessian_structure.nnz);
@@ -297,8 +190,6 @@ NODE_EXECUTION_FUNCTION(neo_hookean_gpu)
     auto& global_payload = params.get_global_payload<GeomPayload&>();
     auto& storage = params.get_storage<NeoHookeanGPUStorage&>();
 
-    spdlog::info("[NeoHookean] Starting execution");
-
     // Get inputs
     auto input_geom = params.get_input<Geometry>("Geometry");
     input_geom.apply_transform();
@@ -321,11 +212,6 @@ NODE_EXECUTION_FUNCTION(neo_hookean_gpu)
     float lambda = youngs_modulus * poisson_ratio /
                    ((1.0f + poisson_ratio) * (1.0f - 2.0f * poisson_ratio));
 
-    spdlog::info(
-        "[NeoHookean] Material parameters: mu={:.3f}, lambda={:.3f}",
-        mu,
-        lambda);
-
     // Get mesh component
     auto mesh_component = input_geom.get_component<MeshComponent>();
     std::vector<glm::vec3> positions;
@@ -347,7 +233,6 @@ NODE_EXECUTION_FUNCTION(neo_hookean_gpu)
     }
 
     int num_particles = positions.size();
-    spdlog::info("[NeoHookean] num_particles = {}", num_particles);
     if (num_particles == 0) {
         params.set_output<Geometry>("Geometry", std::move(input_geom));
         return true;
@@ -355,11 +240,7 @@ NODE_EXECUTION_FUNCTION(neo_hookean_gpu)
 
     // Initialize buffers only once or when particle count changes
     if (!storage.initialized || storage.num_particles != num_particles) {
-        spdlog::info("[NeoHookean] Initializing storage...");
         storage.initialize(positions, face_vertex_indices, face_counts, mass);
-        spdlog::info(
-            "[NeoHookean] Storage initialized: num_elements = {}",
-            storage.num_elements);
     }
 
     if (!storage.initialized || storage.num_elements == 0) {
@@ -369,8 +250,6 @@ NODE_EXECUTION_FUNCTION(neo_hookean_gpu)
         params.set_output<Geometry>("Geometry", std::move(input_geom));
         return true;
     }
-    spdlog::info(
-        "[NeoHookean] Starting simulation: dt={}, substeps={}", dt, substeps);
 
     auto d_positions = storage.positions_buffer;
     auto d_velocities = storage.velocities_buffer;
@@ -381,32 +260,22 @@ NODE_EXECUTION_FUNCTION(neo_hookean_gpu)
 
     // Substep loop
     float dt_sub = dt / substeps;
-    spdlog::info(
-        "[NeoHookean] dt={}, substeps={}, dt_sub={}", dt, substeps, dt_sub);
 
     for (int substep = 0; substep < substeps; ++substep) {
-        spdlog::info("[NeoHookean] Substep {}/{}", substep + 1, substeps);
         // Setup external forces on GPU
         rzsim_cuda::setup_external_forces_nh_gpu(
             mass, gravity, num_particles, d_f_ext);
 
         // Compute x_tilde = x + dt_sub * v on GPU
-        spdlog::info("[NeoHookean] Computing explicit step...");
         rzsim_cuda::explicit_step_nh_gpu(
             d_positions, d_velocities, dt_sub, num_particles, d_next_positions);
 
         // Newton's method iterations
-        spdlog::info("[NeoHookean] Starting Newton iterations...");
         storage.x_new_buffer->copy_from_device(d_next_positions.Get());
 
         bool converged = false;
 
         for (int iter = 0; iter < max_iterations; iter++) {
-            spdlog::info(
-                "[NeoHookean] Newton iteration {}/{}",
-                iter + 1,
-                max_iterations);
-
             // Compute gradient at current x_new
             rzsim_cuda::compute_gradient_nh_gpu(
                 storage.x_new_buffer,
@@ -455,17 +324,13 @@ NODE_EXECUTION_FUNCTION(neo_hookean_gpu)
 
             auto dof = num_particles * 3;
             grad_norm = grad_norm / dof;
-            spdlog::info(
-                "[NeoHookean] Normalized gradient norm: {}", grad_norm);
 
             if (iter > 0 && grad_norm < tolerance) {
-                spdlog::info("[NeoHookean] Converged!");
                 converged = true;
                 break;
             }
 
             // Update Hessian values
-            spdlog::info("[NeoHookean] Updating Hessian values...");
             rzsim_cuda::update_hessian_values_nh_gpu(
                 storage.hessian_structure,
                 storage.x_new_buffer,
@@ -482,7 +347,6 @@ NODE_EXECUTION_FUNCTION(neo_hookean_gpu)
                 num_particles,
                 storage.num_elements,
                 storage.hessian_values);
-            spdlog::info("[NeoHookean] Hessian updated");
 
             // DEBUG: Export dense Hessian (disabled for performance)
             constexpr bool enable_hessian_export = false;
@@ -654,10 +518,6 @@ NODE_EXECUTION_FUNCTION(neo_hookean_gpu)
             rzsim_cuda::negate_nh_gpu(
                 d_gradients, storage.neg_gradient_buffer, num_particles * 3);
 
-            // Check RHS norm
-            float rhs_norm = rzsim_cuda::compute_vector_norm_nh_gpu(
-                storage.neg_gradient_buffer, num_particles * 3);
-
             // Zero out the solution buffer before solving
             cudaMemset(
                 reinterpret_cast<void*>(
@@ -686,12 +546,6 @@ NODE_EXECUTION_FUNCTION(neo_hookean_gpu)
                     "[NeoHookean] CG solver did not converge in iteration {}",
                     iter);
             }
-
-            // Check solution norm
-            float sol_norm = rzsim_cuda::compute_vector_norm_nh_gpu(
-                storage.newton_direction_buffer, num_particles * 3);
-
-            spdlog::info("[NeoHookean] Solution norm: {}", sol_norm);
 
             // Line search with energy descent
             // IMPORTANT: Do NOT update x_new before line search!
@@ -833,7 +687,6 @@ NODE_EXECUTION_FUNCTION(neo_hookean_gpu)
         }
 
         // Update velocities: v = (x_new - x_n) / dt_sub and apply damping
-        spdlog::info("[NeoHookean] Updating velocities...");
         auto x_new_final = storage.x_new_buffer->get_host_vector<float>();
         auto x_n_host = d_positions->get_host_vector<glm::vec3>();
         std::vector<glm::vec3> v_new(num_particles);
@@ -869,7 +722,6 @@ NODE_EXECUTION_FUNCTION(neo_hookean_gpu)
 
         d_velocities->assign_host_vector(v_new);
         d_positions->assign_host_vector(new_positions);
-        spdlog::info("[NeoHookean] Substep {} completed", substep + 1);
     }
 
     // Update geometry with new positions
@@ -887,7 +739,6 @@ NODE_EXECUTION_FUNCTION(neo_hookean_gpu)
         points_component->set_vertices(final_positions);
     }
 
-    spdlog::info("[NeoHookean] Execution completed successfully");
     params.set_output<Geometry>("Geometry", std::move(input_geom));
     return true;
 }
