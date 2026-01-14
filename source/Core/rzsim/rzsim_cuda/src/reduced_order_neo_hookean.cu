@@ -10,7 +10,6 @@
 #include "rzsim_cuda/adjacency_map.cuh"
 #include "rzsim_cuda/reduced_order_neo_hookean.cuh"
 
-
 // Include glm after CUDA headers to avoid conflicts
 #ifndef __CUDACC__
 #include <glm/glm.hpp>
@@ -81,65 +80,6 @@ ReducedOrderData build_reduced_order_data_gpu(
 // x[v] = rest[v] + Σ_i weight[v,i] * (R_i * rest[v] + t_i - rest[v])
 // ============================================================================
 
-__global__ void map_reduced_to_full_kernel(
-    const float* __restrict__ q_reduced,       // [num_basis * 12]
-    const float* __restrict__ basis_weights,   // [num_particles * num_basis]
-    const float* __restrict__ rest_positions,  // [num_particles * 3]
-    int num_particles,
-    int num_basis,
-    float* __restrict__ x_full)  // [num_particles * 3]
-{
-    int v = blockIdx.x * blockDim.x + threadIdx.x;
-    if (v >= num_particles)
-        return;
-
-    // Load rest position
-    float rest_x = rest_positions[3 * v + 0];
-    float rest_y = rest_positions[3 * v + 1];
-    float rest_z = rest_positions[3 * v + 2];
-
-    // Initialize with rest position
-    float x = rest_x;
-    float y = rest_y;
-    float z = rest_z;
-
-    // Add contributions from each basis
-    for (int i = 0; i < num_basis; ++i) {
-        float weight = basis_weights[v * num_basis + i];
-
-        // Load affine transform parameters for basis i
-        // Rotation matrix R (row-major, 3x3)
-        float R00 = q_reduced[i * 12 + 0];
-        float R01 = q_reduced[i * 12 + 1];
-        float R02 = q_reduced[i * 12 + 2];
-        float R10 = q_reduced[i * 12 + 3];
-        float R11 = q_reduced[i * 12 + 4];
-        float R12 = q_reduced[i * 12 + 5];
-        float R20 = q_reduced[i * 12 + 6];
-        float R21 = q_reduced[i * 12 + 7];
-        float R22 = q_reduced[i * 12 + 8];
-
-        // Translation t
-        float tx = q_reduced[i * 12 + 9];
-        float ty = q_reduced[i * 12 + 10];
-        float tz = q_reduced[i * 12 + 11];
-
-        // Apply affine transform: R * rest_pos + t
-        float transformed_x = R00 * rest_x + R01 * rest_y + R02 * rest_z + tx;
-        float transformed_y = R10 * rest_x + R11 * rest_y + R12 * rest_z + ty;
-        float transformed_z = R20 * rest_x + R21 * rest_y + R22 * rest_z + tz;
-
-        // Add weighted contribution
-        x += weight * (transformed_x - rest_x);
-        y += weight * (transformed_y - rest_y);
-        z += weight * (transformed_z - rest_z);
-    }
-
-    x_full[3 * v + 0] = x;
-    x_full[3 * v + 1] = y;
-    x_full[3 * v + 2] = z;
-}
-
 void map_reduced_to_full_gpu(
     cuda::CUDALinearBufferHandle q_reduced,
     const ReducedOrderData& ro_data,
@@ -148,108 +88,70 @@ void map_reduced_to_full_gpu(
     int num_particles = ro_data.num_particles;
     int num_basis = ro_data.num_basis;
 
-    int block_size = 256;
-    int num_blocks = (num_particles + block_size - 1) / block_size;
+    const float* q_reduced_ptr = q_reduced->get_device_ptr<float>();
+    const float* basis_weights_ptr =
+        ro_data.basis_weights->get_device_ptr<float>();
+    const float* rest_positions_ptr =
+        ro_data.rest_positions->get_device_ptr<float>();
+    float* x_full_ptr = x_full->get_device_ptr<float>();
 
-    map_reduced_to_full_kernel<<<num_blocks, block_size>>>(
-        reinterpret_cast<const float*>(q_reduced->get_device_ptr()),
-        reinterpret_cast<const float*>(ro_data.basis_weights->get_device_ptr()),
-        reinterpret_cast<const float*>(
-            ro_data.rest_positions->get_device_ptr()),
-        num_particles,
-        num_basis,
-        reinterpret_cast<float*>(x_full->get_device_ptr()));
+    cuda::GPUParallelFor(
+        "map_reduced_to_full", num_particles, [=] __device__(int v) {
+            // Load rest position
+            float rest_x = rest_positions_ptr[3 * v + 0];
+            float rest_y = rest_positions_ptr[3 * v + 1];
+            float rest_z = rest_positions_ptr[3 * v + 2];
 
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        printf(
-            "[ReducedOrder] CUDA error in map_reduced_to_full_kernel: %s\n",
-            cudaGetErrorString(err));
-    }
+            // Initialize with rest position
+            float x = rest_x;
+            float y = rest_y;
+            float z = rest_z;
+
+            // Add contributions from each basis
+            for (int i = 0; i < num_basis; ++i) {
+                float weight = basis_weights_ptr[v * num_basis + i];
+
+                // Load affine transform parameters for basis i
+                // Rotation matrix R (row-major, 3x3)
+                float R00 = q_reduced_ptr[i * 12 + 0];
+                float R01 = q_reduced_ptr[i * 12 + 1];
+                float R02 = q_reduced_ptr[i * 12 + 2];
+                float R10 = q_reduced_ptr[i * 12 + 3];
+                float R11 = q_reduced_ptr[i * 12 + 4];
+                float R12 = q_reduced_ptr[i * 12 + 5];
+                float R20 = q_reduced_ptr[i * 12 + 6];
+                float R21 = q_reduced_ptr[i * 12 + 7];
+                float R22 = q_reduced_ptr[i * 12 + 8];
+
+                // Translation t
+                float tx = q_reduced_ptr[i * 12 + 9];
+                float ty = q_reduced_ptr[i * 12 + 10];
+                float tz = q_reduced_ptr[i * 12 + 11];
+
+                // Apply affine transform: R * rest_pos + t
+                float transformed_x =
+                    R00 * rest_x + R01 * rest_y + R02 * rest_z + tx;
+                float transformed_y =
+                    R10 * rest_x + R11 * rest_y + R12 * rest_z + ty;
+                float transformed_z =
+                    R20 * rest_x + R21 * rest_y + R22 * rest_z + tz;
+
+                // Add weighted contribution
+                x += weight * (transformed_x - rest_x);
+                y += weight * (transformed_y - rest_y);
+                z += weight * (transformed_z - rest_z);
+            }
+
+            x_full_ptr[3 * v + 0] = x;
+            x_full_ptr[3 * v + 1] = y;
+            x_full_ptr[3 * v + 2] = z;
+        });
 }
 
 // ============================================================================
 // Kernel: Compute Jacobian matrix
 // J[3v+d, 12i+p] = weight[v,i] * ∂(R_i*rest[v] + t_i)[d] / ∂q[12i+p]
 // ============================================================================
-
-__global__ void compute_jacobian_kernel(
-    const float* __restrict__ q_reduced,       // [num_basis * 12]
-    const float* __restrict__ basis_weights,   // [num_particles * num_basis]
-    const float* __restrict__ rest_positions,  // [num_particles * 3]
-    int num_particles,
-    int num_basis,
-    float* __restrict__ jacobian)  // [num_particles * 3, num_basis * 12]
-{
-    int v = blockIdx.x * blockDim.x + threadIdx.x;
-    if (v >= num_particles)
-        return;
-
-    float rest_x = rest_positions[3 * v + 0];
-    float rest_y = rest_positions[3 * v + 1];
-    float rest_z = rest_positions[3 * v + 2];
-
-    // For each basis mode
-    for (int i = 0; i < num_basis; ++i) {
-        float weight = basis_weights[v * num_basis + i];
-
-        // Derivatives w.r.t. rotation matrix elements
-        // x_component: d(x)/d(R[row][col]) = weight * rest[col] if row == 0
-        // For x-component of vertex v
-        int row_x = 3 * v + 0;
-        jacobian[row_x * (num_basis * 12) + i * 12 + 0] =
-            weight * rest_x;  // dR00
-        jacobian[row_x * (num_basis * 12) + i * 12 + 1] =
-            weight * rest_y;  // dR01
-        jacobian[row_x * (num_basis * 12) + i * 12 + 2] =
-            weight * rest_z;                                       // dR02
-        jacobian[row_x * (num_basis * 12) + i * 12 + 3] = 0.0f;    // dR10
-        jacobian[row_x * (num_basis * 12) + i * 12 + 4] = 0.0f;    // dR11
-        jacobian[row_x * (num_basis * 12) + i * 12 + 5] = 0.0f;    // dR12
-        jacobian[row_x * (num_basis * 12) + i * 12 + 6] = 0.0f;    // dR20
-        jacobian[row_x * (num_basis * 12) + i * 12 + 7] = 0.0f;    // dR21
-        jacobian[row_x * (num_basis * 12) + i * 12 + 8] = 0.0f;    // dR22
-        jacobian[row_x * (num_basis * 12) + i * 12 + 9] = weight;  // dtx
-        jacobian[row_x * (num_basis * 12) + i * 12 + 10] = 0.0f;   // dty
-        jacobian[row_x * (num_basis * 12) + i * 12 + 11] = 0.0f;   // dtz
-
-        // For y-component
-        int row_y = 3 * v + 1;
-        jacobian[row_y * (num_basis * 12) + i * 12 + 0] = 0.0f;
-        jacobian[row_y * (num_basis * 12) + i * 12 + 1] = 0.0f;
-        jacobian[row_y * (num_basis * 12) + i * 12 + 2] = 0.0f;
-        jacobian[row_y * (num_basis * 12) + i * 12 + 3] =
-            weight * rest_x;  // dR10
-        jacobian[row_y * (num_basis * 12) + i * 12 + 4] =
-            weight * rest_y;  // dR11
-        jacobian[row_y * (num_basis * 12) + i * 12 + 5] =
-            weight * rest_z;  // dR12
-        jacobian[row_y * (num_basis * 12) + i * 12 + 6] = 0.0f;
-        jacobian[row_y * (num_basis * 12) + i * 12 + 7] = 0.0f;
-        jacobian[row_y * (num_basis * 12) + i * 12 + 8] = 0.0f;
-        jacobian[row_y * (num_basis * 12) + i * 12 + 9] = 0.0f;
-        jacobian[row_y * (num_basis * 12) + i * 12 + 10] = weight;  // dty
-        jacobian[row_y * (num_basis * 12) + i * 12 + 11] = 0.0f;
-
-        // For z-component
-        int row_z = 3 * v + 2;
-        jacobian[row_z * (num_basis * 12) + i * 12 + 0] = 0.0f;
-        jacobian[row_z * (num_basis * 12) + i * 12 + 1] = 0.0f;
-        jacobian[row_z * (num_basis * 12) + i * 12 + 2] = 0.0f;
-        jacobian[row_z * (num_basis * 12) + i * 12 + 3] = 0.0f;
-        jacobian[row_z * (num_basis * 12) + i * 12 + 4] = 0.0f;
-        jacobian[row_z * (num_basis * 12) + i * 12 + 5] = 0.0f;
-        jacobian[row_z * (num_basis * 12) + i * 12 + 6] =
-            weight * rest_x;  // dR20
-        jacobian[row_z * (num_basis * 12) + i * 12 + 7] =
-            weight * rest_y;  // dR21
-        jacobian[row_z * (num_basis * 12) + i * 12 + 8] =
-            weight * rest_z;  // dR22
-        jacobian[row_z * (num_basis * 12) + i * 12 + 9] = 0.0f;
-        jacobian[row_z * (num_basis * 12) + i * 12 + 10] = 0.0f;
-        jacobian[row_z * (num_basis * 12) + i * 12 + 11] = weight;  // dtz
-    }
-}
 
 void compute_jacobian_gpu(
     cuda::CUDALinearBufferHandle q_reduced,
@@ -264,53 +166,95 @@ void compute_jacobian_gpu(
     cudaMemset(
         reinterpret_cast<void*>(jacobian->get_device_ptr()), 0, jacobian_size);
 
-    int block_size = 256;
-    int num_blocks = (num_particles + block_size - 1) / block_size;
+    const float* basis_weights_ptr =
+        ro_data.basis_weights->get_device_ptr<float>();
+    const float* rest_positions_ptr =
+        ro_data.rest_positions->get_device_ptr<float>();
+    float* jacobian_ptr = jacobian->get_device_ptr<float>();
 
-    compute_jacobian_kernel<<<num_blocks, block_size>>>(
-        reinterpret_cast<const float*>(q_reduced->get_device_ptr()),
-        reinterpret_cast<const float*>(ro_data.basis_weights->get_device_ptr()),
-        reinterpret_cast<const float*>(
-            ro_data.rest_positions->get_device_ptr()),
-        num_particles,
-        num_basis,
-        reinterpret_cast<float*>(jacobian->get_device_ptr()));
+    cuda::GPUParallelFor(
+        "compute_jacobian", num_particles, [=] __device__(int v) {
+            float rest_x = rest_positions_ptr[3 * v + 0];
+            float rest_y = rest_positions_ptr[3 * v + 1];
+            float rest_z = rest_positions_ptr[3 * v + 2];
 
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        printf(
-            "[ReducedOrder] CUDA error in compute_jacobian_kernel: %s\n",
-            cudaGetErrorString(err));
-    }
+            // For each basis mode
+            for (int i = 0; i < num_basis; ++i) {
+                float weight = basis_weights_ptr[v * num_basis + i];
+
+                // Derivatives w.r.t. rotation matrix elements
+                // x_component: d(x)/d(R[row][col]) = weight * rest[col] if row
+                // == 0 For x-component of vertex v
+                int row_x = 3 * v + 0;
+                jacobian_ptr[row_x * (num_basis * 12) + i * 12 + 0] =
+                    weight * rest_x;  // dR00
+                jacobian_ptr[row_x * (num_basis * 12) + i * 12 + 1] =
+                    weight * rest_y;  // dR01
+                jacobian_ptr[row_x * (num_basis * 12) + i * 12 + 2] =
+                    weight * rest_z;  // dR02
+                jacobian_ptr[row_x * (num_basis * 12) + i * 12 + 3] =
+                    0.0f;  // dR10
+                jacobian_ptr[row_x * (num_basis * 12) + i * 12 + 4] =
+                    0.0f;  // dR11
+                jacobian_ptr[row_x * (num_basis * 12) + i * 12 + 5] =
+                    0.0f;  // dR12
+                jacobian_ptr[row_x * (num_basis * 12) + i * 12 + 6] =
+                    0.0f;  // dR20
+                jacobian_ptr[row_x * (num_basis * 12) + i * 12 + 7] =
+                    0.0f;  // dR21
+                jacobian_ptr[row_x * (num_basis * 12) + i * 12 + 8] =
+                    0.0f;  // dR22
+                jacobian_ptr[row_x * (num_basis * 12) + i * 12 + 9] =
+                    weight;  // dtx
+                jacobian_ptr[row_x * (num_basis * 12) + i * 12 + 10] =
+                    0.0f;  // dty
+                jacobian_ptr[row_x * (num_basis * 12) + i * 12 + 11] =
+                    0.0f;  // dtz
+
+                // For y-component
+                int row_y = 3 * v + 1;
+                jacobian_ptr[row_y * (num_basis * 12) + i * 12 + 0] = 0.0f;
+                jacobian_ptr[row_y * (num_basis * 12) + i * 12 + 1] = 0.0f;
+                jacobian_ptr[row_y * (num_basis * 12) + i * 12 + 2] = 0.0f;
+                jacobian_ptr[row_y * (num_basis * 12) + i * 12 + 3] =
+                    weight * rest_x;  // dR10
+                jacobian_ptr[row_y * (num_basis * 12) + i * 12 + 4] =
+                    weight * rest_y;  // dR11
+                jacobian_ptr[row_y * (num_basis * 12) + i * 12 + 5] =
+                    weight * rest_z;  // dR12
+                jacobian_ptr[row_y * (num_basis * 12) + i * 12 + 6] = 0.0f;
+                jacobian_ptr[row_y * (num_basis * 12) + i * 12 + 7] = 0.0f;
+                jacobian_ptr[row_y * (num_basis * 12) + i * 12 + 8] = 0.0f;
+                jacobian_ptr[row_y * (num_basis * 12) + i * 12 + 9] = 0.0f;
+                jacobian_ptr[row_y * (num_basis * 12) + i * 12 + 10] =
+                    weight;  // dty
+                jacobian_ptr[row_y * (num_basis * 12) + i * 12 + 11] = 0.0f;
+
+                // For z-component
+                int row_z = 3 * v + 2;
+                jacobian_ptr[row_z * (num_basis * 12) + i * 12 + 0] = 0.0f;
+                jacobian_ptr[row_z * (num_basis * 12) + i * 12 + 1] = 0.0f;
+                jacobian_ptr[row_z * (num_basis * 12) + i * 12 + 2] = 0.0f;
+                jacobian_ptr[row_z * (num_basis * 12) + i * 12 + 3] = 0.0f;
+                jacobian_ptr[row_z * (num_basis * 12) + i * 12 + 4] = 0.0f;
+                jacobian_ptr[row_z * (num_basis * 12) + i * 12 + 5] = 0.0f;
+                jacobian_ptr[row_z * (num_basis * 12) + i * 12 + 6] =
+                    weight * rest_x;  // dR20
+                jacobian_ptr[row_z * (num_basis * 12) + i * 12 + 7] =
+                    weight * rest_y;  // dR21
+                jacobian_ptr[row_z * (num_basis * 12) + i * 12 + 8] =
+                    weight * rest_z;  // dR22
+                jacobian_ptr[row_z * (num_basis * 12) + i * 12 + 9] = 0.0f;
+                jacobian_ptr[row_z * (num_basis * 12) + i * 12 + 10] = 0.0f;
+                jacobian_ptr[row_z * (num_basis * 12) + i * 12 + 11] =
+                    weight;  // dtz
+            }
+        });
 }
 
 // ============================================================================
 // Kernel: Compute reduced gradient (J^T * grad_x)
 // ============================================================================
-
-__global__ void compute_reduced_gradient_kernel(
-    const float* __restrict__ jacobian,  // [num_particles * 3, num_basis * 12]
-    const float* __restrict__ grad_x,    // [num_particles * 3]
-    int num_particles,
-    int num_basis,
-    float* __restrict__ grad_q)  // [num_basis * 12]
-{
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    int reduced_dof = num_basis * 12;
-
-    if (idx >= reduced_dof)
-        return;
-
-    float sum = 0.0f;
-    int full_dof = num_particles * 3;
-
-    // grad_q[idx] = J[:, idx]^T * grad_x = sum_i J[i, idx] * grad_x[i]
-    for (int i = 0; i < full_dof; ++i) {
-        sum += jacobian[i * reduced_dof + idx] * grad_x[i];
-    }
-
-    grad_q[idx] = sum;
-}
 
 void compute_reduced_gradient_gpu(
     cuda::CUDALinearBufferHandle jacobian,
@@ -320,48 +264,56 @@ void compute_reduced_gradient_gpu(
     cuda::CUDALinearBufferHandle grad_q)
 {
     int reduced_dof = num_basis * 12;
-    int block_size = 256;
-    int num_blocks = (reduced_dof + block_size - 1) / block_size;
+    int full_dof = num_particles * 3;
 
-    compute_reduced_gradient_kernel<<<num_blocks, block_size>>>(
-        reinterpret_cast<const float*>(jacobian->get_device_ptr()),
-        reinterpret_cast<const float*>(grad_x->get_device_ptr()),
-        num_particles,
-        num_basis,
-        reinterpret_cast<float*>(grad_q->get_device_ptr()));
+    const float* jacobian_ptr = jacobian->get_device_ptr<float>();
+    const float* grad_x_ptr = grad_x->get_device_ptr<float>();
+    float* grad_q_ptr = grad_q->get_device_ptr<float>();
 
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        printf(
-            "[ReducedOrder] CUDA error in compute_reduced_gradient_kernel: %s\n",
-            cudaGetErrorString(err));
-    }
+    cuda::GPUParallelFor(
+        "compute_reduced_gradient", reduced_dof, [=] __device__(int idx) {
+            float sum = 0.0f;
+
+            // grad_q[idx] = J[:, idx]^T * grad_x = sum_i J[i, idx] * grad_x[i]
+            for (int i = 0; i < full_dof; ++i) {
+                sum += jacobian_ptr[i * reduced_dof + idx] * grad_x_ptr[i];
+            }
+
+            grad_q_ptr[idx] = sum;
+        });
+}
+
+void compute_reduced_neg_gradient_gpu(
+    cuda::CUDALinearBufferHandle jacobian,
+    cuda::CUDALinearBufferHandle grad_x,
+    int num_particles,
+    int num_basis,
+    cuda::CUDALinearBufferHandle neg_grad_q)
+{
+    int reduced_dof = num_basis * 12;
+    int full_dof = num_particles * 3;
+
+    const float* jacobian_ptr = jacobian->get_device_ptr<float>();
+    const float* grad_x_ptr = grad_x->get_device_ptr<float>();
+    float* neg_grad_q_ptr = neg_grad_q->get_device_ptr<float>();
+
+    cuda::GPUParallelFor(
+        "compute_reduced_neg_gradient", reduced_dof, [=] __device__(int idx) {
+            float sum = 0.0f;
+
+            // neg_grad_q[idx] = -J[:, idx]^T * grad_x = -sum_i J[i, idx] *
+            // grad_x[i]
+            for (int i = 0; i < full_dof; ++i) {
+                sum += jacobian_ptr[i * reduced_dof + idx] * grad_x_ptr[i];
+            }
+
+            neg_grad_q_ptr[idx] = -sum;  // Negate the result
+        });
 }
 
 // ============================================================================
 // Kernel: Map reduced velocities to full space (v_full = J * q_dot)
 // ============================================================================
-
-__global__ void map_reduced_velocities_kernel(
-    const float* __restrict__ jacobian,       // [num_particles * 3, num_basis * 12]
-    const float* __restrict__ q_dot,          // [num_basis * 12]
-    int num_particles,
-    int reduced_dof,
-    float* __restrict__ v_full)               // [num_particles * 3]
-{
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    int full_dof = num_particles * 3;
-    
-    if (idx >= full_dof) return;
-
-    float sum = 0.0f;
-    // v_full[idx] = J[idx, :] * q_dot = sum_j J[idx, j] * q_dot[j]
-    for (int j = 0; j < reduced_dof; ++j) {
-        sum += jacobian[idx * reduced_dof + j] * q_dot[j];
-    }
-
-    v_full[idx] = sum;
-}
 
 void map_reduced_velocities_to_full_gpu(
     cuda::CUDALinearBufferHandle jacobian,
@@ -372,85 +324,30 @@ void map_reduced_velocities_to_full_gpu(
 {
     int reduced_dof = num_basis * 12;
     int full_dof = num_particles * 3;
-    int block_size = 256;
-    int num_blocks = (full_dof + block_size - 1) / block_size;
 
-    map_reduced_velocities_kernel<<<num_blocks, block_size>>>(
-        reinterpret_cast<const float*>(jacobian->get_device_ptr()),
-        reinterpret_cast<const float*>(q_dot->get_device_ptr()),
-        num_particles,
-        reduced_dof,
-        reinterpret_cast<float*>(v_full->get_device_ptr()));
+    const float* jacobian_ptr = jacobian->get_device_ptr<float>();
+    const float* q_dot_ptr = q_dot->get_device_ptr<float>();
+    float* v_full_ptr = v_full->get_device_ptr<float>();
 
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        printf(
-            "[ReducedOrder] CUDA error in map_reduced_velocities_kernel: %s\n",
-            cudaGetErrorString(err));
-    }
+    cuda::GPUParallelFor(
+        "map_reduced_velocities", full_dof, [=] __device__(int idx) {
+            float sum = 0.0f;
+            // v_full[idx] = J[idx, :] * q_dot = sum_j J[idx, j] * q_dot[j]
+            for (int j = 0; j < reduced_dof; ++j) {
+                sum += jacobian_ptr[idx * reduced_dof + j] * q_dot_ptr[j];
+            }
+
+            v_full_ptr[idx] = sum;
+        });
 }
 
 // ============================================================================
 // Kernel: Sparse matrix-dense matrix multiply (CSR * dense)
 // ============================================================================
 
-__global__ void sparse_dense_multiply_kernel(
-    const int* __restrict__ row_offsets,     // [num_rows + 1]
-    const int* __restrict__ col_indices,     // [nnz]
-    const float* __restrict__ values,        // [nnz]
-    const float* __restrict__ dense_matrix,  // [num_cols, dense_cols]
-    int num_rows,
-    int num_cols,
-    int dense_cols,
-    float* __restrict__ result)  // [num_rows, dense_cols]
-{
-    int row = blockIdx.x * blockDim.x + threadIdx.x;
-    if (row >= num_rows)
-        return;
-
-    int row_start = row_offsets[row];
-    int row_end = row_offsets[row + 1];
-
-    // For each column in the dense output
-    for (int dc = 0; dc < dense_cols; ++dc) {
-        float sum = 0.0f;
-
-        // Multiply row of sparse matrix with column dc of dense matrix
-        for (int idx = row_start; idx < row_end; ++idx) {
-            int col = col_indices[idx];
-            float val = values[idx];
-            sum += val * dense_matrix[col * dense_cols + dc];
-        }
-
-        result[row * dense_cols + dc] = sum;
-    }
-}
-
 // ============================================================================
 // Kernel: Dense transpose matrix multiply (A^T * B)
 // ============================================================================
-
-__global__ void dense_transpose_multiply_kernel(
-    const float* __restrict__ A,  // [m, n]
-    const float* __restrict__ B,  // [m, k]
-    int m,
-    int n,
-    int k,
-    float* __restrict__ C)  // [n, k]
-{
-    int row = blockIdx.y * blockDim.y + threadIdx.y;
-    int col = blockIdx.x * blockDim.x + threadIdx.x;
-
-    if (row >= n || col >= k)
-        return;
-
-    float sum = 0.0f;
-    for (int i = 0; i < m; ++i) {
-        sum += A[i * n + row] * B[i * k + col];
-    }
-
-    C[row * k + col] = sum;
-}
 
 void compute_reduced_hessian_gpu(
     const NeoHookeanCSRStructure& hessian_structure,
@@ -469,53 +366,56 @@ void compute_reduced_hessian_gpu(
     // J is [full_dof, reduced_dof] dense
     // temp is [full_dof, reduced_dof] dense
 
-    int block_size = 256;
-    int num_blocks = (full_dof + block_size - 1) / block_size;
+    const int* row_offsets_ptr =
+        hessian_structure.row_offsets->get_device_ptr<int>();
+    const int* col_indices_ptr =
+        hessian_structure.col_indices->get_device_ptr<int>();
+    const float* hessian_values_ptr = hessian_values->get_device_ptr<float>();
+    const float* jacobian_ptr = jacobian->get_device_ptr<float>();
+    float* temp_buffer_ptr = temp_buffer->get_device_ptr<float>();
 
-    sparse_dense_multiply_kernel<<<num_blocks, block_size>>>(
-        reinterpret_cast<const int*>(
-            hessian_structure.row_offsets->get_device_ptr()),
-        reinterpret_cast<const int*>(
-            hessian_structure.col_indices->get_device_ptr()),
-        reinterpret_cast<const float*>(hessian_values->get_device_ptr()),
-        reinterpret_cast<const float*>(jacobian->get_device_ptr()),
-        full_dof,
-        full_dof,
-        reduced_dof,
-        reinterpret_cast<float*>(temp_buffer->get_device_ptr()));
+    cuda::GPUParallelFor(
+        "sparse_dense_multiply", full_dof, [=] __device__(int row) {
+            int row_start = row_offsets_ptr[row];
+            int row_end = row_offsets_ptr[row + 1];
 
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        printf(
-            "[ReducedOrder] CUDA error in sparse_dense_multiply_kernel: %s\n",
-            cudaGetErrorString(err));
-    }
+            // For each column in the dense output
+            for (int dc = 0; dc < reduced_dof; ++dc) {
+                float sum = 0.0f;
+
+                // Multiply row of sparse matrix with column dc of dense matrix
+                for (int idx = row_start; idx < row_end; ++idx) {
+                    int col = col_indices_ptr[idx];
+                    float val = hessian_values_ptr[idx];
+                    sum += val * jacobian_ptr[col * reduced_dof + dc];
+                }
+
+                temp_buffer_ptr[row * reduced_dof + dc] = sum;
+            }
+        });
 
     // Step 2: H_q = J^T * temp
     // J^T is [reduced_dof, full_dof]
     // temp is [full_dof, reduced_dof]
     // H_q is [reduced_dof, reduced_dof]
 
-    dim3 block_dim(16, 16);
-    dim3 grid_dim(
-        (reduced_dof + block_dim.x - 1) / block_dim.x,
-        (reduced_dof + block_dim.y - 1) / block_dim.y);
+    float* H_q_ptr = H_q->get_device_ptr<float>();
 
-    dense_transpose_multiply_kernel<<<grid_dim, block_dim>>>(
-        reinterpret_cast<const float*>(jacobian->get_device_ptr()),
-        reinterpret_cast<const float*>(temp_buffer->get_device_ptr()),
-        full_dof,
-        reduced_dof,
-        reduced_dof,
-        reinterpret_cast<float*>(H_q->get_device_ptr()));
+    cuda::GPUParallelFor(
+        "dense_transpose_multiply",
+        reduced_dof * reduced_dof,
+        [=] __device__(int idx) {
+            int row = idx / reduced_dof;
+            int col = idx % reduced_dof;
 
-    err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        printf(
-            "[ReducedOrder] CUDA error in dense_transpose_multiply_kernel: "
-            "%s\n",
-            cudaGetErrorString(err));
-    }
+            float sum = 0.0f;
+            for (int i = 0; i < full_dof; ++i) {
+                sum += jacobian_ptr[i * reduced_dof + row] *
+                       temp_buffer_ptr[i * reduced_dof + col];
+            }
+
+            H_q_ptr[row * reduced_dof + col] = sum;
+        });
 }
 
 // ============================================================================
@@ -557,21 +457,6 @@ void initialize_reduced_coords_identity_gpu(
 // Kernel: Explicit step in reduced space
 // ============================================================================
 
-__global__ void explicit_step_reduced_kernel(
-    const float* __restrict__ q,      // [num_basis * 12]
-    const float* __restrict__ q_dot,  // [num_basis * 12]
-    float dt,
-    int reduced_dof,
-    float* __restrict__ q_tilde)  // [num_basis * 12]
-{
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-
-    if (idx >= reduced_dof)
-        return;
-
-    q_tilde[idx] = q[idx] + dt * q_dot[idx];
-}
-
 void explicit_step_reduced_gpu(
     cuda::CUDALinearBufferHandle q,
     cuda::CUDALinearBufferHandle q_dot,
@@ -580,43 +465,20 @@ void explicit_step_reduced_gpu(
     cuda::CUDALinearBufferHandle q_tilde)
 {
     int reduced_dof = num_basis * 12;
-    int block_size = 256;
-    int num_blocks = (reduced_dof + block_size - 1) / block_size;
 
-    explicit_step_reduced_kernel<<<num_blocks, block_size>>>(
-        reinterpret_cast<const float*>(q->get_device_ptr()),
-        reinterpret_cast<const float*>(q_dot->get_device_ptr()),
-        dt,
-        reduced_dof,
-        reinterpret_cast<float*>(q_tilde->get_device_ptr()));
+    const float* q_ptr = q->get_device_ptr<float>();
+    const float* q_dot_ptr = q_dot->get_device_ptr<float>();
+    float* q_tilde_ptr = q_tilde->get_device_ptr<float>();
 
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        printf(
-            "[ReducedOrder] CUDA error in explicit_step_reduced_kernel: %s\n",
-            cudaGetErrorString(err));
-    }
+    cuda::GPUParallelFor(
+        "explicit_step_reduced", reduced_dof, [=] __device__(int idx) {
+            q_tilde_ptr[idx] = q_ptr[idx] + dt * q_dot_ptr[idx];
+        });
 }
 
 // ============================================================================
 // Kernel: Update reduced velocities
 // ============================================================================
-
-__global__ void update_reduced_velocities_kernel(
-    const float* __restrict__ q_new,  // [num_basis * 12]
-    const float* __restrict__ q_old,  // [num_basis * 12]
-    float dt,
-    float damping,
-    int reduced_dof,
-    float* __restrict__ q_dot)  // [num_basis * 12]
-{
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-
-    if (idx >= reduced_dof)
-        return;
-
-    q_dot[idx] = (q_new[idx] - q_old[idx]) / dt * damping;
-}
 
 void update_reduced_velocities_gpu(
     cuda::CUDALinearBufferHandle q_new,
@@ -627,24 +489,15 @@ void update_reduced_velocities_gpu(
     cuda::CUDALinearBufferHandle q_dot)
 {
     int reduced_dof = num_basis * 12;
-    int block_size = 256;
-    int num_blocks = (reduced_dof + block_size - 1) / block_size;
 
-    update_reduced_velocities_kernel<<<num_blocks, block_size>>>(
-        reinterpret_cast<const float*>(q_new->get_device_ptr()),
-        reinterpret_cast<const float*>(q_old->get_device_ptr()),
-        dt,
-        damping,
-        reduced_dof,
-        reinterpret_cast<float*>(q_dot->get_device_ptr()));
+    const float* q_new_ptr = q_new->get_device_ptr<float>();
+    const float* q_old_ptr = q_old->get_device_ptr<float>();
+    float* q_dot_ptr = q_dot->get_device_ptr<float>();
 
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        printf(
-            "[ReducedOrder] CUDA error in update_reduced_velocities_kernel: "
-            "%s\n",
-            cudaGetErrorString(err));
-    }
+    cuda::GPUParallelFor(
+        "update_reduced_velocities", reduced_dof, [=] __device__(int idx) {
+            q_dot_ptr[idx] = (q_new_ptr[idx] - q_old_ptr[idx]) / dt * damping;
+        });
 }
 
 }  // namespace rzsim_cuda

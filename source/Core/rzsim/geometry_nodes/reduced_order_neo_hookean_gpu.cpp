@@ -469,26 +469,20 @@ NODE_EXECUTION_FUNCTION(reduced_order_neo_hookean_gpu)
                 storage.num_elements,
                 d_gradients);
 
-            // Debug: check full-space gradient norm
-            if (substep == 0 && iter == 0) {
-                float full_grad_norm = rzsim_cuda::compute_vector_norm_nh_gpu(
-                    d_gradients, num_particles * 3);
-                std::cout << "[ReducedNeoHookean] Full-space gradient norm: "
-                          << full_grad_norm << std::endl;
-            }
 
-            // Project gradient to reduced space: grad_q = J^T * grad_x
-            rzsim_cuda::compute_reduced_gradient_gpu(
+            // Project negative gradient to reduced space: -grad_q = -J^T * grad_x
+            // Compute negative gradient directly to avoid extra negate kernel
+            rzsim_cuda::compute_reduced_neg_gradient_gpu(
                 storage.jacobian,
                 d_gradients,
                 num_particles,
                 storage.num_basis,
-                storage.grad_reduced);
+                storage.neg_gradient_reduced);
 
-            // Compute gradient norm in reduced space
+            // Compute gradient norm in reduced space (norm of -g equals norm of g)
             int reduced_dof = storage.num_basis * 12;
             float grad_norm = rzsim_cuda::compute_vector_norm_nh_gpu(
-                storage.grad_reduced, reduced_dof);
+                storage.neg_gradient_reduced, reduced_dof);
 
             if (!std::isfinite(grad_norm)) {
                 spdlog::error(
@@ -560,23 +554,10 @@ NODE_EXECUTION_FUNCTION(reduced_order_neo_hookean_gpu)
             solver_config.use_preconditioner = false;  // Dense matrix
             solver_config.verbose = false;
 
-            // Negate gradient for RHS
-            rzsim_cuda::negate_nh_gpu(
-                storage.grad_reduced,
-                storage.neg_gradient_reduced,
-                reduced_dof);
-
-            // Zero out the solution buffer before solving
-            cudaMemset(
-                reinterpret_cast<void*>(
-                    storage.newton_direction_reduced->get_device_ptr()),
-                0,
-                reduced_dof * sizeof(float));
-
-            rzsim_cuda::negate_nh_gpu(
-                storage.grad_reduced,
-                storage.newton_direction_reduced,
-                reduced_dof);
+            // Use pre-computed negative gradient as Newton direction
+            // (neg_gradient_reduced already contains -grad_q)
+            storage.newton_direction_reduced->copy_from_device(
+                storage.neg_gradient_reduced.Get());
 
             // Line search with energy descent
             rzsim_cuda::map_reduced_to_full_gpu(

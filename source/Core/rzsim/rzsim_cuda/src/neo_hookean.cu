@@ -1137,7 +1137,7 @@ float compute_energy_nh_gpu(
     cuda::CUDALinearBufferHandle d_inertial_terms,
     cuda::CUDALinearBufferHandle d_element_energies)
 {
-    const int n = num_particles * 3;
+     const int n = num_particles * 3;
     const float dt2 = dt * dt;
 
     const float* x_ptr = x_curr->get_device_ptr<float>();
