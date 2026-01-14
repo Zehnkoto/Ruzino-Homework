@@ -11,8 +11,8 @@
 #include <Eigen/Dense>
 #include <RHI/cuda.hpp>
 
-#include "rzsim_cuda/neo_hookean.cuh"
 #include "rzsim_cuda/adjacency_map.cuh"
+#include "rzsim_cuda/neo_hookean.cuh"
 
 RUZINO_NAMESPACE_OPEN_SCOPE
 
@@ -42,44 +42,6 @@ void explicit_step_nh_gpu(
 // Compute lumped mass matrix from density and element volumes
 // For each tetrahedral element: m_elem = density * volume
 // Distribute equally to 4 vertices using lumped mass matrix
-__global__ void compute_lumped_mass_kernel(
-    const unsigned* adjacency,
-    const unsigned* offsets,
-    const int* element_to_vertex,
-    const int* element_to_local_face,
-    const float* volumes,
-    float density,
-    int num_elements,
-    float* mass_matrix)
-{
-    int elem_idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (elem_idx >= num_elements)
-        return;
-
-    int v_apex = element_to_vertex[elem_idx];
-    int local_face_idx = element_to_local_face[elem_idx];
-
-    unsigned offset = offsets[v_apex];
-    unsigned face_a = adjacency[offset + 1 + local_face_idx * 3 + 0];
-    unsigned face_b = adjacency[offset + 1 + local_face_idx * 3 + 1];
-    unsigned face_c = adjacency[offset + 1 + local_face_idx * 3 + 2];
-
-    int tet[4] = { v_apex, (int)face_a, (int)face_b, (int)face_c };
-    float volume = volumes[elem_idx];
-    
-    // Element mass distributed equally to 4 vertices (lumped mass matrix)
-    float elem_mass = density * volume;
-    float mass_per_vertex = elem_mass / 4.0f;
-
-    // Accumulate to each vertex (3 DOFs per vertex)
-    for (int i = 0; i < 4; i++) {
-        int vid = tet[i];
-        atomicAdd(&mass_matrix[vid * 3 + 0], mass_per_vertex);
-        atomicAdd(&mass_matrix[vid * 3 + 1], mass_per_vertex);
-        atomicAdd(&mass_matrix[vid * 3 + 2], mass_per_vertex);
-    }
-}
-
 void compute_lumped_mass_matrix_gpu(
     const VolumeAdjacencyMap& volume_adjacency,
     cuda::CUDALinearBufferHandle volumes,
@@ -94,63 +56,48 @@ void compute_lumped_mass_matrix_gpu(
         0,
         num_particles * 3 * sizeof(float));
 
-    int block_size = 256;
-    int num_blocks = (num_elements + block_size - 1) / block_size;
+    const unsigned* adjacency =
+        volume_adjacency.adjacency_buffer()->get_device_ptr<unsigned>();
+    const unsigned* offsets =
+        volume_adjacency.offsets_buffer()->get_device_ptr<unsigned>();
+    const int* element_to_vertex =
+        volume_adjacency.element_to_vertex_buffer()->get_device_ptr<int>();
+    const int* element_to_local_face =
+        volume_adjacency.element_to_local_face_buffer()->get_device_ptr<int>();
+    const float* volumes_ptr = volumes->get_device_ptr<float>();
+    float* mass_matrix_ptr = mass_matrix->get_device_ptr<float>();
 
-    compute_lumped_mass_kernel<<<num_blocks, block_size>>>(
-        volume_adjacency.adjacency_buffer()->get_device_ptr<unsigned>(),
-        volume_adjacency.offsets_buffer()->get_device_ptr<unsigned>(),
-        volume_adjacency.element_to_vertex_buffer()->get_device_ptr<int>(),
-        volume_adjacency.element_to_local_face_buffer()->get_device_ptr<int>(),
-        volumes->get_device_ptr<float>(),
-        density,
-        num_elements,
-        mass_matrix->get_device_ptr<float>());
+    cuda::GPUParallelFor(
+        "compute_lumped_mass", num_elements, [=] __device__(int elem_idx) {
+            int v_apex = element_to_vertex[elem_idx];
+            int local_face_idx = element_to_local_face[elem_idx];
 
-    cudaDeviceSynchronize();
+            unsigned offset = offsets[v_apex];
+            unsigned face_a = adjacency[offset + 1 + local_face_idx * 3 + 0];
+            unsigned face_b = adjacency[offset + 1 + local_face_idx * 3 + 1];
+            unsigned face_c = adjacency[offset + 1 + local_face_idx * 3 + 2];
+
+            int tet[4] = { v_apex, (int)face_a, (int)face_b, (int)face_c };
+            float volume = volumes_ptr[elem_idx];
+
+            // Element mass distributed equally to 4 vertices (lumped mass
+            // matrix)
+            float elem_mass = density * volume;
+            float mass_per_vertex = elem_mass / 4.0f;
+
+            // Accumulate to each vertex (3 DOFs per vertex)
+            for (int i = 0; i < 4; i++) {
+                atomicAdd(&mass_matrix_ptr[tet[i] * 3 + 0], mass_per_vertex);
+                atomicAdd(&mass_matrix_ptr[tet[i] * 3 + 1], mass_per_vertex);
+                atomicAdd(&mass_matrix_ptr[tet[i] * 3 + 2], mass_per_vertex);
+            }
+        });
 }
 
 // Setup external forces using FEM integration
 // For body force f = density * g, the force on each vertex is:
 // F_i = ∫_Ω N_i * ρ * g dV
 // For linear tetrahedron with lumped integration: F_i = (ρ * V / 4) * g
-__global__ void setup_external_forces_fem_kernel(
-    const unsigned* adjacency,
-    const unsigned* offsets,
-    const int* element_to_vertex,
-    const int* element_to_local_face,
-    const float* volumes,
-    float density,
-    float gravity,
-    int num_elements,
-    float* f_ext)
-{
-    int elem_idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (elem_idx >= num_elements)
-        return;
-
-    int v_apex = element_to_vertex[elem_idx];
-    int local_face_idx = element_to_local_face[elem_idx];
-
-    unsigned offset = offsets[v_apex];
-    unsigned face_a = adjacency[offset + 1 + local_face_idx * 3 + 0];
-    unsigned face_b = adjacency[offset + 1 + local_face_idx * 3 + 1];
-    unsigned face_c = adjacency[offset + 1 + local_face_idx * 3 + 2];
-
-    int tet[4] = { v_apex, (int)face_a, (int)face_b, (int)face_c };
-    float volume = volumes[elem_idx];
-    
-    // Force per vertex from gravity (lumped)
-    // f = (ρ * V / 4) * g, where g = [0, 0, gravity]
-    float force_z = (density * volume / 4.0f) * gravity;
-
-    // Accumulate to each vertex (only z component)
-    for (int i = 0; i < 4; i++) {
-        int vid = tet[i];
-        atomicAdd(&f_ext[vid * 3 + 2], force_z);
-    }
-}
-
 void setup_external_forces_fem_gpu(
     const VolumeAdjacencyMap& volume_adjacency,
     cuda::CUDALinearBufferHandle volumes,
@@ -162,25 +109,43 @@ void setup_external_forces_fem_gpu(
 {
     // Zero out force vector first
     cudaMemset(
-        f_ext->get_device_ptr<float>(),
-        0,
-        num_particles * 3 * sizeof(float));
+        f_ext->get_device_ptr<float>(), 0, num_particles * 3 * sizeof(float));
 
-    int block_size = 256;
-    int num_blocks = (num_elements + block_size - 1) / block_size;
+    const unsigned* adjacency =
+        volume_adjacency.adjacency_buffer()->get_device_ptr<unsigned>();
+    const unsigned* offsets =
+        volume_adjacency.offsets_buffer()->get_device_ptr<unsigned>();
+    const int* element_to_vertex =
+        volume_adjacency.element_to_vertex_buffer()->get_device_ptr<int>();
+    const int* element_to_local_face =
+        volume_adjacency.element_to_local_face_buffer()->get_device_ptr<int>();
+    const float* volumes_ptr = volumes->get_device_ptr<float>();
+    float* f_ext_ptr = f_ext->get_device_ptr<float>();
 
-    setup_external_forces_fem_kernel<<<num_blocks, block_size>>>(
-        volume_adjacency.adjacency_buffer()->get_device_ptr<unsigned>(),
-        volume_adjacency.offsets_buffer()->get_device_ptr<unsigned>(),
-        volume_adjacency.element_to_vertex_buffer()->get_device_ptr<int>(),
-        volume_adjacency.element_to_local_face_buffer()->get_device_ptr<int>(),
-        volumes->get_device_ptr<float>(),
-        density,
-        gravity,
+    cuda::GPUParallelFor(
+        "setup_external_forces_fem",
         num_elements,
-        f_ext->get_device_ptr<float>());
+        [=] __device__(int elem_idx) {
+            int v_apex = element_to_vertex[elem_idx];
+            int local_face_idx = element_to_local_face[elem_idx];
 
-    cudaDeviceSynchronize();
+            unsigned offset = offsets[v_apex];
+            unsigned face_a = adjacency[offset + 1 + local_face_idx * 3 + 0];
+            unsigned face_b = adjacency[offset + 1 + local_face_idx * 3 + 1];
+            unsigned face_c = adjacency[offset + 1 + local_face_idx * 3 + 2];
+
+            int tet[4] = { v_apex, (int)face_a, (int)face_b, (int)face_c };
+            float volume = volumes_ptr[elem_idx];
+
+            // Force per vertex from gravity (lumped)
+            // f = (ρ * V / 4) * g, where g = [0, 0, gravity]
+            float force_z = (density * volume / 4.0f) * gravity;
+
+            // Accumulate to each vertex (only z component)
+            for (int i = 0; i < 4; i++) {
+                atomicAdd(&f_ext_ptr[tet[i] * 3 + 2], force_z);
+            }
+        });
 }
 
 void setup_external_forces_nh_gpu(
@@ -378,128 +343,8 @@ __device__ void add_element_gradient(
 }
 
 // Gradient kernel - only inertial term
-__global__ void compute_gradient_nh_kernel(
-    const float* x_curr,
-    const float* x_tilde,
-    const float* M_diag,
-    const float* f_ext,
-    const int* tetrahedra,
-    const float* Dm_inv,
-    const float* volumes,
-    float mu,
-    float lambda,
-    float dt,
-    int num_particles,
-    int num_elements,
-    float* grad)
-{
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= num_particles)
-        return;
-
-    // Initialize with negative inertial term: -M * (x - x_tilde)
-    grad[i * 3 + 0] =
-        -M_diag[i * 3 + 0] * (x_curr[i * 3 + 0] - x_tilde[i * 3 + 0]);
-    grad[i * 3 + 1] =
-        -M_diag[i * 3 + 1] * (x_curr[i * 3 + 1] - x_tilde[i * 3 + 1]);
-    grad[i * 3 + 2] =
-        -M_diag[i * 3 + 2] * (x_curr[i * 3 + 2] - x_tilde[i * 3 + 2]);
-}
 
 // Accumulate elastic forces from elements (now includes gravity)
-__global__ void accumulate_elastic_forces_kernel(
-    const float* x_curr,
-    const unsigned* adjacency,
-    const unsigned* offsets,
-    const int* element_to_vertex,
-    const int* element_to_local_face,
-    const float* Dm_inv,
-    const float* volumes,
-    float mu,
-    float lambda,
-    float density,
-    float gravity,
-    float dt,
-    int num_elements,
-    int num_particles,
-    float* grad)
-{
-    int elem_idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (elem_idx >= num_elements)
-        return;
-
-    // Step 1: Test mapping lookup
-    int v_apex = element_to_vertex[elem_idx];
-    int local_face_idx = element_to_local_face[elem_idx];
-
-    if (v_apex < 0 || v_apex >= num_particles) {
-        return;
-    }
-
-    unsigned offset = offsets[v_apex];
-    unsigned count = adjacency[offset];
-
-    if (local_face_idx < 0 || local_face_idx >= (int)count) {
-        return;
-    }
-
-    unsigned face_a = adjacency[offset + 1 + local_face_idx * 3 + 0];
-    unsigned face_b = adjacency[offset + 1 + local_face_idx * 3 + 1];
-    unsigned face_c = adjacency[offset + 1 + local_face_idx * 3 + 2];
-
-    if (face_a >= (unsigned)num_particles ||
-        face_b >= (unsigned)num_particles ||
-        face_c >= (unsigned)num_particles) {
-        return;
-    }
-
-    int tet[4] = { v_apex, (int)face_a, (int)face_b, (int)face_c };
-    const float* Dm_inv_local = &Dm_inv[elem_idx * 9];
-    float volume = volumes[elem_idx];
-
-    if (volume <= 0.0f || !isfinite(volume)) {
-        return;
-    }
-
-    // Compute gradient using raw float arrays (Eigen version causes device
-    // errors)
-    float grad_local[12] = { 0 };
-    add_element_gradient(
-        x_curr, tet, Dm_inv_local, volume, mu, lambda, grad_local);
-
-    // Check for NaN/Inf in grad_local
-    bool valid = true;
-    for (int i = 0; i < 12; i++) {
-        if (!isfinite(grad_local[i])) {
-            valid = false;
-            break;
-        }
-    }
-
-    if (!valid) {
-        return;
-    }
-
-    // Compute gravity force per vertex: F_g = (density * volume / 4) * gravity (lumped FEM)
-    float gravity_force_z = (density * volume / 4.0f) * gravity;
-
-    // Add negative elastic forces + gravity to negative gradient
-    // gradient includes dt² scaling for both elastic and gravity terms
-    for (int i = 0; i < 4; i++) {
-        for (int j = 0; j < 3; j++) {
-            int idx = tet[i] * 3 + j;
-            if (idx >= 0 && idx < num_particles * 3) {
-                // Negative elastic forces (already scaled by dt²)
-                float force = -dt * dt * grad_local[i * 3 + j];
-                // Add negative gravity force (positive z direction for negative gradient)
-                if (j == 2) {
-                    force += dt * dt * gravity_force_z;
-                }
-                atomicAdd(&grad[idx], force);
-            }
-        }
-    }
-}
 
 void compute_neg_gradient_nh_gpu(
     cuda::CUDALinearBufferHandle x_curr,
@@ -517,45 +362,116 @@ void compute_neg_gradient_nh_gpu(
     int num_elements,
     cuda::CUDALinearBufferHandle neg_grad)
 {
-    int block_size = 256;
-    int num_blocks_particles = (num_particles + block_size - 1) / block_size;
-    int num_blocks_elements = (num_elements + block_size - 1) / block_size;
+    const float* x_curr_ptr = x_curr->get_device_ptr<float>();
+    const float* x_tilde_ptr = x_tilde->get_device_ptr<float>();
+    const float* M_diag_ptr = M_diag->get_device_ptr<float>();
+    float* neg_grad_ptr = neg_grad->get_device_ptr<float>();
 
     // First pass: negative inertial term only
-    compute_gradient_nh_kernel<<<num_blocks_particles, block_size>>>(
-        x_curr->get_device_ptr<float>(),
-        x_tilde->get_device_ptr<float>(),
-        M_diag->get_device_ptr<float>(),
-        nullptr,  // No longer used
-        nullptr,
-        Dm_inv->get_device_ptr<float>(),
-        volumes->get_device_ptr<float>(),
-        mu,
-        lambda,
-        dt,
-        num_particles,
-        num_elements,
-        neg_grad->get_device_ptr<float>());
+    cuda::GPUParallelFor(
+        "compute_gradient_nh", num_particles, [=] __device__(int i) {
+            // Initialize with negative inertial term: -M * (x - x_tilde)
+            neg_grad_ptr[i * 3 + 0] =
+                -M_diag_ptr[i * 3 + 0] *
+                (x_curr_ptr[i * 3 + 0] - x_tilde_ptr[i * 3 + 0]);
+            neg_grad_ptr[i * 3 + 1] =
+                -M_diag_ptr[i * 3 + 1] *
+                (x_curr_ptr[i * 3 + 1] - x_tilde_ptr[i * 3 + 1]);
+            neg_grad_ptr[i * 3 + 2] =
+                -M_diag_ptr[i * 3 + 2] *
+                (x_curr_ptr[i * 3 + 2] - x_tilde_ptr[i * 3 + 2]);
+        });
+
+    const unsigned* adjacency =
+        volume_adjacency.adjacency_buffer()->get_device_ptr<unsigned>();
+    const unsigned* offsets =
+        volume_adjacency.offsets_buffer()->get_device_ptr<unsigned>();
+    const int* element_to_vertex =
+        volume_adjacency.element_to_vertex_buffer()->get_device_ptr<int>();
+    const int* element_to_local_face =
+        volume_adjacency.element_to_local_face_buffer()->get_device_ptr<int>();
+    const float* Dm_inv_ptr = Dm_inv->get_device_ptr<float>();
+    const float* volumes_ptr = volumes->get_device_ptr<float>();
 
     // Second pass: negative elastic forces + gravity
-    accumulate_elastic_forces_kernel<<<num_blocks_elements, block_size>>>(
-        x_curr->get_device_ptr<float>(),
-        volume_adjacency.adjacency_buffer()->get_device_ptr<unsigned>(),
-        volume_adjacency.offsets_buffer()->get_device_ptr<unsigned>(),
-        volume_adjacency.element_to_vertex_buffer()->get_device_ptr<int>(),
-        volume_adjacency.element_to_local_face_buffer()->get_device_ptr<int>(),
-        Dm_inv->get_device_ptr<float>(),
-        volumes->get_device_ptr<float>(),
-        mu,
-        lambda,
-        density,
-        gravity,
-        dt,
+    cuda::GPUParallelFor(
+        "accumulate_elastic_forces",
         num_elements,
-        num_particles,
-        neg_grad->get_device_ptr<float>());
+        [=] __device__(int elem_idx) {
+            // Step 1: Test mapping lookup
+            int v_apex = element_to_vertex[elem_idx];
+            int local_face_idx = element_to_local_face[elem_idx];
 
-    cudaDeviceSynchronize();
+            if (v_apex < 0 || v_apex >= num_particles) {
+                return;
+            }
+
+            unsigned offset = offsets[v_apex];
+            unsigned count = adjacency[offset];
+
+            if (local_face_idx < 0 || local_face_idx >= (int)count) {
+                return;
+            }
+
+            unsigned face_a = adjacency[offset + 1 + local_face_idx * 3 + 0];
+            unsigned face_b = adjacency[offset + 1 + local_face_idx * 3 + 1];
+            unsigned face_c = adjacency[offset + 1 + local_face_idx * 3 + 2];
+
+            if (face_a >= (unsigned)num_particles ||
+                face_b >= (unsigned)num_particles ||
+                face_c >= (unsigned)num_particles) {
+                return;
+            }
+
+            int tet[4] = { v_apex, (int)face_a, (int)face_b, (int)face_c };
+            const float* Dm_inv_local = &Dm_inv_ptr[elem_idx * 9];
+            float volume = volumes_ptr[elem_idx];
+
+            if (volume <= 0.0f || !isfinite(volume)) {
+                return;
+            }
+
+            // Compute gradient using raw float arrays (Eigen version causes
+            // device errors)
+            float grad_local[12] = { 0 };
+            add_element_gradient(
+                x_curr_ptr, tet, Dm_inv_local, volume, mu, lambda, grad_local);
+
+            // Check for NaN/Inf in grad_local
+            bool valid = true;
+            for (int i = 0; i < 12; i++) {
+                if (!isfinite(grad_local[i])) {
+                    valid = false;
+                    break;
+                }
+            }
+
+            if (!valid) {
+                return;
+            }
+
+            // Compute gravity force per vertex: F_g = (density * volume / 4) *
+            // gravity (lumped FEM)
+            float gravity_force_z = (density * volume / 4.0f) * gravity;
+
+            // Add negative elastic forces + gravity to negative gradient
+            // gradient includes dt² scaling for both elastic and gravity terms
+            for (int i = 0; i < 4; i++) {
+                for (int j = 0; j < 3; j++) {
+                    int idx = tet[i] * 3 + j;
+                    if (idx >= 0 && idx < num_particles * 3) {
+                        // Negative elastic forces (already scaled by dt²)
+                        float force = -dt * dt * grad_local[i * 3 + j];
+                        // Add negative gravity force (positive z direction for
+                        // negative gradient)
+                        if (j == 2) {
+                            force += dt * dt * gravity_force_z;
+                        }
+                        atomicAdd(&neg_grad_ptr[idx], force);
+                    }
+                }
+            }
+        });
 }
 
 // ============================================================================
@@ -624,12 +540,14 @@ __device__ Eigen::Matrix3f project_psd_nh(const Eigen::Matrix3f& H)
     eigen_decomposition_3x3_nh(H, eigenvalues, eigenvectors);
 
     // Find max eigenvalue for relative thresholding
-    float max_eig = fmaxf(fmaxf(fabsf(eigenvalues(0)), fabsf(eigenvalues(1))), fabsf(eigenvalues(2)));
-    
+    float max_eig = fmaxf(
+        fmaxf(fabsf(eigenvalues(0)), fabsf(eigenvalues(1))),
+        fabsf(eigenvalues(2)));
+
     // Use relative threshold: clamp to at least 0.1% of max eigenvalue
     // This is less aggressive than absolute threshold
     float min_eigenvalue = fmaxf(1e-8f, 0.001f * max_eig);
-    
+
     for (int i = 0; i < 3; i++) {
         if (eigenvalues(i) < min_eigenvalue)
             eigenvalues(i) = min_eigenvalue;
@@ -708,17 +626,20 @@ __device__ void compute_element_hessian(
             // For linear FEM: K_ab^(alpha,beta) = V * sum_{i,j} grad_Na^i C_{i
             // alpha j beta} grad_Nb^j where C_{ijkl} = lambda * delta_ij *
             // delta_kl + mu * (delta_ik * delta_jl + delta_il * delta_jk)
-            
+
             // Correct formula for isotropic linear elasticity:
-            // K_ab^(α,β) = V * [λ (∇N_a · ∇N_b) δ_αβ + μ (∇N_a^α ∇N_b^β + ∇N_a^β ∇N_b^α)]
-            // In matrix form: K_ab = V * [λ (∇N_a · ∇N_b) I + μ (∇N_a ⊗ ∇N_b + ∇N_b ⊗ ∇N_a)]
+            // K_ab^(α,β) = V * [λ (∇N_a · ∇N_b) δ_αβ + μ (∇N_a^α ∇N_b^β +
+            // ∇N_a^β ∇N_b^α)] In matrix form: K_ab = V * [λ (∇N_a · ∇N_b) I + μ
+            // (∇N_a ⊗ ∇N_b + ∇N_b ⊗ ∇N_a)]
             float dot_product = grad_Na.dot(grad_Nb);
             K_ab = volume * lambda * dot_product * Eigen::Matrix3f::Identity();
-            K_ab += volume * mu * (grad_Na * grad_Nb.transpose() + 
-                                   grad_Nb * grad_Na.transpose());
+            K_ab +=
+                volume * mu *
+                (grad_Na * grad_Nb.transpose() + grad_Nb * grad_Na.transpose());
 
             // Do NOT project individual blocks - this breaks symmetry
-            // PSD projection will be done on the full assembled matrix if needed
+            // PSD projection will be done on the full assembled matrix if
+            // needed
 
             // Fill into 12x12 matrix
             for (int alpha = 0; alpha < 3; alpha++) {
@@ -769,10 +690,14 @@ NeoHookeanCSRStructure build_hessian_structure_nh_gpu(
     NeoHookeanCSRStructure structure;
     int n = num_particles * 3;
 
-    const unsigned* adj_ptr = volume_adjacency.adjacency_buffer()->get_device_ptr<unsigned>();
-    const unsigned* off_ptr = volume_adjacency.offsets_buffer()->get_device_ptr<unsigned>();
-    const int* elem_to_v_ptr = volume_adjacency.element_to_vertex_buffer()->get_device_ptr<int>();
-    const int* elem_to_lf_ptr = volume_adjacency.element_to_local_face_buffer()->get_device_ptr<int>();
+    const unsigned* adj_ptr =
+        volume_adjacency.adjacency_buffer()->get_device_ptr<unsigned>();
+    const unsigned* off_ptr =
+        volume_adjacency.offsets_buffer()->get_device_ptr<unsigned>();
+    const int* elem_to_v_ptr =
+        volume_adjacency.element_to_vertex_buffer()->get_device_ptr<int>();
+    const int* elem_to_lf_ptr =
+        volume_adjacency.element_to_local_face_buffer()->get_device_ptr<int>();
 
     // Each tetrahedron contributes 12x12 = 144 entries
     // For symmetric matrix, we need both (i,j) and (j,i) if i != j
@@ -951,62 +876,6 @@ NeoHookeanCSRStructure build_hessian_structure_nh_gpu(
 }
 
 // Fill Hessian values kernel
-__global__ void fill_hessian_values_nh_kernel(
-    const float* x_curr,
-    const unsigned* adjacency,
-    const unsigned* offsets,
-    const int* element_to_vertex,
-    const int* element_to_local_face,
-    const float* Dm_inv,
-    const float* volumes,
-    const int* value_positions,
-    float mu,
-    float lambda,
-    float dt,
-    int num_elements,
-    float* values)
-{
-    int elem_idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (elem_idx >= num_elements)
-        return;
-
-    // Use precomputed mapping
-    int v_apex = element_to_vertex[elem_idx];
-    int local_face_idx = element_to_local_face[elem_idx];
-
-    unsigned offset = offsets[v_apex];
-    unsigned face_a = adjacency[offset + 1 + local_face_idx * 3 + 0];
-    unsigned face_b = adjacency[offset + 1 + local_face_idx * 3 + 1];
-    unsigned face_c = adjacency[offset + 1 + local_face_idx * 3 + 2];
-    int tet[4] = { v_apex, (int)face_a, (int)face_b, (int)face_c };
-    const float* Dm_inv_local = &Dm_inv[elem_idx * 9];
-    float volume = volumes[elem_idx];
-
-    Eigen::Matrix<float, 12, 12> K_elem;
-    compute_element_hessian(
-        x_curr, tet, Dm_inv_local, volume, mu, lambda, K_elem);
-
-    // Scale by dt² (same as mass-spring)
-    K_elem *= (dt * dt);
-
-    // Write to CSR values array
-    // CRITICAL: Eigen uses column-major order, but we need row-major for CSR
-    // K_elem.data()[i] gives column-major, but positions[] expects row-major
-    // For symmetric matrices: K_elem(row, col) should equal K_elem(col, row)
-    const int* positions = &value_positions[elem_idx * 144];
-    for (int row = 0; row < 12; row++) {
-        for (int col = 0; col < 12; col++) {
-            int idx = row * 12 + col;  // Row-major index
-            int pos = positions[idx];
-            if (pos >= 0) {
-                // Use (row, col) to access Eigen matrix correctly
-                // For symmetric matrix, K(row,col) should already equal K(col,row)
-                // due to the symmetric construction in compute_element_hessian
-                atomicAdd(&values[pos], K_elem(row, col));
-            }
-        }
-    }
-}
 
 void update_hessian_values_nh_gpu(
     const NeoHookeanCSRStructure& csr_structure,
@@ -1046,80 +915,68 @@ void update_hessian_values_nh_gpu(
         });
 
     // Fill element contributions
-    int block_size = 256;
-    int num_blocks = (num_elements + block_size - 1) / block_size;
+    const float* x_curr_ptr = x_curr->get_device_ptr<float>();
+    const unsigned* adjacency =
+        volume_adjacency.adjacency_buffer()->get_device_ptr<unsigned>();
+    const unsigned* offsets =
+        volume_adjacency.offsets_buffer()->get_device_ptr<unsigned>();
+    const int* element_to_vertex =
+        volume_adjacency.element_to_vertex_buffer()->get_device_ptr<int>();
+    const int* element_to_local_face =
+        volume_adjacency.element_to_local_face_buffer()->get_device_ptr<int>();
+    const float* Dm_inv_ptr = Dm_inv->get_device_ptr<float>();
+    const float* volumes_ptr = volumes->get_device_ptr<float>();
+    const int* value_positions =
+        csr_structure.element_value_positions->get_device_ptr<int>();
 
-    fill_hessian_values_nh_kernel<<<num_blocks, block_size>>>(
-        x_curr->get_device_ptr<float>(),
-        volume_adjacency.adjacency_buffer()->get_device_ptr<unsigned>(),
-        volume_adjacency.offsets_buffer()->get_device_ptr<unsigned>(),
-        volume_adjacency.element_to_vertex_buffer()->get_device_ptr<int>(),
-        volume_adjacency.element_to_local_face_buffer()->get_device_ptr<int>(),
-        Dm_inv->get_device_ptr<float>(),
-        volumes->get_device_ptr<float>(),
-        csr_structure.element_value_positions->get_device_ptr<int>(),
-        mu,
-        lambda,
-        dt,
-        num_elements,
-        values_ptr);
+    cuda::GPUParallelFor(
+        "fill_hessian_values_nh", num_elements, [=] __device__(int elem_idx) {
+            // Use precomputed mapping
+            int v_apex = element_to_vertex[elem_idx];
+            int local_face_idx = element_to_local_face[elem_idx];
 
-    cudaDeviceSynchronize();
+            unsigned offset = offsets[v_apex];
+            unsigned face_a = adjacency[offset + 1 + local_face_idx * 3 + 0];
+            unsigned face_b = adjacency[offset + 1 + local_face_idx * 3 + 1];
+            unsigned face_c = adjacency[offset + 1 + local_face_idx * 3 + 2];
+            int tet[4] = { v_apex, (int)face_a, (int)face_b, (int)face_c };
+            const float* Dm_inv_local = &Dm_inv_ptr[elem_idx * 9];
+            float volume = volumes_ptr[elem_idx];
+
+            Eigen::Matrix<float, 12, 12> K_elem;
+            compute_element_hessian(
+                x_curr_ptr, tet, Dm_inv_local, volume, mu, lambda, K_elem);
+
+            // Scale by dt² (same as mass-spring)
+            K_elem *= (dt * dt);
+
+            // Write to CSR values array
+            // CRITICAL: Eigen uses column-major order, but we need row-major
+            // for CSR K_elem.data()[i] gives column-major, but positions[]
+            // expects row-major For symmetric matrices: K_elem(row, col) should
+            // equal K_elem(col, row)
+            const int* positions = &value_positions[elem_idx * 144];
+            for (int row = 0; row < 12; row++) {
+                for (int col = 0; col < 12; col++) {
+                    int idx = row * 12 + col;  // Row-major index
+                    int pos = positions[idx];
+                    if (pos >= 0) {
+                        // Use (row, col) to access Eigen matrix correctly
+                        // For symmetric matrix, K(row,col) should already equal
+                        // K(col,row) due to the symmetric construction in
+                        // compute_element_hessian
+                        atomicAdd(&values_ptr[pos], K_elem(row, col));
+                    }
+                }
+            }
+        });
 }
 
 // ============================================================================
 // Energy Computation
 // ============================================================================
 
-__global__ void compute_element_energy_kernel(
-    const float* x_curr,
-    const unsigned* adjacency,
-    const unsigned* offsets,
-    const int* element_to_vertex,
-    const int* element_to_local_face,
-    const float* Dm_inv,
-    const float* volumes,
-    float mu,
-    float lambda,
-    float density,
-    float gravity,
-    int num_elements,
-    float* element_energies)
-{
-    int elem_idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (elem_idx >= num_elements)
-        return;
-
-    // Use precomputed mapping
-    int v_apex = element_to_vertex[elem_idx];
-    int local_face_idx = element_to_local_face[elem_idx];
-
-    unsigned offset = offsets[v_apex];
-    int tet[4];
-    tet[0] = v_apex;
-    tet[1] = adjacency[offset + 1 + local_face_idx * 3 + 0];
-    tet[2] = adjacency[offset + 1 + local_face_idx * 3 + 1];
-    tet[3] = adjacency[offset + 1 + local_face_idx * 3 + 2];
-
-    const float* Dm_inv_local = &Dm_inv[elem_idx * 9];
-    float volume = volumes[elem_idx];
-
-    Eigen::Matrix3f F;
-    compute_deformation_gradient(x_curr, tet, Dm_inv_local, F);
-
-    // Elastic energy density
-    float psi = neo_hookean_energy_density(F, mu, lambda);
-    
-    // Gravitational potential energy: U_g = -density * volume * gravity * z_center
-    float z_center = 0.25f * (x_curr[tet[0] * 3 + 2] + 
-                               x_curr[tet[1] * 3 + 2] + 
-                               x_curr[tet[2] * 3 + 2] + 
-                               x_curr[tet[3] * 3 + 2]);
-    float gravitational_potential = -density * volume * gravity * z_center;
-    
-    // Total energy: elastic + gravitational
-    element_energies[elem_idx] = volume * psi + gravitational_potential;
-}
+// Compute element energy kernel
 
 float compute_energy_nh_gpu(
     cuda::CUDALinearBufferHandle x_curr,
@@ -1138,7 +995,7 @@ float compute_energy_nh_gpu(
     cuda::CUDALinearBufferHandle d_inertial_terms,
     cuda::CUDALinearBufferHandle d_element_energies)
 {
-     const int n = num_particles * 3;
+    const int n = num_particles * 3;
     const float dt2 = dt * dt;
 
     const float* x_ptr = x_curr->get_device_ptr<float>();
@@ -1163,32 +1020,59 @@ float compute_energy_nh_gpu(
     // Elastic + gravitational energy: sum over elements
     cudaMemset(element_energy_ptr, 0, num_elements * sizeof(float));
 
-    constexpr int block_size = 256;
-    compute_element_energy_kernel<<<
-        (num_elements + block_size - 1) / block_size,
-        block_size>>>(
-        x_ptr,
-        volume_adjacency.adjacency_buffer()->get_device_ptr<unsigned>(),
-        volume_adjacency.offsets_buffer()->get_device_ptr<unsigned>(),
-        volume_adjacency.element_to_vertex_buffer()->get_device_ptr<int>(),
-        volume_adjacency.element_to_local_face_buffer()->get_device_ptr<int>(),
-        Dm_inv->get_device_ptr<float>(),
-        volumes->get_device_ptr<float>(),
-        mu,
-        lambda,
-        density,
-        gravity,
-        num_elements,
-        element_energy_ptr);
+    const unsigned* adjacency =
+        volume_adjacency.adjacency_buffer()->get_device_ptr<unsigned>();
+    const unsigned* offsets =
+        volume_adjacency.offsets_buffer()->get_device_ptr<unsigned>();
+    const int* element_to_vertex =
+        volume_adjacency.element_to_vertex_buffer()->get_device_ptr<int>();
+    const int* element_to_local_face =
+        volume_adjacency.element_to_local_face_buffer()->get_device_ptr<int>();
+    const float* Dm_inv_ptr = Dm_inv->get_device_ptr<float>();
+    const float* volumes_ptr = volumes->get_device_ptr<float>();
 
-    cudaDeviceSynchronize();
+    cuda::GPUParallelFor(
+        "compute_element_energy", num_elements, [=] __device__(int elem_idx) {
+            // Use precomputed mapping
+            int v_apex = element_to_vertex[elem_idx];
+            int local_face_idx = element_to_local_face[elem_idx];
+
+            unsigned offset = offsets[v_apex];
+            int tet[4];
+            tet[0] = v_apex;
+            tet[1] = adjacency[offset + 1 + local_face_idx * 3 + 0];
+            tet[2] = adjacency[offset + 1 + local_face_idx * 3 + 1];
+            tet[3] = adjacency[offset + 1 + local_face_idx * 3 + 2];
+
+            const float* Dm_inv_local = &Dm_inv_ptr[elem_idx * 9];
+            float volume = volumes_ptr[elem_idx];
+
+            Eigen::Matrix3f F;
+            compute_deformation_gradient(x_ptr, tet, Dm_inv_local, F);
+
+            // Elastic energy density
+            float psi = neo_hookean_energy_density(F, mu, lambda);
+
+            // Gravitational potential energy: U_g = -density * volume * gravity
+            // * z_center
+            float z_center =
+                0.25f * (x_ptr[tet[0] * 3 + 2] + x_ptr[tet[1] * 3 + 2] +
+                         x_ptr[tet[2] * 3 + 2] + x_ptr[tet[3] * 3 + 2]);
+            float gravitational_potential =
+                -density * volume * gravity * z_center;
+
+            // Total energy: elastic + gravitational
+            element_energy_ptr[elem_idx] =
+                volume * psi + gravitational_potential;
+        });
 
     const float E_combined = thrust::reduce(
         thrust::device,
         thrust::device_ptr<float>(element_energy_ptr),
         thrust::device_ptr<float>(element_energy_ptr) + num_elements);
 
-    // Total implicit Euler energy: E = 1/2*(x-x̃)^T*M*(x-x̃) + dt²*(Ψ_elastic + U_gravity)
+    // Total implicit Euler energy: E = 1/2*(x-x̃)^T*M*(x-x̃) + dt²*(Ψ_elastic +
+    // U_gravity)
     return E_inertial + dt2 * E_combined;
 }
 
@@ -1196,102 +1080,7 @@ float compute_energy_nh_gpu(
 // Reference Data Computation
 // ============================================================================
 
-__global__ void compute_Dm_inv_kernel(
-    const float* positions,
-    const unsigned* adjacency,
-    const unsigned* offsets,
-    const int* element_to_vertex,
-    const int* element_to_local_face,
-    int num_elements,
-    float* Dm_inv,
-    float* volumes)
-{
-    int elem_idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (elem_idx >= num_elements)
-        return;
-
-    // Use precomputed mapping
-    int v_apex = element_to_vertex[elem_idx];
-    int local_face_idx = element_to_local_face[elem_idx];
-
-    // Extract face vertices
-    unsigned offset = offsets[v_apex];
-    unsigned face_a = adjacency[offset + 1 + local_face_idx * 3 + 0];
-    unsigned face_b = adjacency[offset + 1 + local_face_idx * 3 + 1];
-    unsigned face_c = adjacency[offset + 1 + local_face_idx * 3 + 2];
-
-    // Tetrahedron vertices: apex + face (v_apex, face_a, face_b, face_c)
-    int tet[4] = { v_apex, (int)face_a, (int)face_b, (int)face_c };
-
-    // Get rest positions
-    Eigen::Vector3f x0(
-        positions[tet[0] * 3 + 0],
-        positions[tet[0] * 3 + 1],
-        positions[tet[0] * 3 + 2]);
-    Eigen::Vector3f x1(
-        positions[tet[1] * 3 + 0],
-        positions[tet[1] * 3 + 1],
-        positions[tet[1] * 3 + 2]);
-    Eigen::Vector3f x2(
-        positions[tet[2] * 3 + 0],
-        positions[tet[2] * 3 + 1],
-        positions[tet[2] * 3 + 2]);
-    Eigen::Vector3f x3(
-        positions[tet[3] * 3 + 0],
-        positions[tet[3] * 3 + 1],
-        positions[tet[3] * 3 + 2]);
-
-    // Compute Dm = [x1-x0, x2-x0, x3-x0]
-    Eigen::Matrix3f Dm;
-    Dm.col(0) = x1 - x0;
-    Dm.col(1) = x2 - x0;
-    Dm.col(2) = x3 - x0;
-
-    // Check orientation: det(Dm) should be positive
-    float det_Dm = Dm.determinant();
-    
-    // If negative orientation, swap vertices 2 and 3 to flip orientation
-    if (det_Dm < 0.0f) {
-        // Swap x2 and x3
-        Eigen::Vector3f temp = x2;
-        x2 = x3;
-        x3 = temp;
-        
-        // Swap in tet array for consistency
-        int temp_idx = tet[2];
-        tet[2] = tet[3];
-        tet[3] = temp_idx;
-        
-        // Recompute Dm with corrected orientation
-        Dm.col(0) = x1 - x0;
-        Dm.col(1) = x2 - x0;
-        Dm.col(2) = x3 - x0;
-        
-        det_Dm = Dm.determinant();
-    }
-    
-    // Compute volume: V = det(Dm) / 6 (now guaranteed positive)
-    float volume = det_Dm / 6.0f;
-    
-    // Sanity check: volume should be positive
-    if (volume <= 1e-12f) {
-        // Degenerate tetrahedron
-        volume = 1e-10f;
-    }
-    
-    volumes[elem_idx] = volume;
-
-    // Compute inverse (Dm is now properly oriented)
-    Eigen::Matrix3f Dm_inv_mat = Dm.inverse();
-
-    // Store in column-major order (Eigen's default, matches loading format)
-    float* Dm_inv_local = &Dm_inv[elem_idx * 9];
-    for (int i = 0; i < 3; i++) {
-        for (int j = 0; j < 3; j++) {
-            Dm_inv_local[j * 3 + i] = Dm_inv_mat(i, j);  // Column-major
-        }
-    }
-}
+// Compute Dm_inv kernel
 
 std::tuple<
     cuda::CUDALinearBufferHandle,
@@ -1368,19 +1157,105 @@ compute_reference_data_gpu(
     }
 
     // Then compute Dm_inv using the selected elements
-    int num_blocks = (num_elements + block_size - 1) / block_size;
+    const float* positions_ptr = positions->get_device_ptr<float>();
+    const unsigned* adjacency_ptr = adjacency->get_device_ptr<unsigned>();
+    const unsigned* offsets_ptr = offsets->get_device_ptr<unsigned>();
+    const int* element_to_vertex_ptr = element_to_vertex->get_device_ptr<int>();
+    const int* element_to_local_face_ptr =
+        element_to_local_face->get_device_ptr<int>();
+    float* Dm_inv_ptr = Dm_inv->get_device_ptr<float>();
+    float* volumes_ptr = volumes->get_device_ptr<float>();
 
-    compute_Dm_inv_kernel<<<num_blocks, block_size>>>(
-        positions->get_device_ptr<float>(),
-        adjacency->get_device_ptr<unsigned>(),
-        offsets->get_device_ptr<unsigned>(),
-        element_to_vertex->get_device_ptr<int>(),
-        element_to_local_face->get_device_ptr<int>(),
-        num_elements,
-        Dm_inv->get_device_ptr<float>(),
-        volumes->get_device_ptr<float>());
+    cuda::GPUParallelFor(
+        "compute_Dm_inv", num_elements, [=] __device__(int elem_idx) {
+            // Use precomputed mapping
+            int v_apex = element_to_vertex_ptr[elem_idx];
+            int local_face_idx = element_to_local_face_ptr[elem_idx];
 
-    cudaDeviceSynchronize();
+            // Extract face vertices
+            unsigned offset = offsets_ptr[v_apex];
+            unsigned face_a =
+                adjacency_ptr[offset + 1 + local_face_idx * 3 + 0];
+            unsigned face_b =
+                adjacency_ptr[offset + 1 + local_face_idx * 3 + 1];
+            unsigned face_c =
+                adjacency_ptr[offset + 1 + local_face_idx * 3 + 2];
+
+            // Tetrahedron vertices: apex + face (v_apex, face_a, face_b,
+            // face_c)
+            int tet[4] = { v_apex, (int)face_a, (int)face_b, (int)face_c };
+
+            // Get rest positions
+            Eigen::Vector3f x0(
+                positions_ptr[tet[0] * 3 + 0],
+                positions_ptr[tet[0] * 3 + 1],
+                positions_ptr[tet[0] * 3 + 2]);
+            Eigen::Vector3f x1(
+                positions_ptr[tet[1] * 3 + 0],
+                positions_ptr[tet[1] * 3 + 1],
+                positions_ptr[tet[1] * 3 + 2]);
+            Eigen::Vector3f x2(
+                positions_ptr[tet[2] * 3 + 0],
+                positions_ptr[tet[2] * 3 + 1],
+                positions_ptr[tet[2] * 3 + 2]);
+            Eigen::Vector3f x3(
+                positions_ptr[tet[3] * 3 + 0],
+                positions_ptr[tet[3] * 3 + 1],
+                positions_ptr[tet[3] * 3 + 2]);
+
+            // Compute Dm = [x1-x0, x2-x0, x3-x0]
+            Eigen::Matrix3f Dm;
+            Dm.col(0) = x1 - x0;
+            Dm.col(1) = x2 - x0;
+            Dm.col(2) = x3 - x0;
+
+            // Check orientation: det(Dm) should be positive
+            float det_Dm = Dm.determinant();
+
+            // If negative orientation, swap vertices 2 and 3 to flip
+            // orientation
+            if (det_Dm < 0.0f) {
+                // Swap x2 and x3
+                Eigen::Vector3f temp = x2;
+                x2 = x3;
+                x3 = temp;
+
+                // Swap in tet array for consistency
+                int temp_idx = tet[2];
+                tet[2] = tet[3];
+                tet[3] = temp_idx;
+
+                // Recompute Dm with corrected orientation
+                Dm.col(0) = x1 - x0;
+                Dm.col(1) = x2 - x0;
+                Dm.col(2) = x3 - x0;
+
+                det_Dm = Dm.determinant();
+            }
+
+            // Compute volume: V = det(Dm) / 6 (now guaranteed positive)
+            float volume = det_Dm / 6.0f;
+
+            // Sanity check: volume should be positive
+            if (volume <= 1e-12f) {
+                // Degenerate tetrahedron
+                volume = 1e-10f;
+            }
+
+            volumes_ptr[elem_idx] = volume;
+
+            // Compute inverse (Dm is now properly oriented)
+            Eigen::Matrix3f Dm_inv_mat = Dm.inverse();
+
+            // Store in column-major order (Eigen's default, matches loading
+            // format)
+            float* Dm_inv_local = &Dm_inv_ptr[elem_idx * 9];
+            for (int i = 0; i < 3; i++) {
+                for (int j = 0; j < 3; j++) {
+                    Dm_inv_local[j * 3 + i] = Dm_inv_mat(i, j);  // Column-major
+                }
+            }
+        });
 
     return std::make_tuple(
         Dm_inv, volumes, element_to_vertex, element_to_local_face);
@@ -1397,20 +1272,105 @@ compute_nh_reference_data_gpu(
     auto Dm_inv = cuda::create_cuda_linear_buffer<float>(num_elements * 9);
     auto volumes = cuda::create_cuda_linear_buffer<float>(num_elements);
 
-    int block_size = 256;
-    int num_blocks = (num_elements + block_size - 1) / block_size;
+    const float* positions_ptr = positions->get_device_ptr<float>();
+    const unsigned* adjacency =
+        volume_adjacency.adjacency_buffer()->get_device_ptr<unsigned>();
+    const unsigned* offsets =
+        volume_adjacency.offsets_buffer()->get_device_ptr<unsigned>();
+    const int* element_to_vertex =
+        volume_adjacency.element_to_vertex_buffer()->get_device_ptr<int>();
+    const int* element_to_local_face =
+        volume_adjacency.element_to_local_face_buffer()->get_device_ptr<int>();
+    float* Dm_inv_ptr = Dm_inv->get_device_ptr<float>();
+    float* volumes_ptr = volumes->get_device_ptr<float>();
 
-    compute_Dm_inv_kernel<<<num_blocks, block_size>>>(
-        positions->get_device_ptr<float>(),
-        volume_adjacency.adjacency_buffer()->get_device_ptr<unsigned>(),
-        volume_adjacency.offsets_buffer()->get_device_ptr<unsigned>(),
-        volume_adjacency.element_to_vertex_buffer()->get_device_ptr<int>(),
-        volume_adjacency.element_to_local_face_buffer()->get_device_ptr<int>(),
-        num_elements,
-        Dm_inv->get_device_ptr<float>(),
-        volumes->get_device_ptr<float>());
+    cuda::GPUParallelFor(
+        "compute_Dm_inv", num_elements, [=] __device__(int elem_idx) {
+            // Use precomputed mapping
+            int v_apex = element_to_vertex[elem_idx];
+            int local_face_idx = element_to_local_face[elem_idx];
 
-    cudaDeviceSynchronize();
+            // Extract face vertices
+            unsigned offset = offsets[v_apex];
+            unsigned face_a = adjacency[offset + 1 + local_face_idx * 3 + 0];
+            unsigned face_b = adjacency[offset + 1 + local_face_idx * 3 + 1];
+            unsigned face_c = adjacency[offset + 1 + local_face_idx * 3 + 2];
+
+            // Tetrahedron vertices: apex + face (v_apex, face_a, face_b,
+            // face_c)
+            int tet[4] = { v_apex, (int)face_a, (int)face_b, (int)face_c };
+
+            // Get rest positions
+            Eigen::Vector3f x0(
+                positions_ptr[tet[0] * 3 + 0],
+                positions_ptr[tet[0] * 3 + 1],
+                positions_ptr[tet[0] * 3 + 2]);
+            Eigen::Vector3f x1(
+                positions_ptr[tet[1] * 3 + 0],
+                positions_ptr[tet[1] * 3 + 1],
+                positions_ptr[tet[1] * 3 + 2]);
+            Eigen::Vector3f x2(
+                positions_ptr[tet[2] * 3 + 0],
+                positions_ptr[tet[2] * 3 + 1],
+                positions_ptr[tet[2] * 3 + 2]);
+            Eigen::Vector3f x3(
+                positions_ptr[tet[3] * 3 + 0],
+                positions_ptr[tet[3] * 3 + 1],
+                positions_ptr[tet[3] * 3 + 2]);
+
+            // Compute Dm = [x1-x0, x2-x0, x3-x0]
+            Eigen::Matrix3f Dm;
+            Dm.col(0) = x1 - x0;
+            Dm.col(1) = x2 - x0;
+            Dm.col(2) = x3 - x0;
+
+            // Check orientation: det(Dm) should be positive
+            float det_Dm = Dm.determinant();
+
+            // If negative orientation, swap vertices 2 and 3 to flip
+            // orientation
+            if (det_Dm < 0.0f) {
+                // Swap x2 and x3
+                Eigen::Vector3f temp = x2;
+                x2 = x3;
+                x3 = temp;
+
+                // Swap in tet array for consistency
+                int temp_idx = tet[2];
+                tet[2] = tet[3];
+                tet[3] = temp_idx;
+
+                // Recompute Dm with corrected orientation
+                Dm.col(0) = x1 - x0;
+                Dm.col(1) = x2 - x0;
+                Dm.col(2) = x3 - x0;
+
+                det_Dm = Dm.determinant();
+            }
+
+            // Compute volume: V = det(Dm) / 6 (now guaranteed positive)
+            float volume = det_Dm / 6.0f;
+
+            // Sanity check: volume should be positive
+            if (volume <= 1e-12f) {
+                // Degenerate tetrahedron
+                volume = 1e-10f;
+            }
+
+            volumes_ptr[elem_idx] = volume;
+
+            // Compute inverse (Dm is now properly oriented)
+            Eigen::Matrix3f Dm_inv_mat = Dm.inverse();
+
+            // Store in column-major order (Eigen's default, matches loading
+            // format)
+            float* Dm_inv_local = &Dm_inv_ptr[elem_idx * 9];
+            for (int i = 0; i < 3; i++) {
+                for (int j = 0; j < 3; j++) {
+                    Dm_inv_local[j * 3 + i] = Dm_inv_mat(i, j);  // Column-major
+                }
+            }
+        });
 
     return std::make_tuple(Dm_inv, volumes);
 }
@@ -1447,16 +1407,12 @@ void axpy_nh_gpu(
     });
 }
 
-void scale_vector_gpu(
-    cuda::CUDALinearBufferHandle vec,
-    float scale,
-    int size)
+void scale_vector_gpu(cuda::CUDALinearBufferHandle vec, float scale, int size)
 {
     float* vec_ptr = vec->get_device_ptr<float>();
 
-    cuda::GPUParallelFor("scale_vector", size, [=] __device__(int i) {
-        vec_ptr[i] *= scale;
-    });
+    cuda::GPUParallelFor(
+        "scale_vector", size, [=] __device__(int i) { vec_ptr[i] *= scale; });
 }
 
 struct square_op_nh {
@@ -1498,9 +1454,7 @@ void update_velocities_nh_gpu(
     float inv_dt_damped = damping / dt;
 
     cuda::GPUParallelFor(
-        "update_velocities_nh",
-        num_particles * 3,
-        [=] __device__(int i) {
+        "update_velocities_nh", num_particles * 3, [=] __device__(int i) {
             v_ptr[i] = (x_new_ptr[i] - x_old_ptr[i]) * inv_dt_damped;
         });
 }
@@ -1516,13 +1470,11 @@ void handle_ground_collision_nh_gpu(
     float* vel_ptr = velocities->get_device_ptr<float>();
 
     cuda::GPUParallelFor(
-        "handle_ground_collision_nh",
-        num_particles,
-        [=] __device__(int i) {
+        "handle_ground_collision_nh", num_particles, [=] __device__(int i) {
             int z_idx = i * 3 + 2;
             if (pos_ptr[z_idx] < 0.0f) {
                 pos_ptr[z_idx] = 0.0f;
-                
+
                 // Reflect velocity with restitution
                 if (vel_ptr[z_idx] < 0.0f) {
                     vel_ptr[z_idx] = -vel_ptr[z_idx] * restitution;
