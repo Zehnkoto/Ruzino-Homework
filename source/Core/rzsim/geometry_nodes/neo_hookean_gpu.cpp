@@ -162,6 +162,7 @@ struct NeoHookeanGPUStorage {
 NODE_DECLARATION_FUNCTION(neo_hookean_gpu)
 {
     b.add_input<Geometry>("Geometry");
+    b.add_input<Geometry>("Init Geometry").optional(true);
     b.add_input<float>("Density").default_val(1000.0f).min(1.0f).max(10000.0f);
     b.add_input<float>("Young's Modulus").default_val(5e4f).min(1e3f).max(1e9f);
     b.add_input<float>("Poisson's Ratio")
@@ -243,10 +244,91 @@ NODE_EXECUTION_FUNCTION(neo_hookean_gpu)
         return true;
     }
 
+    // Get initial positions from Init Geometry if provided
+    std::vector<glm::vec3> init_positions;
+    bool use_init_geometry = false;
+
+    if (params.has_input("Init Geometry")) {
+        auto init_geom = params.get_input<Geometry>("Init Geometry");
+        init_geom.apply_transform();
+
+        auto init_mesh_component = init_geom.get_component<MeshComponent>();
+
+        if (init_mesh_component) {
+            init_positions = init_mesh_component->get_vertices();
+            auto init_face_vertex_indices =
+                init_mesh_component->get_face_vertex_indices();
+            auto init_face_counts =
+                init_mesh_component->get_face_vertex_counts();
+
+            // Check topology consistency
+            bool topology_matches =
+                (init_positions.size() == positions.size()) &&
+                (init_face_counts.size() == face_counts.size()) &&
+                (init_face_vertex_indices.size() == face_vertex_indices.size());
+
+            if (topology_matches) {
+                use_init_geometry = true;
+                spdlog::info(
+                    "[NeoHookean] Using Init Geometry as simulation starting "
+                    "point "
+                    "(vertices={}, faces={})",
+                    init_positions.size(),
+                    init_face_counts.size());
+            }
+            else {
+                spdlog::warn(
+                    "[NeoHookean] Init Geometry topology mismatch! "
+                    "Init: {} vertices, {} faces; Rest pose: {} vertices, {} "
+                    "faces. "
+                    "Using rest pose as starting point.",
+                    init_positions.size(),
+                    init_face_counts.size(),
+                    positions.size(),
+                    face_counts.size());
+            }
+        }
+        else {
+            auto init_points_component =
+                init_geom.get_component<PointsComponent>();
+            if (init_points_component) {
+                init_positions = init_points_component->get_vertices();
+
+                if (init_positions.size() == positions.size()) {
+                    use_init_geometry = true;
+                    spdlog::info(
+                        "[NeoHookean] Using Init Geometry points as simulation "
+                        "starting point "
+                        "(vertices={})",
+                        init_positions.size());
+                }
+                else {
+                    spdlog::warn(
+                        "[NeoHookean] Init Geometry vertex count mismatch! "
+                        "Init: {} vertices; Rest pose: {} vertices. Using rest "
+                        "pose as starting point.",
+                        init_positions.size(),
+                        positions.size());
+                }
+            }
+        }
+    }
+
     // Initialize buffers only once or when particle count changes
+    // ALWAYS use rest pose (input_geom positions) for reference configuration
     if (!storage.initialized || storage.num_particles != num_particles) {
         storage.initialize(
-            positions, face_vertex_indices, face_counts, density);
+            positions,  // Use rest pose for Dm_inv, volumes calculation
+            face_vertex_indices,
+            face_counts,
+            density);
+    }
+
+    // If Init Geometry is provided and topology matches, use it as the starting
+    // point for simulation
+    if (use_init_geometry) {
+        // Write init positions to GPU buffer as simulation starting point
+        storage.positions_buffer->assign_host_vector(init_positions);
     }
 
     // Update Dirichlet boundary conditions from face quantities

@@ -1,19 +1,56 @@
 #include <GCore/Components/MeshComponent.h>
 #include <GCore/util_openmesh_bind.h>
+#include <Spectra/MatOp/SparseSymMatProd.h>
+#include <Spectra/SymEigsSolver.h>
+#include <igl/cotmatrix.h>
 #include <rzsim/reduced_order_basis.h>
 #include <spdlog/spdlog.h>
 
 #include <Eigen/Eigenvalues>
 #include <Eigen/Sparse>
-#include <Spectra/SymEigsSolver.h>
-#include <Spectra/MatOp/SparseSymMatProd.h>
-#include <igl/cotmatrix.h>
 #include <iostream>
 
 RUZINO_NAMESPACE_OPEN_SCOPE
 
 using PolyMesh = OpenMesh::PolyMesh_ArrayKernelT<>;
 using VolumeMesh = OpenVolumeMesh::GeometricTetrahedralMeshV3d;
+
+// AffineTransform implementation
+AffineTransform::AffineTransform(int num_basis)
+{
+    transforms.resize(num_basis);
+    // Initialize each basis with identity transform
+    // Identity: R = I (9 values), t = 0 (3 values)
+    for (int i = 0; i < num_basis; ++i) {
+        transforms[i] = {
+            1.0f, 0.0f, 0.0f,  // R00, R01, R02
+            0.0f, 1.0f, 0.0f,  // R10, R11, R12
+            0.0f, 0.0f, 1.0f,  // R20, R21, R22
+            0.0f, 0.0f, 0.0f   // tx, ty, tz
+        };
+    }
+}
+
+void AffineTransform::set_transform(
+    int mode_index,
+    const std::vector<float>& transform)
+{
+    if (mode_index < 0 || mode_index >= static_cast<int>(transforms.size())) {
+        throw std::out_of_range("Mode index out of range");
+    }
+    if (transform.size() != 12) {
+        throw std::invalid_argument("Transform must have 12 elements");
+    }
+    transforms[mode_index] = transform;
+}
+
+const std::vector<float>& AffineTransform::get_transform(int mode_index) const
+{
+    if (mode_index < 0 || mode_index >= static_cast<int>(transforms.size())) {
+        throw std::out_of_range("Mode index out of range");
+    }
+    return transforms[mode_index];
+}
 
 ReducedOrderedBasis::ReducedOrderedBasis(
     const Geometry& g,
@@ -42,10 +79,11 @@ ReducedOrderedBasis::ReducedOrderedBasis(
             volumemesh->n_vertices(),
             volumemesh->n_cells(),
             use_libigl ? "libigl" : "custom implementation");
-        
+
         if (use_libigl) {
             assemble_laplacian_3d_libigl(volumemesh.get());
-        } else {
+        }
+        else {
             assemble_laplacian_3d(volumemesh.get());
         }
     }
@@ -58,14 +96,16 @@ ReducedOrderedBasis::ReducedOrderedBasis(
                 "Invalid surface mesh for 2D reduced order basis");
         }
         spdlog::info(
-            "Assembling 2D Laplacian for surface mesh (vertices={}, faces={}) using {}",
+            "Assembling 2D Laplacian for surface mesh (vertices={}, faces={}) "
+            "using {}",
             openmesh->n_vertices(),
             openmesh->n_faces(),
             use_libigl ? "libigl" : "custom implementation");
-        
+
         if (use_libigl) {
             assemble_laplacian_2d_libigl(openmesh.get());
-        } else {
+        }
+        else {
             assemble_laplacian_2d(openmesh.get());
         }
     }
@@ -84,7 +124,7 @@ void ReducedOrderedBasis::assemble_laplacian_3d(void* mesh_ptr)
 
     // Triplets for sparse matrix assembly
     std::vector<Eigen::Triplet<double>> triplets;
-    
+
     // Debug: check first tetrahedron
     bool first_tet = true;
 
@@ -120,11 +160,12 @@ void ReducedOrderedBasis::assemble_laplacian_3d(void* mesh_ptr)
         l[5] = (p0 - p1).GetLength();
 
         // Compute face areas following libigl's numbering:
-        // Face 0 (opposite vertex 0): triangle 1-2-3, uses edges l[1], l[2], l[3]
-        // Face 1 (opposite vertex 1): triangle 0-2-3, uses edges l[0], l[2], l[4]
-        // Face 2 (opposite vertex 2): triangle 0-1-3, uses edges l[0], l[1], l[5]
-        // Face 3 (opposite vertex 3): triangle 0-1-2, uses edges l[3], l[4], l[5]
-        
+        // Face 0 (opposite vertex 0): triangle 1-2-3, uses edges l[1], l[2],
+        // l[3] Face 1 (opposite vertex 1): triangle 0-2-3, uses edges l[0],
+        // l[2], l[4] Face 2 (opposite vertex 2): triangle 0-1-3, uses edges
+        // l[0], l[1], l[5] Face 3 (opposite vertex 3): triangle 0-1-2, uses
+        // edges l[3], l[4], l[5]
+
         auto heron = [](double a, double b, double c) {
             double s = (a + b + c) / 2.0;
             double area_sq = s * (s - a) * (s - b) * (s - c);
@@ -138,7 +179,8 @@ void ReducedOrderedBasis::assemble_laplacian_3d(void* mesh_ptr)
         s[3] = heron(l[3], l[4], l[5]);
 
         // Compute volume
-        double vol = std::abs(((p1 - p0) * pxr::GfCross(p2 - p0, p3 - p0))) / 6.0;
+        double vol =
+            std::abs(((p1 - p0) * pxr::GfCross(p2 - p0, p3 - p0))) / 6.0;
 
         if (vol < 1e-12)
             continue;
@@ -146,85 +188,129 @@ void ReducedOrderedBasis::assemble_laplacian_3d(void* mesh_ptr)
         // Compute H_sqr for dihedral angles using law of cosines
         // Following libigl's dihedral_angles_intrinsic.cpp EXACTLY
         double H_sqr[6];
-        H_sqr[0] = (1.0/16.0) * (4.0 * l[3]*l[3] * l[0]*l[0] - 
-                   ((l[1]*l[1] + l[4]*l[4]) - (l[2]*l[2] + l[5]*l[5])) * 
-                   ((l[1]*l[1] + l[4]*l[4]) - (l[2]*l[2] + l[5]*l[5])));
-        H_sqr[1] = (1.0/16.0) * (4.0 * l[4]*l[4] * l[1]*l[1] - 
-                   ((l[2]*l[2] + l[5]*l[5]) - (l[3]*l[3] + l[0]*l[0])) * 
-                   ((l[2]*l[2] + l[5]*l[5]) - (l[3]*l[3] + l[0]*l[0])));
-        H_sqr[2] = (1.0/16.0) * (4.0 * l[5]*l[5] * l[2]*l[2] - 
-                   ((l[3]*l[3] + l[0]*l[0]) - (l[4]*l[4] + l[1]*l[1])) * 
-                   ((l[3]*l[3] + l[0]*l[0]) - (l[4]*l[4] + l[1]*l[1])));
-        H_sqr[3] = (1.0/16.0) * (4.0 * l[0]*l[0] * l[3]*l[3] - 
-                   ((l[4]*l[4] + l[1]*l[1]) - (l[5]*l[5] + l[2]*l[2])) * 
-                   ((l[4]*l[4] + l[1]*l[1]) - (l[5]*l[5] + l[2]*l[2])));
-        H_sqr[4] = (1.0/16.0) * (4.0 * l[1]*l[1] * l[4]*l[4] - 
-                   ((l[5]*l[5] + l[2]*l[2]) - (l[0]*l[0] + l[3]*l[3])) * 
-                   ((l[5]*l[5] + l[2]*l[2]) - (l[0]*l[0] + l[3]*l[3])));
-        H_sqr[5] = (1.0/16.0) * (4.0 * l[2]*l[2] * l[5]*l[5] - 
-                   ((l[0]*l[0] + l[3]*l[3]) - (l[1]*l[1] + l[4]*l[4])) * 
-                   ((l[0]*l[0] + l[3]*l[3]) - (l[1]*l[1] + l[4]*l[4])));
+        H_sqr[0] =
+            (1.0 / 16.0) *
+            (4.0 * l[3] * l[3] * l[0] * l[0] -
+             ((l[1] * l[1] + l[4] * l[4]) - (l[2] * l[2] + l[5] * l[5])) *
+                 ((l[1] * l[1] + l[4] * l[4]) - (l[2] * l[2] + l[5] * l[5])));
+        H_sqr[1] =
+            (1.0 / 16.0) *
+            (4.0 * l[4] * l[4] * l[1] * l[1] -
+             ((l[2] * l[2] + l[5] * l[5]) - (l[3] * l[3] + l[0] * l[0])) *
+                 ((l[2] * l[2] + l[5] * l[5]) - (l[3] * l[3] + l[0] * l[0])));
+        H_sqr[2] =
+            (1.0 / 16.0) *
+            (4.0 * l[5] * l[5] * l[2] * l[2] -
+             ((l[3] * l[3] + l[0] * l[0]) - (l[4] * l[4] + l[1] * l[1])) *
+                 ((l[3] * l[3] + l[0] * l[0]) - (l[4] * l[4] + l[1] * l[1])));
+        H_sqr[3] =
+            (1.0 / 16.0) *
+            (4.0 * l[0] * l[0] * l[3] * l[3] -
+             ((l[4] * l[4] + l[1] * l[1]) - (l[5] * l[5] + l[2] * l[2])) *
+                 ((l[4] * l[4] + l[1] * l[1]) - (l[5] * l[5] + l[2] * l[2])));
+        H_sqr[4] =
+            (1.0 / 16.0) *
+            (4.0 * l[1] * l[1] * l[4] * l[4] -
+             ((l[5] * l[5] + l[2] * l[2]) - (l[0] * l[0] + l[3] * l[3])) *
+                 ((l[5] * l[5] + l[2] * l[2]) - (l[0] * l[0] + l[3] * l[3])));
+        H_sqr[5] =
+            (1.0 / 16.0) *
+            (4.0 * l[2] * l[2] * l[5] * l[5] -
+             ((l[0] * l[0] + l[3] * l[3]) - (l[1] * l[1] + l[4] * l[4])) *
+                 ((l[0] * l[0] + l[3] * l[3]) - (l[1] * l[1] + l[4] * l[4])));
 
         // Compute cos of dihedral angles
         double cos_theta[6];
-        cos_theta[0] = (H_sqr[0] - s[1]*s[1] - s[2]*s[2]) / (-2.0 * s[1] * s[2]);
-        cos_theta[1] = (H_sqr[1] - s[2]*s[2] - s[0]*s[0]) / (-2.0 * s[2] * s[0]);
-        cos_theta[2] = (H_sqr[2] - s[0]*s[0] - s[1]*s[1]) / (-2.0 * s[0] * s[1]);
-        cos_theta[3] = (H_sqr[3] - s[3]*s[3] - s[0]*s[0]) / (-2.0 * s[3] * s[0]);
-        cos_theta[4] = (H_sqr[4] - s[3]*s[3] - s[1]*s[1]) / (-2.0 * s[3] * s[1]);
-        cos_theta[5] = (H_sqr[5] - s[3]*s[3] - s[2]*s[2]) / (-2.0 * s[3] * s[2]);
+        cos_theta[0] =
+            (H_sqr[0] - s[1] * s[1] - s[2] * s[2]) / (-2.0 * s[1] * s[2]);
+        cos_theta[1] =
+            (H_sqr[1] - s[2] * s[2] - s[0] * s[0]) / (-2.0 * s[2] * s[0]);
+        cos_theta[2] =
+            (H_sqr[2] - s[0] * s[0] - s[1] * s[1]) / (-2.0 * s[0] * s[1]);
+        cos_theta[3] =
+            (H_sqr[3] - s[3] * s[3] - s[0] * s[0]) / (-2.0 * s[3] * s[0]);
+        cos_theta[4] =
+            (H_sqr[4] - s[3] * s[3] - s[1] * s[1]) / (-2.0 * s[3] * s[1]);
+        cos_theta[5] =
+            (H_sqr[5] - s[3] * s[3] - s[2] * s[2]) / (-2.0 * s[3] * s[2]);
 
         // Compute sin of dihedral angles using volume formula
         double sin_theta[6];
-        sin_theta[0] = vol / ((2.0/(3.0*l[0])) * s[1] * s[2]);
-        sin_theta[1] = vol / ((2.0/(3.0*l[1])) * s[2] * s[0]);
-        sin_theta[2] = vol / ((2.0/(3.0*l[2])) * s[0] * s[1]);
-        sin_theta[3] = vol / ((2.0/(3.0*l[3])) * s[3] * s[0]);
-        sin_theta[4] = vol / ((2.0/(3.0*l[4])) * s[3] * s[1]);
-        sin_theta[5] = vol / ((2.0/(3.0*l[5])) * s[3] * s[2]);
+        sin_theta[0] = vol / ((2.0 / (3.0 * l[0])) * s[1] * s[2]);
+        sin_theta[1] = vol / ((2.0 / (3.0 * l[1])) * s[2] * s[0]);
+        sin_theta[2] = vol / ((2.0 / (3.0 * l[2])) * s[0] * s[1]);
+        sin_theta[3] = vol / ((2.0 / (3.0 * l[3])) * s[3] * s[0]);
+        sin_theta[4] = vol / ((2.0 / (3.0 * l[4])) * s[3] * s[1]);
+        sin_theta[5] = vol / ((2.0 / (3.0 * l[5])) * s[3] * s[2]);
 
-        // Compute cotangent weights: C = (1/6) * edge_length * cot(dihedral_angle)
-        // Following libigl's cotmatrix_entries.cpp formula
+        // Compute cotangent weights: C = (1/6) * edge_length *
+        // cot(dihedral_angle) Following libigl's cotmatrix_entries.cpp formula
         double C[6];
         for (int i = 0; i < 6; i++) {
             if (std::abs(sin_theta[i]) > 1e-12) {
                 C[i] = (1.0 / 6.0) * l[i] * cos_theta[i] / sin_theta[i];
-            } else {
+            }
+            else {
                 C[i] = 0.0;
             }
         }
-            
+
         if (first_tet) {
-            std::cout << "First tet vertex IDs: " << vertex_ids[0] << " " << vertex_ids[1] << " " << vertex_ids[2] << " " << vertex_ids[3] << std::endl;
+            std::cout << "First tet vertex IDs: " << vertex_ids[0] << " "
+                      << vertex_ids[1] << " " << vertex_ids[2] << " "
+                      << vertex_ids[3] << std::endl;
             std::cout << "First tet vertex positions:" << std::endl;
             for (int i = 0; i < 4; i++) {
-                std::cout << "  v" << i << ": (" << positions[i][0] << ", " << positions[i][1] << ", " << positions[i][2] << ")" << std::endl;
+                std::cout << "  v" << i << ": (" << positions[i][0] << ", "
+                          << positions[i][1] << ", " << positions[i][2] << ")"
+                          << std::endl;
             }
-            std::cout << "Edge lengths (custom): l[0]=" << l[0] << " l[1]=" << l[1] << " l[2]=" << l[2] << " l[3]=" << l[3] << " l[4]=" << l[4] << " l[5]=" << l[5] << std::endl;
-            std::cout << "Face areas (custom): s[0]=" << s[0] << " s[1]=" << s[1] << " s[2]=" << s[2] << " s[3]=" << s[3] << std::endl;
+            std::cout << "Edge lengths (custom): l[0]=" << l[0]
+                      << " l[1]=" << l[1] << " l[2]=" << l[2]
+                      << " l[3]=" << l[3] << " l[4]=" << l[4]
+                      << " l[5]=" << l[5] << std::endl;
+            std::cout << "Face areas (custom): s[0]=" << s[0]
+                      << " s[1]=" << s[1] << " s[2]=" << s[2]
+                      << " s[3]=" << s[3] << std::endl;
             std::cout << "Volume (custom): " << vol << std::endl;
-            std::cout << "H_sqr: " << H_sqr[0] << " " << H_sqr[1] << " " << H_sqr[2] << " " << H_sqr[3] << " " << H_sqr[4] << " " << H_sqr[5] << std::endl;
-            std::cout << "cos_theta: " << cos_theta[0] << " " << cos_theta[1] << " " << cos_theta[2] << " " << cos_theta[3] << " " << cos_theta[4] << " " << cos_theta[5] << std::endl;
-            std::cout << "sin_theta: " << sin_theta[0] << " " << sin_theta[1] << " " << sin_theta[2] << " " << sin_theta[3] << " " << sin_theta[4] << " " << sin_theta[5] << std::endl;
-            std::cout << "C (cotangent weights): " << C[0] << " " << C[1] << " " << C[2] << " " << C[3] << " " << C[4] << " " << C[5] << std::endl;
+            std::cout << "H_sqr: " << H_sqr[0] << " " << H_sqr[1] << " "
+                      << H_sqr[2] << " " << H_sqr[3] << " " << H_sqr[4] << " "
+                      << H_sqr[5] << std::endl;
+            std::cout << "cos_theta: " << cos_theta[0] << " " << cos_theta[1]
+                      << " " << cos_theta[2] << " " << cos_theta[3] << " "
+                      << cos_theta[4] << " " << cos_theta[5] << std::endl;
+            std::cout << "sin_theta: " << sin_theta[0] << " " << sin_theta[1]
+                      << " " << sin_theta[2] << " " << sin_theta[3] << " "
+                      << sin_theta[4] << " " << sin_theta[5] << std::endl;
+            std::cout << "C (cotangent weights): " << C[0] << " " << C[1] << " "
+                      << C[2] << " " << C[3] << " " << C[4] << " " << C[5]
+                      << std::endl;
             first_tet = false;
         }
 
         // Add to Laplacian matrix following libigl's cotmatrix.cpp convention
         // IMPORTANT: edges are defined as [1-2, 2-0, 0-1, 3-0, 3-1, 3-2]
         // C values are computed in order [3-0, 3-1, 3-2, 1-2, 2-0, 0-1]
-        // These are opposite edge pairs! C[i] for edge i is applied to its opposite edge.
-        // This is correct for tetrahedral cotangent Laplacian: use opposite edge cotangents.
+        // These are opposite edge pairs! C[i] for edge i is applied to its
+        // opposite edge. This is correct for tetrahedral cotangent Laplacian:
+        // use opposite edge cotangents.
         int edges[6][2] = {
-            {1, 2}, // edge 0: vertices 1-2 uses C[0] (computed for opposite edge 3-0)
-            {2, 0}, // edge 1: vertices 2-0 uses C[1] (computed for opposite edge 3-1)
-            {0, 1}, // edge 2: vertices 0-1 uses C[2] (computed for opposite edge 3-2)
-            {3, 0}, // edge 3: vertices 3-0 uses C[3] (computed for opposite edge 1-2)
-            {3, 1}, // edge 4: vertices 3-1 uses C[4] (computed for opposite edge 2-0)
-            {3, 2}  // edge 5: vertices 3-2 uses C[5] (computed for opposite edge 0-1)
+            { 1, 2 },  // edge 0: vertices 1-2 uses C[0] (computed for opposite
+                       // edge 3-0)
+            { 2, 0 },  // edge 1: vertices 2-0 uses C[1] (computed for opposite
+                       // edge 3-1)
+            { 0, 1 },  // edge 2: vertices 0-1 uses C[2] (computed for opposite
+                       // edge 3-2)
+            { 3, 0 },  // edge 3: vertices 3-0 uses C[3] (computed for opposite
+                       // edge 1-2)
+            { 3, 1 },  // edge 4: vertices 3-1 uses C[4] (computed for opposite
+                       // edge 2-0)
+            { 3, 2 }
+            // edge 5: vertices 3-2 uses C[5] (computed for opposite edge 0-1)
         };
-        
-        // Assembly: use C values directly (they correspond to opposite edges by design)
+
+        // Assembly: use C values directly (they correspond to opposite edges by
+        // design)
         for (int e = 0; e < 6; e++) {
             int i = vertex_ids[edges[e][0]];
             int j = vertex_ids[edges[e][1]];
@@ -265,68 +351,78 @@ void ReducedOrderedBasis::compute_eigenmodes(int num_modes)
               << " eigenmodes using sparse solver (Spectra)..." << std::endl;
 
     // Convert to double precision sparse matrix for Spectra
-    Eigen::SparseMatrix<double> laplacian_double = laplacian_matrix_.cast<double>();
+    Eigen::SparseMatrix<double> laplacian_double =
+        laplacian_matrix_.cast<double>();
 
     // Use Spectra to compute the smallest eigenvalues
     // We want the smallest eigenvalues in magnitude (closest to zero)
     Spectra::SparseSymMatProd<double> op(laplacian_double);
-    
+
     // Request more eigenvalues than needed for better convergence
     int ncv = std::min(std::max(2 * num_modes + 1, 20), n);
-    
-    Spectra::SymEigsSolver<Spectra::SparseSymMatProd<double>> eigs(op, num_modes, ncv);
-    
+
+    Spectra::SymEigsSolver<Spectra::SparseSymMatProd<double>> eigs(
+        op, num_modes, ncv);
+
     // Initialize and compute
-    // Use SmallestAlge to get smallest eigenvalues in algebraic order (ascending)
+    // Use SmallestAlge to get smallest eigenvalues in algebraic order
+    // (ascending)
     eigs.init();
     int nconv = eigs.compute(Spectra::SortRule::SmallestAlge, 4000, 1e-12);
-    
+
     if (eigs.info() != Spectra::CompInfo::Successful) {
-        std::cerr << "Spectra eigenvalue computation failed, falling back to dense solver..." << std::endl;
-        
+        std::cerr << "Spectra eigenvalue computation failed, falling back to "
+                     "dense solver..."
+                  << std::endl;
+
         // Fallback to dense solver
         Eigen::MatrixXd dense_laplacian = laplacian_double;
-        Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigensolver(dense_laplacian);
-        
+        Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigensolver(
+            dense_laplacian);
+
         if (eigensolver.info() != Eigen::Success) {
-            throw std::runtime_error("Both sparse and dense eigenvalue decomposition failed");
+            throw std::runtime_error(
+                "Both sparse and dense eigenvalue decomposition failed");
         }
-        
+
         Eigen::VectorXd all_eigenvalues = eigensolver.eigenvalues();
         Eigen::MatrixXd all_eigenvectors = eigensolver.eigenvectors();
-        
+
         basis.clear();
         eigenvalues.clear();
-        
-        int actual_modes = std::min(num_modes, static_cast<int>(all_eigenvalues.size()));
+
+        int actual_modes =
+            std::min(num_modes, static_cast<int>(all_eigenvalues.size()));
         for (int i = 0; i < actual_modes; i++) {
             eigenvalues.push_back(static_cast<float>(all_eigenvalues(i)));
             basis.push_back(all_eigenvectors.col(i).cast<float>());
-            std::cout << "  Mode " << i << ": eigenvalue = " << all_eigenvalues(i) << std::endl;
+            std::cout << "  Mode " << i
+                      << ": eigenvalue = " << all_eigenvalues(i) << std::endl;
         }
     }
     else {
         // Get eigenvalues and eigenvectors from Spectra
         Eigen::VectorXd eigenvalues_d = eigs.eigenvalues();
         Eigen::MatrixXd eigenvectors_d = eigs.eigenvectors();
-        
+
         // Sort eigenvalues and eigenvectors in ascending order
         std::vector<std::pair<double, int>> sorted_indices;
         int actual_modes = std::min(nconv, num_modes);
         for (int i = 0; i < actual_modes; i++) {
-            sorted_indices.push_back({eigenvalues_d(i), i});
+            sorted_indices.push_back({ eigenvalues_d(i), i });
         }
         std::sort(sorted_indices.begin(), sorted_indices.end());
-        
+
         basis.clear();
         eigenvalues.clear();
-        
+
         for (int i = 0; i < actual_modes; i++) {
             int original_index = sorted_indices[i].second;
             double eigenvalue = sorted_indices[i].first;
             eigenvalues.push_back(static_cast<float>(eigenvalue));
             basis.push_back(eigenvectors_d.col(original_index).cast<float>());
-            std::cout << "  Mode " << i << ": eigenvalue = " << eigenvalue << std::endl;
+            std::cout << "  Mode " << i << ": eigenvalue = " << eigenvalue
+                      << std::endl;
         }
     }
 
@@ -484,10 +580,11 @@ void ReducedOrderedBasis::assemble_laplacian_2d_libigl(void* mesh_ptr)
 
         if (face_verts.size() == 3) {
             faces.push_back(face_verts);
-        } else if (face_verts.size() == 4) {
+        }
+        else if (face_verts.size() == 4) {
             // Split quad into two triangles
-            faces.push_back({face_verts[0], face_verts[1], face_verts[2]});
-            faces.push_back({face_verts[0], face_verts[2], face_verts[3]});
+            faces.push_back({ face_verts[0], face_verts[1], face_verts[2] });
+            faces.push_back({ face_verts[0], face_verts[2], face_verts[3] });
         }
     }
 
@@ -503,12 +600,13 @@ void ReducedOrderedBasis::assemble_laplacian_2d_libigl(void* mesh_ptr)
     Eigen::SparseMatrix<double> L;
     igl::cotmatrix(V, F, L);
 
-    // Negate to get positive semi-definite matrix (libigl's cotmatrix is negative)
+    // Negate to get positive semi-definite matrix (libigl's cotmatrix is
+    // negative)
     laplacian_matrix_ = (-L).cast<float>();
 
-    std::cout << "Assembled 2D cotangent Laplacian matrix using libigl: " 
-              << n_vertices << " x " << n_vertices 
-              << " with " << laplacian_matrix_.nonZeros() << " non-zeros" << std::endl;
+    std::cout << "Assembled 2D cotangent Laplacian matrix using libigl: "
+              << n_vertices << " x " << n_vertices << " with "
+              << laplacian_matrix_.nonZeros() << " non-zeros" << std::endl;
 }
 
 void ReducedOrderedBasis::assemble_laplacian_3d_libigl(void* mesh_ptr)
@@ -522,7 +620,8 @@ void ReducedOrderedBasis::assemble_laplacian_3d_libigl(void* mesh_ptr)
 
     // Extract vertices
     int v_idx = 0;
-    for (auto v_it = mesh->vertices_begin(); v_it != mesh->vertices_end(); ++v_it) {
+    for (auto v_it = mesh->vertices_begin(); v_it != mesh->vertices_end();
+         ++v_it) {
         auto pt = mesh->vertex(*v_it);
         V(v_idx, 0) = pt[0];
         V(v_idx, 1) = pt[1];
@@ -539,10 +638,14 @@ void ReducedOrderedBasis::assemble_laplacian_3d_libigl(void* mesh_ptr)
         }
         if (cell_verts.size() == 4) {
             if (first_tet) {
-                std::cout << "libigl first tet vertex IDs: " << cell_verts[0] << " " << cell_verts[1] << " " << cell_verts[2] << " " << cell_verts[3] << std::endl;
+                std::cout << "libigl first tet vertex IDs: " << cell_verts[0]
+                          << " " << cell_verts[1] << " " << cell_verts[2] << " "
+                          << cell_verts[3] << std::endl;
                 std::cout << "libigl first tet vertex positions:" << std::endl;
                 for (int i = 0; i < 4; i++) {
-                    std::cout << "  v" << i << ": (" << V(cell_verts[i], 0) << ", " << V(cell_verts[i], 1) << ", " << V(cell_verts[i], 2) << ")" << std::endl;
+                    std::cout << "  v" << i << ": (" << V(cell_verts[i], 0)
+                              << ", " << V(cell_verts[i], 1) << ", "
+                              << V(cell_verts[i], 2) << ")" << std::endl;
                 }
                 first_tet = false;
             }
@@ -561,7 +664,7 @@ void ReducedOrderedBasis::assemble_laplacian_3d_libigl(void* mesh_ptr)
 
     // Use libigl to compute cotangent Laplacian for tetrahedral mesh
     Eigen::SparseMatrix<double> L;
-    
+
     // DEBUG: Call cotmatrix_entries directly to see C values
     Eigen::MatrixXd C_libigl;
     igl::cotmatrix_entries(V, T, C_libigl);
@@ -570,20 +673,21 @@ void ReducedOrderedBasis::assemble_laplacian_3d_libigl(void* mesh_ptr)
         std::cout << C_libigl(0, c) << " ";
     }
     std::cout << std::endl;
-    
+
     igl::cotmatrix(V, T, L);
 
     // Negate to get positive semi-definite matrix
     laplacian_matrix_ = (-L).cast<float>();
     // DEBUG: Print first few matrix elements
     std::cout << "First diagonal elements (libigl): ";
-    for (int i = 0; i < std::min(5, static_cast<int>(laplacian_matrix_.rows())); i++) {
+    for (int i = 0; i < std::min(5, static_cast<int>(laplacian_matrix_.rows()));
+         i++) {
         std::cout << laplacian_matrix_.coeff(i, i) << " ";
     }
     std::cout << std::endl;
-    std::cout << "Assembled 3D cotangent Laplacian matrix using libigl: " 
-              << n_vertices << " x " << n_vertices 
-              << " with " << laplacian_matrix_.nonZeros() << " non-zeros" << std::endl;
+    std::cout << "Assembled 3D cotangent Laplacian matrix using libigl: "
+              << n_vertices << " x " << n_vertices << " with "
+              << laplacian_matrix_.nonZeros() << " non-zeros" << std::endl;
 }
 
 RUZINO_NAMESPACE_CLOSE_SCOPE

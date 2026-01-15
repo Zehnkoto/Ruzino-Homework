@@ -237,7 +237,9 @@ struct ReducedNeoHookeanGPUStorage {
 NODE_DECLARATION_FUNCTION(reduced_order_neo_hookean_gpu)
 {
     b.add_input<Geometry>("Geometry");
+    b.add_input<Geometry>("Init Geometry");
     b.add_input<std::shared_ptr<ReducedOrderedBasis>>("Reduced Basis");
+    b.add_input<std::shared_ptr<Ruzino::AffineTransform>>("Initial Transform");
 
     b.add_input<float>("Density").default_val(1000.0f).min(1.0f).max(10000.0f);
     b.add_input<float>("Young's Modulus").default_val(5e4f).min(1e3f).max(1e9f);
@@ -271,9 +273,16 @@ NODE_EXECUTION_FUNCTION(reduced_order_neo_hookean_gpu)
     auto input_geom = params.get_input<Geometry>("Geometry");
     input_geom.apply_transform();
 
+    auto init_geom = params.get_input<Geometry>("Init Geometry");
+    init_geom.apply_transform();
+
     auto reduced_basis =
         params.get_input<std::shared_ptr<Ruzino::ReducedOrderedBasis>>(
             "Reduced Basis");
+
+    auto initial_transform =
+        params.get_input<std::shared_ptr<Ruzino::AffineTransform>>(
+            "Initial Transform");
 
     float density = params.get_input<float>("Density");
     float youngs_modulus = params.get_input<float>("Young's Modulus");
@@ -294,7 +303,21 @@ NODE_EXECUTION_FUNCTION(reduced_order_neo_hookean_gpu)
     float lambda = youngs_modulus * poisson_ratio /
                    ((1.0f + poisson_ratio) * (1.0f - 2.0f * poisson_ratio));
 
-    // Get mesh component
+    // Get mesh component from init geometry for initialization
+    auto init_mesh_component = init_geom.get_component<MeshComponent>();
+    std::vector<glm::vec3> init_positions;
+
+    if (init_mesh_component) {
+        init_positions = init_mesh_component->get_vertices();
+    }
+    else {
+        auto init_points_component = init_geom.get_component<PointsComponent>();
+        if (init_points_component) {
+            init_positions = init_points_component->get_vertices();
+        }
+    }
+
+    // Get mesh component for topology
     auto mesh_component = input_geom.get_component<MeshComponent>();
     std::vector<glm::vec3> positions;
     std::vector<int> face_vertex_indices;
@@ -321,32 +344,69 @@ NODE_EXECUTION_FUNCTION(reduced_order_neo_hookean_gpu)
     }
 
     // Initialize buffers only once or when particle count changes
+    // ALWAYS use rest pose (input_geom positions) for reference configuration
     if (!storage.initialized || storage.num_particles != num_particles) {
         storage.initialize(
-            positions,
+            positions,  // Use rest pose for Dm_inv, volumes calculation
             face_vertex_indices,
             face_counts,
             density,
             reduced_basis);
     }
 
-    // Apply initial translation (0, 0, 0.02) to all bases on the first frame
-    if (global_payload.is_simulating == false) {
-        int reduced_dof = storage.num_basis * 12;
-        auto q_host = storage.q_reduced->get_host_vector<float>();
+    // If Init Geometry is provided, use it as the starting point for simulation
+    if (!init_positions.empty()) {
+        // Check topology consistency
+        bool topology_matches = (init_positions.size() == positions.size());
 
-        // For each basis, add (0, 0, 0.02) to the translation part (indices
-        // 9, 10, 11)
-        for (int i = 0; i < storage.num_basis; ++i) {
-            q_host[i * 12 + 9] += 0.0f;    // tx
-            q_host[i * 12 + 10] += 0.0f;   // ty
-            q_host[i * 12 + 11] += 0.02f;  // tz
+        if (topology_matches) {
+            // Write init positions to GPU buffer as simulation starting point
+            storage.positions_buffer->assign_host_vector(init_positions);
+            spdlog::info(
+                "[ReducedNeoHookean] Using Init Geometry as simulation "
+                "starting point (vertices={})",
+                init_positions.size());
         }
+        else {
+            spdlog::warn(
+                "[ReducedNeoHookean] Init Geometry topology mismatch! "
+                "Init: {} vertices; Rest pose: {} vertices. Using rest pose as "
+                "starting point.",
+                init_positions.size(),
+                positions.size());
+        }
+    }
 
-        storage.q_reduced->assign_host_vector(q_host);
-        spdlog::debug(
-            "[ReducedNeoHookean] Applied initial translation (0, 0, 0.02) "
-            "to all bases");
+    // Apply initial transform on the first frame
+    if (global_payload.is_simulating == false && initial_transform) {
+        int reduced_dof = storage.num_basis * 12;
+
+        // Validate that transform has the right number of modes
+        if (initial_transform->num_modes() != storage.num_basis) {
+            spdlog::warn(
+                "[ReducedNeoHookean] Initial transform has {} modes but "
+                "reduced basis has {} modes",
+                initial_transform->num_modes(),
+                storage.num_basis);
+        }
+        else {
+            auto q_host = storage.q_reduced->get_host_vector<float>();
+
+            // For each basis, copy the transform from initial_transform
+            for (int i = 0; i < storage.num_basis; ++i) {
+                const auto& transform = initial_transform->get_transform(i);
+
+                // Copy all 12 DOF (rotation matrix + translation)
+                for (int j = 0; j < 12; ++j) {
+                    q_host[i * 12 + j] = transform[j];
+                }
+            }
+
+            storage.q_reduced->assign_host_vector(q_host);
+            spdlog::info(
+                "[ReducedNeoHookean] Applied initial transform to all {} bases",
+                storage.num_basis);
+        }
     }
 
     if (!storage.initialized || storage.num_elements == 0) {
