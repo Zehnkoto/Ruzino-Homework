@@ -131,8 +131,13 @@ def get_modified_files(repo_path: Path) -> Set[Path]:
         # Parse git status output
         # Format: XY filename
         # X = staged status, Y = unstaged status
+        # Status is 2 characters, followed by a space, then filename
+        if len(line) < 3:
+            continue
+            
         status = line[:2]
-        filename = line[3:]
+        # The filename starts after the 2-char status and any following spaces
+        filename = line[2:].lstrip()
         
         # Skip deleted files
         if 'D' in status:
@@ -142,7 +147,11 @@ def get_modified_files(repo_path: Path) -> Set[Path]:
         if 'R' in status and ' -> ' in filename:
             filename = filename.split(' -> ')[1]
         
+        # Normalize path separators for Windows
+        filename = filename.replace('/', os.sep)
+        
         file_path = repo_path / filename
+        
         if file_path.exists() and file_path.is_file():
             modified_files.add(file_path)
     
@@ -348,15 +357,16 @@ def main():
     # Find repositories with modified C/C++ files
     repos_with_cpp_changes = []
     for repo in repos:
+        try:
+            rel_path = repo.relative_to(project_root)
+            display_path = str(rel_path) if str(rel_path) != '.' else '(root)'
+        except ValueError:
+            display_path = str(repo)
+        
         modified_files = get_modified_files(repo)
         cpp_files = filter_cpp_files(modified_files)
         
         if cpp_files:
-            try:
-                rel_path = repo.relative_to(project_root)
-                display_path = str(rel_path) if str(rel_path) != '.' else '(root)'
-            except ValueError:
-                display_path = str(repo)
             repos_with_cpp_changes.append((repo, display_path, len(cpp_files)))
     
     if not repos_with_cpp_changes:
