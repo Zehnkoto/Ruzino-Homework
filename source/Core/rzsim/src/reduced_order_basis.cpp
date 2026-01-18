@@ -9,6 +9,7 @@
 #include <Eigen/Eigenvalues>
 #include <Eigen/Sparse>
 #include <iostream>
+#include <set>
 
 RUZINO_NAMESPACE_OPEN_SCOPE
 
@@ -56,12 +57,20 @@ ReducedOrderedBasis::ReducedOrderedBasis(
     const Geometry& g,
     int num_modes,
     int dimension,
-    bool use_libigl)
+    bool use_libigl,
+    const std::vector<int>& bc_vertices)
+    : bc_vertices_(bc_vertices)
 {
     // Get mesh component
     auto mesh_comp = g.get_component<MeshComponent>();
     if (!mesh_comp) {
         throw std::runtime_error("Geometry must have MeshComponent");
+    }
+
+    if (!bc_vertices_.empty()) {
+        spdlog::info(
+            "ReducedOrderedBasis: {} vertices marked with Dirichlet BC",
+            bc_vertices_.size());
     }
 
     auto geom_ptr = const_cast<Geometry*>(&g);
@@ -111,6 +120,11 @@ ReducedOrderedBasis::ReducedOrderedBasis(
     }
     else {
         throw std::runtime_error("Dimension must be 2 (surface) or 3 (volume)");
+    }
+
+    // Apply boundary conditions to Laplacian matrix before computing eigenmodes
+    if (!bc_vertices_.empty()) {
+        apply_bc_to_laplacian();
     }
 
     // Compute eigenmodes
@@ -421,7 +435,7 @@ void ReducedOrderedBasis::compute_eigenmodes(int num_modes)
             double eigenvalue = sorted_indices[i].first;
             eigenvalues.push_back(static_cast<float>(eigenvalue));
             basis.push_back(eigenvectors_d.col(original_index).cast<float>());
-            std::cout << "  Mode " << i << ": eigenvalue = " << eigenvalue
+            std::cout << "  Mode " << i << ": eigenvalue =" << eigenvalue
                       << std::endl;
         }
     }
@@ -688,6 +702,61 @@ void ReducedOrderedBasis::assemble_laplacian_3d_libigl(void* mesh_ptr)
     std::cout << "Assembled 3D cotangent Laplacian matrix using libigl: "
               << n_vertices << " x " << n_vertices << " with "
               << laplacian_matrix_.nonZeros() << " non-zeros" << std::endl;
+}
+
+void ReducedOrderedBasis::apply_bc_to_laplacian()
+{
+    // Apply Dirichlet boundary conditions to Laplacian matrix
+    // Similar to neo_hookean: BC rows get diagonal=1, off-diagonal=0
+    // Free rows get BC columns=0
+
+    spdlog::info(
+        "Applying Dirichlet BC to Laplacian matrix for {} vertices",
+        bc_vertices_.size());
+
+    // Create a set for fast lookup
+    std::set<int> bc_set(bc_vertices_.begin(), bc_vertices_.end());
+
+    // Convert to triplet format for modification
+    std::vector<Eigen::Triplet<float>> triplets;
+
+    for (int k = 0; k < laplacian_matrix_.outerSize(); ++k) {
+        for (Eigen::SparseMatrix<float>::InnerIterator it(laplacian_matrix_, k);
+             it;
+             ++it) {
+            int row = it.row();
+            int col = it.col();
+            float value = it.value();
+
+            bool row_is_bc = bc_set.count(row) > 0;
+            bool col_is_bc = bc_set.count(col) > 0;
+
+            if (row_is_bc) {
+                // BC row: diagonal = 1, off-diagonal = 0
+                if (row == col) {
+                    triplets.push_back(Eigen::Triplet<float>(row, col, 1.0f));
+                }
+                // else: skip (set to 0)
+            }
+            else if (col_is_bc) {
+                // Free row, BC column: set to 0
+                // Skip this entry
+            }
+            else {
+                // Free row, free column: keep original value
+                triplets.push_back(Eigen::Triplet<float>(row, col, value));
+            }
+        }
+    }
+
+    // Rebuild the matrix
+    int n = laplacian_matrix_.rows();
+    laplacian_matrix_.resize(n, n);
+    laplacian_matrix_.setFromTriplets(triplets.begin(), triplets.end());
+
+    spdlog::info(
+        "BC applied to Laplacian: {} non-zeros after modification",
+        laplacian_matrix_.nonZeros());
 }
 
 RUZINO_NAMESPACE_CLOSE_SCOPE
