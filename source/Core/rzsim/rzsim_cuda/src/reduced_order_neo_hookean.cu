@@ -258,6 +258,31 @@ void compute_jacobian_gpu(
 // Kernel: Compute reduced gradient (J^T * grad_x)
 // ============================================================================
 
+// ============================================================================
+// Kernel: Compute reduced gradient (grad_q = J^T * grad_x)
+// ============================================================================
+
+__global__ void compute_reduced_gradient_kernel(
+    const float* jacobian,  // [full_dof × reduced_dof] row-major
+    const float* grad_x,    // [full_dof]
+    float* grad_q,          // [reduced_dof]
+    int full_dof,
+    int reduced_dof)
+{
+    int j = blockIdx.x * blockDim.x + threadIdx.x;
+    if (j >= reduced_dof)
+        return;
+
+    // Compute grad_q[j] = sum_i J[i,j] * grad_x[i]
+    // This is J^T * grad_x
+    // Row-major: J[i,j] = jacobian[i * reduced_dof + j]
+    float sum = 0.0f;
+    for (int i = 0; i < full_dof; ++i) {
+        sum += jacobian[i * reduced_dof + j] * grad_x[i];
+    }
+    grad_q[j] = sum;
+}
+
 void compute_reduced_gradient_gpu(
     cuda::CUDALinearBufferHandle jacobian,
     cuda::CUDALinearBufferHandle grad_x,
@@ -272,42 +297,41 @@ void compute_reduced_gradient_gpu(
     const float* grad_x_ptr = grad_x->get_device_ptr<float>();
     float* grad_q_ptr = grad_q->get_device_ptr<float>();
 
-    // Use cuBLAS for matrix-vector multiply: grad_q = J^T * grad_x
-    // J is row-major [full_dof, reduced_dof]
-    // For row-major matrix, J^T * x uses CUBLAS_OP_N
-    cublasHandle_t handle;
-    cublasStatus_t status = cublasCreate(&handle);
-    if (status != CUBLAS_STATUS_SUCCESS) {
-        printf("[ReducedOrder] Failed to create cuBLAS handle: %d\n", status);
-        return;
-    }
+    // Launch kernel: grad_q = J^T * grad_x
+    int threads_per_block = 256;
+    int num_blocks = (reduced_dof + threads_per_block - 1) / threads_per_block;
 
-    float alpha = 1.0f;
-    float beta = 0.0f;
+    compute_reduced_gradient_kernel<<<num_blocks, threads_per_block>>>(
+        jacobian_ptr, grad_x_ptr, grad_q_ptr, full_dof, reduced_dof);
 
-    // grad_q[reduced_dof] = J^T[reduced_dof, full_dof] * grad_x[full_dof]
-    status = cublasSgemv(
-        handle,
-        CUBLAS_OP_N,  // No transpose (for row-major J^T)
-        reduced_dof,  // m: rows of op(A)
-        full_dof,     // n: cols of op(A)
-        &alpha,
-        jacobian_ptr,  // A: J in row-major
-        reduced_dof,   // lda: leading dimension
-        grad_x_ptr,    // x
-        1,             // incx
-        &beta,
-        grad_q_ptr,  // y
-        1);          // incy
-
-    if (status != CUBLAS_STATUS_SUCCESS) {
+    cudaDeviceSynchronize();
+    auto err = cudaGetLastError();
+    if (err != cudaSuccess) {
         printf(
-            "[ReducedOrder] cublasSgemv failed in compute_reduced_gradient: "
-            "%d\n",
-            status);
+            "[ReducedOrder] compute_reduced_gradient kernel failed: %s\n",
+            cudaGetErrorString(err));
     }
+}
 
-    cublasDestroy(handle);
+__global__ void compute_reduced_neg_gradient_kernel(
+    const float* jacobian,  // [full_dof × reduced_dof] row-major
+    const float* grad_x,    // [full_dof]
+    float* neg_grad_q,      // [reduced_dof]
+    int full_dof,
+    int reduced_dof)
+{
+    int j = blockIdx.x * blockDim.x + threadIdx.x;
+    if (j >= reduced_dof)
+        return;
+
+    // Compute neg_grad_q[j] = -sum_i J[i,j] * grad_x[i]
+    // This is -J^T * grad_x
+    // Row-major: J[i,j] = jacobian[i * reduced_dof + j]
+    float sum = 0.0f;
+    for (int i = 0; i < full_dof; ++i) {
+        sum += jacobian[i * reduced_dof + j] * grad_x[i];
+    }
+    neg_grad_q[j] = -sum;
 }
 
 void compute_reduced_neg_gradient_gpu(
@@ -324,45 +348,45 @@ void compute_reduced_neg_gradient_gpu(
     const float* grad_x_ptr = grad_x->get_device_ptr<float>();
     float* neg_grad_q_ptr = neg_grad_q->get_device_ptr<float>();
 
-    // Use cuBLAS for matrix-vector multiply: neg_grad_q = -J^T * grad_x
-    cublasHandle_t handle;
-    cublasStatus_t status = cublasCreate(&handle);
-    if (status != CUBLAS_STATUS_SUCCESS) {
-        printf("[ReducedOrder] Failed to create cuBLAS handle: %d\n", status);
-        return;
-    }
+    // Launch kernel: neg_grad_q = -J^T * grad_x
+    int threads_per_block = 256;
+    int num_blocks = (reduced_dof + threads_per_block - 1) / threads_per_block;
 
-    float alpha = -1.0f;  // Negative for negation
-    float beta = 0.0f;
+    compute_reduced_neg_gradient_kernel<<<num_blocks, threads_per_block>>>(
+        jacobian_ptr, grad_x_ptr, neg_grad_q_ptr, full_dof, reduced_dof);
 
-    // neg_grad_q[reduced_dof] = -J^T[reduced_dof, full_dof] * grad_x[full_dof]
-    status = cublasSgemv(
-        handle,
-        CUBLAS_OP_N,  // No transpose (for row-major J^T)
-        reduced_dof,  // m: rows of op(A)
-        full_dof,     // n: cols of op(A)
-        &alpha,
-        jacobian_ptr,  // A: J in row-major
-        reduced_dof,   // lda: leading dimension
-        grad_x_ptr,    // x
-        1,             // incx
-        &beta,
-        neg_grad_q_ptr,  // y
-        1);              // incy
-
-    if (status != CUBLAS_STATUS_SUCCESS) {
+    cudaDeviceSynchronize();
+    auto err = cudaGetLastError();
+    if (err != cudaSuccess) {
         printf(
-            "[ReducedOrder] cublasSgemv failed in "
-            "compute_reduced_neg_gradient: %d\n",
-            status);
+            "[ReducedOrder] compute_reduced_neg_gradient kernel failed: %s\n",
+            cudaGetErrorString(err));
     }
-
-    cublasDestroy(handle);
 }
 
 // ============================================================================
 // Kernel: Map reduced velocities to full space (v_full = J * q_dot)
 // ============================================================================
+
+__global__ void map_reduced_to_full_velocities_kernel(
+    const float* jacobian,  // [full_dof × reduced_dof] row-major
+    const float* q_dot,     // [reduced_dof]
+    float* v_full,          // [full_dof]
+    int full_dof,
+    int reduced_dof)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= full_dof)
+        return;
+
+    // Compute v_full[i] = sum_j J[i,j] * q_dot[j]
+    // Row-major: J[i,j] = jacobian[i * reduced_dof + j]
+    float sum = 0.0f;
+    for (int j = 0; j < reduced_dof; ++j) {
+        sum += jacobian[i * reduced_dof + j] * q_dot[j];
+    }
+    v_full[i] = sum;
+}
 
 void map_reduced_velocities_to_full_gpu(
     cuda::CUDALinearBufferHandle jacobian,
@@ -378,41 +402,20 @@ void map_reduced_velocities_to_full_gpu(
     const float* q_dot_ptr = q_dot->get_device_ptr<float>();
     float* v_full_ptr = v_full->get_device_ptr<float>();
 
-    // Use cuBLAS for matrix-vector multiply: v_full = J * q_dot
-    // J is row-major [full_dof, reduced_dof]
-    // For row-major matrix, J * x uses CUBLAS_OP_T
-    cublasHandle_t handle;
-    cublasStatus_t status = cublasCreate(&handle);
-    if (status != CUBLAS_STATUS_SUCCESS) {
-        printf("[ReducedOrder] Failed to create cuBLAS handle: %d\n", status);
-        return;
-    }
+    // Launch kernel: v_full = J * q_dot
+    int threads_per_block = 256;
+    int num_blocks = (full_dof + threads_per_block - 1) / threads_per_block;
 
-    float alpha = 1.0f;
-    float beta = 0.0f;
+    map_reduced_to_full_velocities_kernel<<<num_blocks, threads_per_block>>>(
+        jacobian_ptr, q_dot_ptr, v_full_ptr, full_dof, reduced_dof);
 
-    // v_full[full_dof] = J[full_dof, reduced_dof] * q_dot[reduced_dof]
-    status = cublasSgemv(
-        handle,
-        CUBLAS_OP_T,  // Transpose (for row-major J)
-        reduced_dof,  // m: cols of J (before transpose)
-        full_dof,     // n: rows of J (before transpose)
-        &alpha,
-        jacobian_ptr,  // A: J in row-major
-        reduced_dof,   // lda: leading dimension
-        q_dot_ptr,     // x
-        1,             // incx
-        &beta,
-        v_full_ptr,  // y
-        1);          // incy
-
-    if (status != CUBLAS_STATUS_SUCCESS) {
+    cudaDeviceSynchronize();
+    auto err = cudaGetLastError();
+    if (err != cudaSuccess) {
         printf(
-            "[ReducedOrder] cublasSgemv failed in map_reduced_velocities: %d\n",
-            status);
+            "[ReducedOrder] map_reduced_to_full_velocities kernel failed: %s\n",
+            cudaGetErrorString(err));
     }
-
-    cublasDestroy(handle);
 }
 
 // ============================================================================
@@ -659,6 +662,63 @@ void initialize_reduced_coords_identity_gpu(
         printf(
             "[ReducedOrder] CUDA error in "
             "initialize_reduced_coords_identity_gpu: %s\n",
+            cudaGetErrorString(err));
+    }
+}
+
+// ============================================================================
+// Compute J^T * J (Gram matrix)
+// ============================================================================
+
+__global__ void compute_gram_matrix_kernel(
+    const float* J,  // [full_dof × reduced_dof] row-major
+    float* JtJ,      // [reduced_dof × reduced_dof] row-major output
+    int full_dof,
+    int reduced_dof)
+{
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (row >= reduced_dof || col >= reduced_dof)
+        return;
+
+    // Compute (J^T * J)[row, col] = sum_k J[k, row] * J[k, col]
+    // Row-major: J[k, row] = J[k * reduced_dof + row]
+    float sum = 0.0f;
+    for (int k = 0; k < full_dof; ++k) {
+        sum += J[k * reduced_dof + row] * J[k * reduced_dof + col];
+    }
+
+    JtJ[row * reduced_dof + col] = sum;
+}
+
+void compute_jacobian_gram_matrix_gpu(
+    cuda::CUDALinearBufferHandle jacobian,
+    int num_particles,
+    int num_basis,
+    cuda::CUDALinearBufferHandle JtJ)
+{
+    int full_dof = num_particles * 3;
+    int reduced_dof = num_basis * 12;
+
+    const float* J_ptr = jacobian->get_device_ptr<float>();
+    float* JtJ_ptr = JtJ->get_device_ptr<float>();
+
+    // Launch kernel to compute J^T * J
+    dim3 threads_per_block(16, 16);
+    dim3 num_blocks(
+        (reduced_dof + threads_per_block.x - 1) / threads_per_block.x,
+        (reduced_dof + threads_per_block.y - 1) / threads_per_block.y);
+
+    compute_gram_matrix_kernel<<<num_blocks, threads_per_block>>>(
+        J_ptr, JtJ_ptr, full_dof, reduced_dof);
+
+    cudaDeviceSynchronize();
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        printf(
+            "[ReducedOrder] CUDA error in compute_jacobian_gram_matrix_gpu: "
+            "%s\n",
             cudaGetErrorString(err));
     }
 }

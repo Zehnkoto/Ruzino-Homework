@@ -1,4 +1,5 @@
 #include <cuda_runtime.h>
+#include <cusolverDn.h>
 #include <cusolverSp.h>
 #include <cusparse.h>
 
@@ -13,12 +14,14 @@ namespace Solver {
 
 class CuSolverCholeskySolver : public LinearSolver {
    private:
-    cusolverSpHandle_t cusolverHandle;
+    cusolverSpHandle_t cusolverSpHandle;
+    cusolverDnHandle_t cusolverDnHandle;
     cusparseHandle_t cusparseHandle;
     bool initialized = false;
 
     // Cached buffers for solve() method (Eigen input)
-    // We cache these to avoid reallocation when solve() is called repeatedly with same size matrix
+    // We cache these to avoid reallocation when solve() is called repeatedly
+    // with same size matrix
     int cached_nnz = 0;
     int cached_n = 0;
     Ruzino::cuda::CUDALinearBufferHandle d_csrVal_cached;
@@ -30,9 +33,11 @@ class CuSolverCholeskySolver : public LinearSolver {
    public:
     CuSolverCholeskySolver()
     {
-        if (cusolverSpCreate(&cusolverHandle) != CUSOLVER_STATUS_SUCCESS ||
+        if (cusolverSpCreate(&cusolverSpHandle) != CUSOLVER_STATUS_SUCCESS ||
+            cusolverDnCreate(&cusolverDnHandle) != CUSOLVER_STATUS_SUCCESS ||
             cusparseCreate(&cusparseHandle) != CUSPARSE_STATUS_SUCCESS) {
-            throw std::runtime_error("Failed to create cuSOLVER/cuSPARSE handles");
+            throw std::runtime_error(
+                "Failed to create cuSOLVER/cuSPARSE handles");
         }
         initialized = true;
     }
@@ -40,7 +45,8 @@ class CuSolverCholeskySolver : public LinearSolver {
     ~CuSolverCholeskySolver()
     {
         if (initialized) {
-            cusolverSpDestroy(cusolverHandle);
+            cusolverSpDestroy(cusolverSpHandle);
+            cusolverDnDestroy(cusolverDnHandle);
             cusparseDestroy(cusparseHandle);
         }
     }
@@ -83,12 +89,13 @@ class CuSolverCholeskySolver : public LinearSolver {
             cusparseSetMatIndexBase(descrA, CUSPARSE_INDEX_BASE_ZERO);
 
             int singularity = 0;
-            
+
             // Call cuSOLVER Cholesky solver
             // Note: cusolverSpScsrlsvchol solves A*x = b where A is SPD
-            // The matrix should already be symmetric from the Hessian construction
+            // The matriSpx should already be symmetric from the Hessian
+            // construction
             cusolverStatus_t status = cusolverSpScsrlsvchol(
-                cusolverHandle,
+                cusolverSpHandle,
                 n,
                 nnz,
                 descrA,
@@ -105,29 +112,37 @@ class CuSolverCholeskySolver : public LinearSolver {
 
             if (status != CUSOLVER_STATUS_SUCCESS) {
                 result.converged = false;
-                result.error_message = "cuSOLVER Cholesky failed with status " + std::to_string(status);
+                result.error_message = "cuSOLVER Cholesky failed with status " +
+                                       std::to_string(status);
                 if (config.verbose) {
                     std::cout << result.error_message << std::endl;
                 }
-            } else if (singularity >= 0) {
+            }
+            else if (singularity >= 0) {
                 result.converged = false;
-                result.error_message = "Matrix is not positive definite (singularity at " + std::to_string(singularity) + ")";
+                result.error_message =
+                    "Matrix is not positive definite (singularity at " +
+                    std::to_string(singularity) + ")";
                 if (config.verbose) {
                     std::cout << result.error_message << std::endl;
                 }
-            } else {
+            }
+            else {
                 result.converged = true;
                 result.iterations = 1;  // Direct solver, single "iteration"
                 result.final_residual = 0.0f;  // Direct solver
-                
+
                 if (config.verbose) {
-                    std::cout << "cuSOLVER Cholesky direct solve completed successfully" << std::endl;
+                    std::cout << "cuSOLVER Cholesky direct solve completed "
+                                 "successfully"
+                              << std::endl;
                 }
             }
-
-        } catch (const std::exception& e) {
+        }
+        catch (const std::exception& e) {
             result.converged = false;
-            result.error_message = std::string("cuSOLVER Cholesky error: ") + e.what();
+            result.error_message =
+                std::string("cuSOLVER Cholesky error: ") + e.what();
         }
 
         auto end_time = std::chrono::high_resolution_clock::now();
@@ -155,8 +170,9 @@ class CuSolverCholeskySolver : public LinearSolver {
             if (n != cached_n || nnz != cached_nnz || !d_csrVal_cached) {
                 cached_n = n;
                 cached_nnz = nnz;
-                
-                Ruzino::cuda::CUDALinearBufferDesc val_desc, rowptr_desc, colind_desc, vec_desc;
+
+                Ruzino::cuda::CUDALinearBufferDesc val_desc, rowptr_desc,
+                    colind_desc, vec_desc;
                 val_desc.element_count = nnz;
                 val_desc.element_size = sizeof(float);
                 rowptr_desc.element_count = n + 1;
@@ -166,16 +182,19 @@ class CuSolverCholeskySolver : public LinearSolver {
                 vec_desc.element_count = n;
                 vec_desc.element_size = sizeof(float);
 
-                d_csrVal_cached = Ruzino::cuda::create_cuda_linear_buffer(val_desc);
-                d_csrRowPtr_cached = Ruzino::cuda::create_cuda_linear_buffer(rowptr_desc);
-                d_csrColInd_cached = Ruzino::cuda::create_cuda_linear_buffer(colind_desc);
+                d_csrVal_cached =
+                    Ruzino::cuda::create_cuda_linear_buffer(val_desc);
+                d_csrRowPtr_cached =
+                    Ruzino::cuda::create_cuda_linear_buffer(rowptr_desc);
+                d_csrColInd_cached =
+                    Ruzino::cuda::create_cuda_linear_buffer(colind_desc);
                 d_b_cached = Ruzino::cuda::create_cuda_linear_buffer(vec_desc);
                 d_x_cached = Ruzino::cuda::create_cuda_linear_buffer(vec_desc);
             }
 
             // Convert to CSR format on host
             Eigen::SparseMatrix<float, Eigen::RowMajor> A_csr = A;
-            
+
             std::vector<float> csrVal(nnz);
             std::vector<int> csrRowPtr(n + 1);
             std::vector<int> csrColInd(nnz);
@@ -184,19 +203,22 @@ class CuSolverCholeskySolver : public LinearSolver {
             int idx = 0;
             csrRowPtr[0] = 0;
             for (int i = 0; i < n; ++i) {
-                for (Eigen::SparseMatrix<float, Eigen::RowMajor>::InnerIterator it(A_csr, i); it; ++it) {
+                for (Eigen::SparseMatrix<float, Eigen::RowMajor>::InnerIterator
+                         it(A_csr, i);
+                     it;
+                     ++it) {
                     csrVal[idx] = it.value();
                     csrColInd[idx] = it.col();
                     idx++;
                 }
                 csrRowPtr[i + 1] = idx;
             }
-            
+
             // Debug output
             if (config.verbose) {
                 std::cout << "Matrix size: " << n << "x" << n << std::endl;
                 std::cout << "Total nnz: " << nnz << std::endl;
-                
+
                 // Check symmetry (sampling)
                 int sample_size = std::min(100, n);
                 bool symmetric = true;
@@ -204,16 +226,20 @@ class CuSolverCholeskySolver : public LinearSolver {
                     for (int j = i + 1; j < sample_size; ++j) {
                         float aij = A.coeff(i, j);
                         float aji = A.coeff(j, i);
-                        if (std::abs(aij - aji) > 1e-6f * std::max(std::abs(aij), std::abs(aji))) {
+                        if (std::abs(aij - aji) >
+                            1e-6f * std::max(std::abs(aij), std::abs(aji))) {
                             symmetric = false;
-                            std::cout << "Warning: Matrix may not be symmetric at (" << i << "," << j << "): " 
-                                      << aij << " vs " << aji << std::endl;
+                            std::cout
+                                << "Warning: Matrix may not be symmetric at ("
+                                << i << "," << j << "): " << aij << " vs "
+                                << aji << std::endl;
                             break;
                         }
                     }
                 }
                 if (symmetric) {
-                    std::cout << "Matrix appears symmetric (sample check)" << std::endl;
+                    std::cout << "Matrix appears symmetric (sample check)"
+                              << std::endl;
                 }
             }
 
@@ -248,9 +274,12 @@ class CuSolverCholeskySolver : public LinearSolver {
             result = solveGPU(
                 n,
                 nnz,
-                reinterpret_cast<const int*>(d_csrRowPtr_cached->get_device_ptr()),
-                reinterpret_cast<const int*>(d_csrColInd_cached->get_device_ptr()),
-                reinterpret_cast<const float*>(d_csrVal_cached->get_device_ptr()),
+                reinterpret_cast<const int*>(
+                    d_csrRowPtr_cached->get_device_ptr()),
+                reinterpret_cast<const int*>(
+                    d_csrColInd_cached->get_device_ptr()),
+                reinterpret_cast<const float*>(
+                    d_csrVal_cached->get_device_ptr()),
                 reinterpret_cast<const float*>(d_b_cached->get_device_ptr()),
                 reinterpret_cast<float*>(d_x_cached->get_device_ptr()),
                 config);
@@ -263,12 +292,167 @@ class CuSolverCholeskySolver : public LinearSolver {
                     n * sizeof(float),
                     cudaMemcpyDeviceToHost);
             }
-
-        } catch (const std::exception& e) {
-            result.converged = false;
-            result.error_message = std::string("cuSOLVER Cholesky error: ") + e.what();
         }
-        
+        catch (const std::exception& e) {
+            result.converged = false;
+            result.error_message =
+                std::string("cuSOLVER Cholesky error: ") + e.what();
+        }
+
+        return result;
+    }
+
+    // Dense matrix GPU interface using cusolverDnSpotrf (Cholesky
+    // factorization) A: column-major dense matrix on GPU [n*n], assumed
+    // symmetric positive definite b: dense vector on GPU [n] x: dense vector on
+    // GPU (output) [n]
+    SolverResult solveDenseGPU(
+        int n,
+        const float* d_A,
+        const float* d_b,
+        float* d_x,
+        const SolverConfig& config = SolverConfig{}) override
+    {
+        SolverResult result;
+        auto start_time = std::chrono::high_resolution_clock::now();
+
+        try {
+            // Allocate workspace for Cholesky factorization
+            int lwork = 0;
+            cusolverStatus_t status;
+
+            // Query workspace size
+            status = cusolverDnSpotrf_bufferSize(
+                cusolverDnHandle,
+                CUBLAS_FILL_MODE_LOWER,  // Use lower triangular part
+                n,
+                const_cast<float*>(d_A),
+                n,  // leading dimension
+                &lwork);
+
+            if (status != CUSOLVER_STATUS_SUCCESS) {
+                result.converged = false;
+                result.error_message =
+                    "Failed to query Cholesky workspace size: " +
+                    std::to_string(status);
+                return result;
+            }
+
+            // Allocate workspace
+            float* d_work = nullptr;
+            cudaMalloc(&d_work, lwork * sizeof(float));
+
+            // Allocate device memory for factorization info
+            int* d_info = nullptr;
+            cudaMalloc(&d_info, sizeof(int));
+
+            // Copy A to temporary buffer (will be overwritten with L)
+            float* d_A_copy = nullptr;
+            cudaMalloc(&d_A_copy, n * n * sizeof(float));
+            cudaMemcpy(
+                d_A_copy, d_A, n * n * sizeof(float), cudaMemcpyDeviceToDevice);
+
+            // Perform Cholesky factorization: A = L * L^T
+            status = cusolverDnSpotrf(
+                cusolverDnHandle,
+                CUBLAS_FILL_MODE_LOWER,
+                n,
+                d_A_copy,
+                n,  // leading dimension
+                d_work,
+                lwork,
+                d_info);
+
+            if (status != CUSOLVER_STATUS_SUCCESS) {
+                result.converged = false;
+                result.error_message =
+                    "cusolverDnSpotrf failed: " + std::to_string(status);
+                cudaFree(d_work);
+                cudaFree(d_info);
+                cudaFree(d_A_copy);
+                return result;
+            }
+
+            // Check if factorization succeeded
+            int h_info = 0;
+            cudaMemcpy(&h_info, d_info, sizeof(int), cudaMemcpyDeviceToHost);
+
+            if (h_info != 0) {
+                result.converged = false;
+                if (h_info < 0) {
+                    result.error_message =
+                        "Cholesky factorization: illegal parameter at "
+                        "position " +
+                        std::to_string(-h_info);
+                }
+                else {
+                    result.error_message =
+                        "Matrix not positive definite: leading minor of "
+                        "order " +
+                        std::to_string(h_info) + " is not positive";
+                }
+                cudaFree(d_work);
+                cudaFree(d_info);
+                cudaFree(d_A_copy);
+                return result;
+            }
+
+            // Copy b to x (will be overwritten with solution)
+            cudaMemcpy(d_x, d_b, n * sizeof(float), cudaMemcpyDeviceToDevice);
+
+            // Solve L * L^T * x = b using the factorized matrix
+            // This is done in two steps:
+            // 1. Solve L * y = b for y
+            // 2. Solve L^T * x = y for x
+            status = cusolverDnSpotrs(
+                cusolverDnHandle,
+                CUBLAS_FILL_MODE_LOWER,
+                n,
+                1,         // nrhs (number of right-hand sides)
+                d_A_copy,  // Factorized matrix (L in lower triangle)
+                n,         // lda
+                d_x,       // On input: b, on output: x
+                n,         // ldb
+                d_info);
+
+            cudaMemcpy(&h_info, d_info, sizeof(int), cudaMemcpyDeviceToHost);
+
+            if (status != CUSOLVER_STATUS_SUCCESS || h_info != 0) {
+                result.converged = false;
+                result.error_message = "cusolverDnSpotrs failed: status=" +
+                                       std::to_string(status) +
+                                       ", info=" + std::to_string(h_info);
+                cudaFree(d_work);
+                cudaFree(d_info);
+                cudaFree(d_A_copy);
+                return result;
+            }
+
+            // Cleanup
+            cudaFree(d_work);
+            cudaFree(d_info);
+            cudaFree(d_A_copy);
+
+            result.converged = true;
+            result.iterations = 1;  // Direct solver
+            result.final_residual = 0.0f;
+
+            if (config.verbose) {
+                std::cout << "Dense Cholesky solve completed successfully (n="
+                          << n << ")" << std::endl;
+            }
+        }
+        catch (const std::exception& e) {
+            result.converged = false;
+            result.error_message =
+                std::string("Dense Cholesky error: ") + e.what();
+        }
+
+        auto end_time = std::chrono::high_resolution_clock::now();
+        result.solve_time =
+            std::chrono::duration_cast<std::chrono::microseconds>(
+                end_time - start_time);
+
         return result;
     }
 };

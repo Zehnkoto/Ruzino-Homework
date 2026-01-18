@@ -255,7 +255,7 @@ struct ReducedNeoHookeanGPUStorage {
 
         // Create solver instance
         solver = Ruzino::Solver::SolverFactory::create(
-            Ruzino::Solver::SolverType::CUDA_CG);
+            Ruzino::Solver::SolverType::CUSOLVER_CHOLESKY);
 
         spdlog::debug(
             "[ReducedNeoHookean] Initialized with {} particles, {} elements, "
@@ -698,22 +698,35 @@ NODE_EXECUTION_FUNCTION(reduced_order_neo_hookean_gpu)
                 storage.temp_hessian_buffer,
                 storage.hessian_reduced);
 
-            // Solve H_q * p = -grad_q using dense solver
-            // For now, we'll use CUDA CG on the dense reduced Hessian
-            // TODO: Could use Cholesky or LU for small dense systems
-
-            float cg_tol = std::max(1e-8f, grad_norm * 1e-3f);
-
+            // Solve H_q * p = -grad_q using cuSOLVER dense Cholesky
+            // H_q is dense symmetric positive definite [reduced_dof x
+            // reduced_dof]
             Ruzino::Solver::SolverConfig solver_config;
-            solver_config.tolerance = cg_tol;
-            solver_config.max_iterations = 2000;
-            solver_config.use_preconditioner = false;  // Dense matrix
+            solver_config.tolerance = std::max(1e-8f, grad_norm * 1e-3f);
             solver_config.verbose = false;
 
-            // Use pre-computed negative gradient as Newton direction
-            // (neg_gradient_reduced already contains -grad_q)
-            storage.newton_direction_reduced->copy_from_device(
-                storage.neg_gradient_reduced.Get());
+            auto solver_result = storage.solver->solveDenseGPU(
+                reduced_dof,
+                storage.hessian_reduced->get_device_ptr<float>(),
+                storage.neg_gradient_reduced->get_device_ptr<float>(),
+                storage.newton_direction_reduced->get_device_ptr<float>(),
+                solver_config);
+
+            if (!solver_result.converged) {
+                spdlog::warn(
+                    "[ReducedNeoHookean] Dense solver failed at Newton iter "
+                    "{}: {}",
+                    iter,
+                    solver_result.error_message);
+                // Fall back to gradient descent
+                storage.newton_direction_reduced->copy_from_device(
+                    storage.neg_gradient_reduced.Get());
+            }
+            else if (substep == 0 && iter < 3) {
+                spdlog::debug(
+                    "[ReducedNeoHookean]   Solver: {} μs",
+                    solver_result.solve_time.count());
+            }
 
             // Line search with energy descent
             rzsim_cuda::map_reduced_to_full_gpu(
@@ -833,36 +846,102 @@ NODE_EXECUTION_FUNCTION(reduced_order_neo_hookean_gpu)
     rzsim_cuda::map_reduced_to_full_gpu(
         storage.q_reduced, storage.ro_data, d_positions);
 
-    // // Project reduced velocities to full space before collision handling
-    // // v_full = J * q_dot
-    // rzsim_cuda::compute_jacobian_gpu(
-    //     storage.q_reduced,
-    //     storage.ro_data,
-    //     storage.jacobian);
+    // Project reduced velocities to full space before collision handling
+    // v_full = J * q_dot
+    rzsim_cuda::compute_jacobian_gpu(
+        storage.q_reduced, storage.ro_data, storage.jacobian);
 
-    // rzsim_cuda::map_reduced_velocities_to_full_gpu(
-    //     storage.jacobian,
-    //     storage.q_dot_reduced,
-    //     num_particles,
-    //     storage.num_basis,
-    //     storage.velocities_buffer);
+    // Save original q_dot for verification (before collision)
+    int reduced_dof = storage.num_basis * 12;
+    cuda::CUDALinearBufferHandle q_dot_original =
+        cuda::create_cuda_linear_buffer<float>(reduced_dof);
+    q_dot_original->copy_from_device(storage.q_dot_reduced.Get());
 
-    // // Handle ground collision in full space
-    // // rzsim_cuda::handle_ground_collision_nh_gpu(
-    //     d_positions, storage.velocities_buffer, restitution, num_particles);
+    rzsim_cuda::map_reduced_velocities_to_full_gpu(
+        storage.jacobian,
+        storage.q_dot_reduced,
+        num_particles,
+        storage.num_basis,
+        storage.velocities_buffer);
 
-    // // Project modified full-space velocities back to reduced space
-    // // dq/dt = J^T * (dx/dt), assuming orthonormal basis (J^T * J ≈ I)
-    // rzsim_cuda::compute_reduced_gradient_gpu(
-    //     storage.jacobian,
-    //     storage.velocities_buffer,
-    //     num_particles,
-    //     storage.num_basis,
-    //     storage.q_dot_reduced);
+    // Save full-space velocity before collision for verification
+    cuda::CUDALinearBufferHandle velocities_before_collision =
+        cuda::create_cuda_linear_buffer<glm::vec3>(num_particles);
+    velocities_before_collision->copy_from_device(
+        storage.velocities_buffer.Get());
+
+    // Handle ground collision in full space
+    rzsim_cuda::handle_ground_collision_nh_gpu(
+        d_positions, storage.velocities_buffer, restitution, num_particles);
+
+    // Check if collision actually occurred (compare velocities)
+    auto v_before = velocities_before_collision->get_host_vector<glm::vec3>();
+    auto v_after = storage.velocities_buffer->get_host_vector<glm::vec3>();
+    bool collision_occurred = false;
+    float max_velocity_change = 0.0f;
+    for (int i = 0; i < num_particles; ++i) {
+        glm::vec3 change = v_after[i] - v_before[i];
+        float change_mag = glm::length(change);
+        max_velocity_change = std::max(max_velocity_change, change_mag);
+        if (change_mag > 1e-6f) {
+            collision_occurred = true;
+        }
+    }
+
+    if (collision_occurred) {
+        spdlog::debug(
+            "[ReducedNeoHookean] Collision detected, max velocity change: "
+            "{:.6e}",
+            max_velocity_change);
+    }
+
+    // Project modified full-space velocities back to reduced space
+    // Solve: (J^T * J) * q_dot = J^T * v_full for proper projection
+    // First compute rhs = J^T * v_full
+    rzsim_cuda::compute_reduced_gradient_gpu(
+        storage.jacobian,
+        storage.velocities_buffer,
+        num_particles,
+        storage.num_basis,
+        storage.grad_reduced);
+
+    // Compute J^T * J (Gram matrix / reduced "mass matrix")
+    cuda::CUDALinearBufferHandle JtJ =
+        cuda::create_cuda_linear_buffer<float>(reduced_dof * reduced_dof);
+
+    rzsim_cuda::compute_jacobian_gram_matrix_gpu(
+        storage.jacobian, num_particles, storage.num_basis, JtJ);
+
+    // Solve (J^T * J) * q_dot = J^T * v_full using dense Cholesky
+    Ruzino::Solver::SolverConfig solver_config_vel;
+    solver_config_vel.tolerance = 1e-9f;
+    solver_config_vel.verbose = false;
+
+    auto solver_result_vel = storage.solver->solveDenseGPU(
+        reduced_dof,
+        JtJ->get_device_ptr<float>(),
+        storage.grad_reduced->get_device_ptr<float>(),
+        storage.q_dot_reduced->get_device_ptr<float>(),
+        solver_config_vel);
+
+    if (!solver_result_vel.converged) {
+        spdlog::error(
+            "[ReducedNeoHookean] Velocity projection solver failed: {}",
+            solver_result_vel.error_message);
+        // Fall back to simple J^T projection
+        storage.q_dot_reduced->copy_from_device(storage.grad_reduced.Get());
+    }
+
+    else {
+        spdlog::debug(
+            "[ReducedNeoHookean] Collision occurred, velocity projection "
+            "skipped");
+    }
 
     // Log simulation statistics
     spdlog::info(
-        "[ReducedNeoHookean] Simulation complete - Max Newton iterations: {}, "
+        "[ReducedNeoHookean] Simulation complete - Max Newton iterations: "
+        "{}, "
         "Max line search iterations: {}",
         max_newton_iterations,
         max_line_search_iterations);

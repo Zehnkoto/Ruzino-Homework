@@ -409,7 +409,13 @@ void ReducedOrderedBasis::compute_eigenmodes(int num_modes)
             std::min(num_modes, static_cast<int>(all_eigenvalues.size()));
         for (int i = 0; i < actual_modes; i++) {
             eigenvalues.push_back(static_cast<float>(all_eigenvalues(i)));
-            basis.push_back(all_eigenvectors.col(i).cast<float>());
+            Eigen::VectorXf eigenvector = all_eigenvectors.col(i).cast<float>();
+            // Normalize the eigenvector
+            float norm = eigenvector.norm();
+            if (norm > 1e-12f) {
+                eigenvector /= norm;
+            }
+            basis.push_back(eigenvector);
             std::cout << "  Mode " << i
                       << ": eigenvalue = " << all_eigenvalues(i) << std::endl;
         }
@@ -434,7 +440,14 @@ void ReducedOrderedBasis::compute_eigenmodes(int num_modes)
             int original_index = sorted_indices[i].second;
             double eigenvalue = sorted_indices[i].first;
             eigenvalues.push_back(static_cast<float>(eigenvalue));
-            basis.push_back(eigenvectors_d.col(original_index).cast<float>());
+            Eigen::VectorXf eigenvector =
+                eigenvectors_d.col(original_index).cast<float>();
+            // Normalize the eigenvector
+            float norm = eigenvector.norm();
+            if (norm > 1e-12f) {
+                eigenvector /= norm;
+            }
+            basis.push_back(eigenvector);
             std::cout << "  Mode " << i << ": eigenvalue =" << eigenvalue
                       << std::endl;
         }

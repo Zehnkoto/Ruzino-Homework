@@ -15,8 +15,8 @@ namespace Solver {
 enum class SolverType {
     CUDA_CG,
     CUDA_BICGSTAB,
-    CUDA_GMRES,   // 新增
-    CUSOLVER_QR,  // cuSOLVER-based QR direct solver
+    CUDA_GMRES,         // 新增
+    CUSOLVER_QR,        // cuSOLVER-based QR direct solver
     CUSOLVER_CHOLESKY,  // cuSOLVER-based Cholesky direct solver
     EIGEN_ITERATIVE_CG,
     EIGEN_ITERATIVE_BICGSTAB,
@@ -67,6 +67,22 @@ class RZSOLVER_API LinearSolver {
     {
         throw std::runtime_error(
             getName() + " does not support GPU-only interface");
+    }
+
+    // GPU-only interface for dense matrices: solve A*x = b
+    // A: dense matrix on GPU (column-major, size n*n)
+    // b: dense vector on GPU (size n)
+    // x: dense vector on GPU (solution output, size n)
+    // For small dense systems (e.g., reduced-order Hessian)
+    virtual SolverResult solveDenseGPU(
+        int n,
+        const float* d_A,
+        const float* d_b,
+        float* d_x,
+        const SolverConfig& config = SolverConfig{})
+    {
+        throw std::runtime_error(
+            getName() + " does not support dense GPU interface");
     }
 
     virtual std::string getName() const = 0;

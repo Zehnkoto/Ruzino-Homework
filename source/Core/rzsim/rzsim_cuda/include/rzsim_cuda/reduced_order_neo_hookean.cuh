@@ -109,6 +109,17 @@ void compute_reduced_hessian_gpu(
         temp_buffer,                    // [num_particles * 3, num_basis * 12]
     cuda::CUDALinearBufferHandle H_q);  // [num_basis * 12, num_basis * 12]
 
+// Compute J^T * J (Gram matrix / reduced mass matrix)
+// Used for proper velocity projection: (J^T * J) * q_dot = J^T * v
+// Result is dense symmetric matrix [num_basis * 12, num_basis * 12]
+RZSIM_CUDA_API
+void compute_jacobian_gram_matrix_gpu(
+    cuda::CUDALinearBufferHandle
+        jacobian,  // [num_particles * 3, num_basis * 12]
+    int num_particles,
+    int num_basis,
+    cuda::CUDALinearBufferHandle JtJ);  // [num_basis * 12, num_basis * 12]
+
 // Utilities for reduced coordinates
 
 // Initialize reduced coordinates to identity transforms (rest pose)
