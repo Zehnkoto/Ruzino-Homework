@@ -97,7 +97,11 @@ Stage::~Stage()
 {
     remove_prim(pxr::SdfPath("/scratch_buffer"));
     if (stage && !m_stage_path.empty()) {
-        stage->Export(m_stage_path);
+        // 如果是 usda 文件，不在析构时保存
+        std::filesystem::path path(m_stage_path);
+        if (path.extension() != ".usda") {
+            stage->Export(m_stage_path);
+        }
     }
     animatable_prims.clear();
 }
@@ -106,7 +110,7 @@ void Stage::tick(float ellapsed_time)
 {
     // Stage的全局时间码用于追踪整体状态
     // 但实际的仿真时间由每个prim独立管理
-    // if (should_simulate()) 
+    // if (should_simulate())
     {
         // for each prim, if it is animatable, update it
         // 每个prim都会独立判断自己是否应该进行仿真
@@ -179,14 +183,12 @@ pxr::UsdPrim Stage::add_prim(const pxr::SdfPath& path)
 pxr::UsdShadeMaterial Stage::create_material(const pxr::SdfPath& path)
 {
     auto material = create_prim<pxr::UsdShadeMaterial>(path, "material");
-    
+
     // Add custom shader_path attribute for material callable shader
     auto shader_path_attr = material.GetPrim().CreateAttribute(
-        pxr::TfToken("shader_path"),
-        pxr::SdfValueTypeNames->String,
-        false);
+        pxr::TfToken("shader_path"), pxr::SdfValueTypeNames->String, false);
     shader_path_attr.Set(std::string(""));  // Empty by default
-    
+
     return material;
 }
 
@@ -266,9 +268,7 @@ pxr::UsdLuxDomeLight Stage::create_dome_light(const pxr::SdfPath& path) const
 
     // Add custom shader_path attribute for dome light callable shader
     auto shader_path_attr = light.GetPrim().CreateAttribute(
-        pxr::TfToken("shader_path"),
-        pxr::SdfValueTypeNames->String,
-        false);
+        pxr::TfToken("shader_path"), pxr::SdfValueTypeNames->String, false);
     shader_path_attr.Set(std::string(""));  // Empty by default
 
     return light;
@@ -442,23 +442,26 @@ void Stage::SaveAs(const std::string& new_path)
         return;
     }
 
-    std::filesystem::path abs_path = std::filesystem::path(new_path).lexically_normal();
-    
+    std::filesystem::path abs_path =
+        std::filesystem::path(new_path).lexically_normal();
+
     // Export 会自动清理冗余数据
     if (stage->Export(abs_path.string())) {
         m_stage_path = abs_path.string();
         // Reopen the stage at the new location
         stage = pxr::UsdStage::Open(m_stage_path);
         spdlog::info("Stage saved as: {}", m_stage_path);
-    } else {
+    }
+    else {
         spdlog::error("Failed to save stage to: {}", abs_path.string());
     }
 }
 
 bool Stage::OpenStage(const std::string& path)
 {
-    std::filesystem::path abs_path = std::filesystem::path(path).lexically_normal();
-    
+    std::filesystem::path abs_path =
+        std::filesystem::path(path).lexically_normal();
+
     if (!std::filesystem::exists(abs_path)) {
         spdlog::error("Stage file does not exist: {}", abs_path.string());
         return false;
@@ -466,7 +469,7 @@ bool Stage::OpenStage(const std::string& path)
 
     // Clear existing animatable prims
     animatable_prims.clear();
-    
+
     // Open the new stage
     auto new_stage = pxr::UsdStage::Open(abs_path.string());
     if (!new_stage) {
@@ -477,11 +480,11 @@ bool Stage::OpenStage(const std::string& path)
     // Replace the current stage
     stage = new_stage;
     m_stage_path = abs_path.string();
-    
+
     // Reset time codes
     current_time_code = pxr::UsdTimeCode(0.0f);
     render_time_code = pxr::UsdTimeCode(0.0f);
-    
+
     spdlog::info("Opened stage: {}", m_stage_path);
     return true;
 }

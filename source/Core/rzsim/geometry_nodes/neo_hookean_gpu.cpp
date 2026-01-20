@@ -713,9 +713,9 @@ NODE_EXECUTION_FUNCTION(neo_hookean_gpu)
             num_particles,
             d_velocities);
 
-        // Handle ground collision on GPU
-        rzsim_cuda::handle_ground_collision_nh_gpu(
-            storage.x_new_buffer, d_velocities, restitution, num_particles);
+        // // Handle ground collision on GPU
+        // rzsim_cuda::handle_ground_collision_nh_gpu(
+        //     storage.x_new_buffer, d_velocities, restitution, num_particles);
 
         // Copy final positions back to position buffer
         d_positions->copy_from_device(storage.x_new_buffer.Get());

@@ -22,6 +22,8 @@ struct BssDeducerStorage {
     std::vector<glm::vec3> cached_vertices;
     float cached_shape_code = -1.0f;
     int cached_eigenfunction_idx = -1;
+    int cached_eigenfunction_count = -1;
+    std::string cached_model_path;
     bool cache_valid = false;
 
     constexpr static bool has_storage = false;
@@ -31,8 +33,11 @@ NODE_DECLARATION_FUNCTION(bss_deducer)
 {
     b.add_input<Geometry>("Geometry");
     b.add_input<float>("Shape Code").default_val(0.0f).min(0.0f).max(1.0f);
+    b.add_input<int>("Eigenfunction Count").default_val(4).min(1).max(12);
     b.add_input<int>("Eigenfunction Index").default_val(0).min(0).max(3);
     b.add_input<std::string>("Result Name").default_val("eigenfunction");
+    b.add_input<std::string>("Model Path")
+        .default_val("mesh_growing_y_neg_20260119_015826");
     b.add_output<Geometry>("Geometry");
     b.add_output<std::shared_ptr<ReducedOrderedBasis>>("Reduced Basis");
 }
@@ -47,7 +52,9 @@ NODE_EXECUTION_FUNCTION(bss_deducer)
 
     float shape_code = params.get_input<float>("Shape Code");
     int eigenfunction_idx = params.get_input<int>("Eigenfunction Index");
+    int eigenfunction_count = params.get_input<int>("Eigenfunction Count");
     std::string result_name = params.get_input<std::string>("Result Name");
+    std::string model_path = params.get_input<std::string>("Model Path");
 
     // Get vertices from geometry
     auto mesh_component = input_geom.get_component<MeshComponent>();
@@ -62,10 +69,12 @@ NODE_EXECUTION_FUNCTION(bss_deducer)
     std::vector<glm::vec3> vertices = mesh_component->get_vertices();
 
     // Check if we can use cached results
-    bool inputs_changed = !storage.cache_valid ||
-                          storage.cached_shape_code != shape_code ||
-                          storage.cached_vertices.size() != vertices.size() ||
-                          storage.cached_vertices != vertices;
+    bool inputs_changed =
+        !storage.cache_valid || storage.cached_shape_code != shape_code ||
+        storage.cached_vertices.size() != vertices.size() ||
+        storage.cached_vertices != vertices ||
+        storage.cached_eigenfunction_count != eigenfunction_count ||
+        storage.cached_model_path != model_path;
 
     if (!inputs_changed) {
         spdlog::info(
@@ -115,8 +124,9 @@ NODE_EXECUTION_FUNCTION(bss_deducer)
             "import deducer");
 
         // Initialize basis set (will load model on first call)
+        python::send("model_name", model_path);
         std::string init_result =
-            python::call<std::string>("deducer.initialize_basis_set()");
+            python::call<std::string>("deducer.initialize_basis_set(model_name)");
         spdlog::info("Basis set initialization: {}", init_result);
 
         // Create or update GPU buffer for vertices
@@ -144,11 +154,11 @@ NODE_EXECUTION_FUNCTION(bss_deducer)
         // Send shape code to Python
         python::send("shape_code_value", shape_code);
 
-        // Inference all 4 eigenfunctions (0, 1, 2, 3)
-        reduced_basis->basis.resize(4);
+        // Inference eigenfunctions based on eigenfunction_count
+        reduced_basis->basis.resize(eigenfunction_count);
         std::vector<float> selected_results;
 
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < eigenfunction_count; i++) {
             // Call Python inference function for each eigenfunction
             python::call<void>(
                 "import numpy as np\n"
@@ -192,8 +202,10 @@ NODE_EXECUTION_FUNCTION(bss_deducer)
         storage.cached_vertices = vertices;
         storage.cached_shape_code = shape_code;
         storage.cached_eigenfunction_idx = eigenfunction_idx;
+        storage.cached_eigenfunction_count = eigenfunction_count;
+        storage.cached_model_path = model_path;
         storage.cache_valid = true;
-        spdlog::info("[BssDeducer] Cache updated");
+        spdlog::info("[BssDeducer] Cache updated (model={})", model_path);
 
         // Add only the selected eigenfunction as vertex scalar quantity
         if (!selected_results.empty()) {

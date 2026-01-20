@@ -248,7 +248,7 @@ int main(int argc, char* argv[])
         render_params.drawMode =
             UsdImagingGLDrawMode::DRAW_WIREFRAME_ON_SURFACE;
         render_params.colorCorrectionMode = HdxColorCorrectionTokens->disabled;
-        render_params.clearColor = GfVec4f(0.2f, 0.2f, 0.2f, 1.0f);
+        render_params.clearColor = GfVec4f(0.2f, 0.2f, 0.2f, 0.0f);
         renderer->SetRendererAov(HdAovTokens->color);
 
         // Load and apply JSON script (only for Ruzino renderer)
