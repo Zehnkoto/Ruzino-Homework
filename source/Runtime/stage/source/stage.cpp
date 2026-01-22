@@ -96,10 +96,8 @@ Stage::Stage(const std::string& stage_path)
 Stage::~Stage()
 {
     remove_prim(pxr::SdfPath("/scratch_buffer"));
-    if (stage && !m_stage_path.empty()) {
-        // 如果是 usda 文件，不在析构时保存
+    if (stage && !m_stage_path.empty() && save_on_destruct) {
         std::filesystem::path path(m_stage_path);
-        // if (path.extension() != ".usda")
         {
             stage->Export(m_stage_path);
         }

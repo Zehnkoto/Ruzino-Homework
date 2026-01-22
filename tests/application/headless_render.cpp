@@ -164,6 +164,7 @@ int main(int argc, char* argv[])
 
         // Create USD stage
         auto stage = create_custom_global_stage(usd_file);
+        stage->save_on_destruct = false;
         if (!stage) {
             throw std::runtime_error(
                 "Failed to load USD stage from " + usd_file);
@@ -248,7 +249,7 @@ int main(int argc, char* argv[])
         render_params.drawMode =
             UsdImagingGLDrawMode::DRAW_WIREFRAME_ON_SURFACE;
         render_params.colorCorrectionMode = HdxColorCorrectionTokens->disabled;
-        render_params.clearColor = GfVec4f(0.2f, 0.2f, 0.2f, 0.0f);
+        render_params.clearColor = GfVec4f(1.f, 1.f, 1.f, 0.0f);
         renderer->SetRendererAov(HdAovTokens->color);
 
         // Load and apply JSON script (only for Ruzino renderer)
@@ -283,7 +284,7 @@ int main(int argc, char* argv[])
                          1.0f });
             lights[0].SetAmbient(GfVec4f(0.8, 0.8, 0.8, 1));
             lights[0].SetDiffuse(GfVec4f(1.0f));
-            lights[0].SetSpecular(GfVec4f(1.0f));
+            lights[0].SetSpecular(GfVec4f(0.0f));
         }
         GlfSimpleMaterial material;
         float kA = 6.8f;
@@ -292,7 +293,7 @@ int main(int argc, char* argv[])
         material.SetDiffuse(GfVec4f(kA, kA, kA, 1.0f));
         material.SetSpecular(GfVec4f(kS, kS, kS, 1.0f));
         material.SetShininess(shiness);
-        GfVec4f sceneAmbient = { 0.01, 0.01, 0.01, 1.0 };
+        GfVec4f sceneAmbient = { 1.0, 1.0, 1.0, 1.0 };
         renderer->SetLightingState(lights, material, sceneAmbient);
 
         // Determine if we're rendering a sequence or single frame

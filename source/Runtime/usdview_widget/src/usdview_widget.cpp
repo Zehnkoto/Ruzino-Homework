@@ -249,7 +249,7 @@ void UsdviewEngine::OnFrame(float delta_time)
     _renderParams.colorCorrectionMode = pxr::HdxColorCorrectionTokens->disabled;
 
     _renderParams.clearColor = GfVec4f(1.f, 1.f, 1.f, 1.f);
-    _renderParams.clearColor = GfVec4f(0.2f, 0.2f, 0.2f, 1.f);
+    // _renderParams.clearColor = GfVec4f(0.2f, 0.2f, 0.2f, 1.f);
 
     for (int i = 0; i < free_camera_->GetCamera(UsdTimeCode::Default())
                             .GetClippingPlanes()
@@ -272,7 +272,7 @@ void UsdviewEngine::OnFrame(float delta_time)
                      1.0f });
         lights[0].SetAmbient(GfVec4f(0.8, 0.8, 0.8, 1));
         lights[0].SetDiffuse(GfVec4f(1.0f));
-        lights[0].SetSpecular(GfVec4f(1.0f));
+        lights[0].SetSpecular(GfVec4f(0.0f));
     }
     GlfSimpleMaterial material;
     float kA = 6.8f;
@@ -281,7 +281,7 @@ void UsdviewEngine::OnFrame(float delta_time)
     material.SetDiffuse(GfVec4f(kA, kA, kA, 1.0f));
     material.SetSpecular(GfVec4f(kS, kS, kS, 1.0f));
     material.SetShininess(shiness);
-    GfVec4f sceneAmbient = { 0.01, 0.01, 0.01, 1.0 };
+    GfVec4f sceneAmbient = { 1.0, 1.0, 1.0, 1.0 };
     renderer_->SetLightingState(lights, material, sceneAmbient);
     renderer_->SetRendererAov(HdAovTokens->color);
 

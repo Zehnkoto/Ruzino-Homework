@@ -325,9 +325,6 @@ NODE_EXECUTION_FUNCTION(reduced_order_neo_hookean_gpu)
     auto input_geom = params.get_input<Geometry>("Geometry");
     input_geom.apply_transform();
 
-    auto init_geom = params.get_input<Geometry>("Init Geometry");
-    init_geom.apply_transform();
-
     auto reduced_basis =
         params.get_input<std::shared_ptr<Ruzino::ReducedOrderedBasis>>(
             "Reduced Basis");
@@ -357,20 +354,6 @@ NODE_EXECUTION_FUNCTION(reduced_order_neo_hookean_gpu)
     float mu = youngs_modulus / (2.0f * (1.0f + poisson_ratio));
     float lambda = youngs_modulus * poisson_ratio /
                    ((1.0f + poisson_ratio) * (1.0f - 2.0f * poisson_ratio));
-
-    // Get mesh component from init geometry for initialization
-    auto init_mesh_component = init_geom.get_component<MeshComponent>();
-    std::vector<glm::vec3> init_positions;
-
-    if (init_mesh_component) {
-        init_positions = init_mesh_component->get_vertices();
-    }
-    else {
-        auto init_points_component = init_geom.get_component<PointsComponent>();
-        if (init_points_component) {
-            init_positions = init_points_component->get_vertices();
-        }
-    }
 
     // Get mesh component for topology
     auto mesh_component = input_geom.get_component<MeshComponent>();
@@ -416,26 +399,47 @@ NODE_EXECUTION_FUNCTION(reduced_order_neo_hookean_gpu)
             reduced_basis);
     }
 
-    // If Init Geometry is provided, use it as the starting point for simulation
-    if (!init_positions.empty()) {
-        // Check topology consistency
-        bool topology_matches = (init_positions.size() == positions.size());
+    if (!global_payload.is_simulating) {
+        // Get mesh component from init geometry for initialization
+        auto init_geom = params.get_input<Geometry>("Init Geometry");
+        init_geom.apply_transform();
+        auto init_mesh_component = init_geom.get_component<MeshComponent>();
+        std::vector<glm::vec3> init_positions;
 
-        if (topology_matches) {
-            // Write init positions to GPU buffer as simulation starting point
-            storage.positions_buffer->assign_host_vector(init_positions);
-            spdlog::info(
-                "[ReducedNeoHookean] Using Init Geometry as simulation "
-                "starting point (vertices={})",
-                init_positions.size());
+        if (init_mesh_component) {
+            init_positions = init_mesh_component->get_vertices();
         }
         else {
-            spdlog::warn(
-                "[ReducedNeoHookean] Init Geometry topology mismatch! "
-                "Init: {} vertices; Rest pose: {} vertices. Using rest pose as "
-                "starting point.",
-                init_positions.size(),
-                positions.size());
+            auto init_points_component =
+                init_geom.get_component<PointsComponent>();
+            if (init_points_component) {
+                init_positions = init_points_component->get_vertices();
+            }
+        }
+        // If Init Geometry is provided, use it as the starting point for
+        // simulation
+        if (!init_positions.empty()) {
+            // Check topology consistency
+            bool topology_matches = (init_positions.size() == positions.size());
+
+            if (topology_matches) {
+                // Write init positions to GPU buffer as simulation starting
+                // point
+                storage.positions_buffer->assign_host_vector(init_positions);
+                spdlog::info(
+                    "[ReducedNeoHookean] Using Init Geometry as simulation "
+                    "starting point (vertices={})",
+                    init_positions.size());
+            }
+            else {
+                spdlog::warn(
+                    "[ReducedNeoHookean] Init Geometry topology mismatch! "
+                    "Init: {} vertices; Rest pose: {} vertices. Using rest "
+                    "pose as "
+                    "starting point.",
+                    init_positions.size(),
+                    positions.size());
+            }
         }
     }
 
@@ -963,7 +967,6 @@ NODE_EXECUTION_FUNCTION(reduced_order_neo_hookean_gpu)
             storage.positions_buffer,
             storage.face_vertex_indices_buffer,
             storage.face_counts_buffer,
-            storage.surface_of_vol_buffer,
             flip_normal,
             storage.normals_buffer);
 

@@ -262,7 +262,7 @@ NODE_EXECUTION_FUNCTION(neo_hookean_gpu)
     std::vector<glm::vec3> init_positions;
     bool use_init_geometry = false;
 
-    if (params.has_input("Init Geometry")) {
+    if (!global_payload.is_simulating && params.has_input("Init Geometry")) {
         auto init_geom = params.get_input<Geometry>("Init Geometry");
         init_geom.apply_transform();
 

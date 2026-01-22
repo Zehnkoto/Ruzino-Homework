@@ -114,9 +114,9 @@ class STAGE_API Stage {
         pxr::UsdTimeCode& render_time) const;
 
     // 设置特定prim的渲染时间
-    void set_prim_render_time(
-        const pxr::SdfPath& path,
-        pxr::UsdTimeCode time);
+    void set_prim_render_time(const pxr::SdfPath& path, pxr::UsdTimeCode time);
+
+    bool save_on_destruct = true;
 
    private:
     std::string m_stage_path;
@@ -134,7 +134,8 @@ class STAGE_API Stage {
         animatable_prims;
 };
 
-STAGE_API std::unique_ptr<Stage> create_global_stage(const std::string& usd_name = "../../Assets/stage.usdc" );
+STAGE_API std::unique_ptr<Stage> create_global_stage(
+    const std::string& usd_name = "../../Assets/stage.usdc");
 STAGE_API std::unique_ptr<Stage> create_custom_global_stage(
     const std::string& filename);
 RUZINO_NAMESPACE_CLOSE_SCOPE
