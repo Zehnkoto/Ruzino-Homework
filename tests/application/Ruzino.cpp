@@ -132,89 +132,6 @@ class PythonConsoleWidgetFactory : public IWidgetFactory {
         // Create Python interpreter
         auto interpreter = python::CreatePythonInterpreter();
 
-        // Register some test commands that work with Python
-        console::CommandDesc test_cmd = {
-            "test",
-            "A test command that demonstrates Python integration",
-            [](console::Command::Args const& args) -> console::Command::Result {
-                try {
-                    // Use Python to do some computation
-                    python::send("test_value", 42);
-                    python::call<void>("test_result = test_value * 2");
-                    int result = python::call<int>("test_result");
-
-                    return { true,
-                             "Test result from Python: " +
-                                 std::to_string(result) + "\n" };
-                }
-                catch (const std::exception& e) {
-                    return { false,
-                             "Python test failed: " + std::string(e.what()) +
-                                 "\n" };
-                }
-            }
-        };
-        console::RegisterCommand(test_cmd);
-
-        // Test Python functionality
-        console::CommandDesc math_cmd = {
-            "math_test",
-            "Test Python math operations",
-            [](console::Command::Args const& args) -> console::Command::Result {
-                try {
-                    python::call<void>("import math");
-                    python::send("radius", 5.0f);
-                    python::call<void>("area = math.pi * radius ** 2");
-                    float area = python::call<float>("area");
-
-                    return { true,
-                             "Circle area (r=5): " + std::to_string(area) +
-                                 "\n" };
-                }
-                catch (const std::exception& e) {
-                    return { false,
-                             "Math test failed: " + std::string(e.what()) +
-                                 "\n" };
-                }
-            }
-        };
-        console::RegisterCommand(math_cmd);
-
-        // Add simple debug command to test if commands work at all
-        console::CommandDesc simple_test_cmd = {
-            "simple_test",
-            "Simple test command",
-            [](console::Command::Args const& args) -> console::Command::Result {
-                return { true, "Simple test command works!\n" };
-            }
-        };
-        console::RegisterCommand(simple_test_cmd);
-
-        // Add debug command to test Python interpreter directly
-        console::CommandDesc debug_cmd = {
-            "debug_python",
-            "Debug Python interpreter state",
-            [](console::Command::Args const& args) -> console::Command::Result {
-                try {
-                    std::string debug_info = "Python initialized: ";
-                    debug_info += python::initialized ? "Yes" : "No";
-                    debug_info += "\nTesting basic operation...\n";
-
-                    python::call<void>("test_var = 42");
-                    int result = python::call<int>("test_var");
-                    debug_info +=
-                        "Basic test result: " + std::to_string(result) + "\n";
-
-                    return { true, debug_info };
-                }
-                catch (const std::exception& e) {
-                    return { false,
-                             "Debug failed: " + std::string(e.what()) + "\n" };
-                }
-            }
-        };
-        console::RegisterCommand(debug_cmd);
-
         // Create console with capture_log enabled
         ImGui_Console::Options opts;
         opts.show_info = true;
@@ -225,23 +142,9 @@ class PythonConsoleWidgetFactory : public IWidgetFactory {
         auto console = std::make_unique<ImGui_Console>(interpreter, opts);
 
         // Add some initial messages
-        console->Print("=== Python Interactive Console ===");
-        console->Print("Python Console initialized successfully!");
-        console->Print("FIRST: Test basic console commands:");
-        console->Print("  simple_test      # Test if console commands work");
-        console->Print("  debug_python     # Test Python state");
-        console->Print("  math_test        # Test Python math");
-        console->Print("");
-        console->Print(
-            "THEN: Test Python commands directly (these should work):");
-        console->Print("  x = 10           # Python assignment");
-        console->Print("  x                # Python variable lookup");
-        console->Print("  print('hello')   # Python function call");
-        console->Print("  2 + 3            # Python expression");
-        console->Print("");
-        console->Print(
-            "You can now enter Python code directly or use console commands");
-        console->Print("Type 'help' for available commands");
+        console->Print("==================================");
+        console->Print("=== Ruzino Interactive Console ===");
+        console->Print("==================================");
 
         return std::move(console);
     }

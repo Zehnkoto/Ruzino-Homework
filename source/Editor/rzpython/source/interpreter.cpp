@@ -187,6 +187,11 @@ PythonInterpreter::Result PythonInterpreter::ExecutePythonCode(
         std::string error_output;
 
         try {
+            // Redirect stdout/stderr to our capture buffers before execution
+            python::call<void>(
+                "sys.stdout = _console_stdout\n"
+                "sys.stderr = _console_stderr\n");
+            
             // First try as expression
             PyObject* result = PyRun_String(
                 code_str.c_str(),
