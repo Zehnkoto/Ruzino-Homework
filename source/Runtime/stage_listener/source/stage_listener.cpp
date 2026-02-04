@@ -1,38 +1,33 @@
 #include "stage_listener/stage_listener.h"
 
-#include "stage/stage.hpp"
-
 RUZINO_NAMESPACE_OPEN_SCOPE
 
-StageListener::StageListener(Stage* stage) : stage_(stage)
+StageListener::StageListener(const pxr::UsdStagePtr& stage) : stage_(stage)
 {
     // 检查stage是否有效
-    if (!stage_ || !stage_->get_usd_stage()) {
+    if (!stage_) {
         throw std::runtime_error("Invalid stage pointer");
     }
-
-    pxr::UsdStageWeakPtr stage_weak_ptr(stage_->get_usd_stage());
 
     // 注册监听场景内容变化（Prim添加/删除）
     stageContentsChangedKey_ = pxr::TfNotice::Register(
         pxr::TfCreateWeakPtr(this),
         &StageListener::OnStageContentsChanged,
-        stage_weak_ptr);
+        stage_);
 
     // 注册监听属性变化
     objectsChangedKey_ = pxr::TfNotice::Register(
-        pxr::TfCreateWeakPtr(this),
-        &StageListener::OnObjectsChanged,
-        stage_weak_ptr);
+        pxr::TfCreateWeakPtr(this), &StageListener::OnObjectsChanged, stage_);
 }
 
 void StageListener::CapturePrimSnapshot()
 {
     std::lock_guard<std::mutex> lock(mutex_);
     previousPrimPaths_.clear();
-    auto stage_ptr = stage_->get_usd_stage();
-    for (const pxr::UsdPrim& prim : stage_ptr->Traverse()) {
-        previousPrimPaths_.insert(prim.GetPath());
+    if (stage_) {
+        for (const auto& prim : stage_->Traverse()) {
+            previousPrimPaths_.insert(prim.GetPath());
+        }
     }
 }
 
@@ -51,15 +46,14 @@ void StageListener::GetDirtyPaths(DirtyPathSet& outDirtyPaths)
 void StageListener::OnStageContentsChanged(
     const pxr::UsdNotice::StageContentsChanged& notice)
 {
-    if (!stage_ || !stage_->get_usd_stage())
+    if (!stage_)
         return;
 
     std::lock_guard<std::mutex> lock(mutex_);
 
     // 获取当前所有 Prim 路径
     DirtyPathSet currentPrimPaths;
-    auto stage_ptr = stage_->get_usd_stage();
-    for (const pxr::UsdPrim& prim : stage_ptr->Traverse()) {
+    for (const auto& prim : stage_->Traverse()) {
         currentPrimPaths.insert(prim.GetPath());
     }
 
@@ -67,6 +61,14 @@ void StageListener::OnStageContentsChanged(
     for (const auto& path : currentPrimPaths) {
         if (!previousPrimPaths_.count(path)) {
             dirtyPaths_.insert(path);  // 新增的 Prim
+
+            // 调用回调函数
+            if (prim_added_callback_) {
+                auto prim = stage_->GetPrimAtPath(path);
+                if (prim && prim.IsValid()) {
+                    prim_added_callback_(prim);
+                }
+            }
         }
     }
 
@@ -74,6 +76,11 @@ void StageListener::OnStageContentsChanged(
     for (const auto& path : previousPrimPaths_) {
         if (!currentPrimPaths.count(path)) {
             dirtyPaths_.insert(path);  // 删除的 Prim
+
+            // 调用回调函数
+            if (prim_removed_callback_) {
+                prim_removed_callback_(path);
+            }
         }
     }
 
@@ -91,7 +98,13 @@ void StageListener::OnObjectsChanged(
     std::lock_guard<std::mutex> lock(mutex_);
     for (const pxr::SdfPath& path : notice.GetChangedInfoOnlyPaths()) {
         // 标记属性变化的Prim路径
-        dirtyPaths_.insert(path.GetPrimPath());
+        auto prim_path = path.GetPrimPath();
+        dirtyPaths_.insert(prim_path);
+
+        // 调用回调函数
+        if (prim_changed_callback_) {
+            prim_changed_callback_(prim_path);
+        }
     }
 }
 

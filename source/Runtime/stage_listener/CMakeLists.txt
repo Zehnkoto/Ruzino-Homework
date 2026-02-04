@@ -1,7 +1,7 @@
 RUZINO_ADD_LIB(
     stage_listener
     SHARED
-    PUBLIC_LIBS stage usd usdGeom
+    PUBLIC_LIBS usd usdGeom
     PRIVATE_LIBS spdlog::spdlog
     COMPILE_DEFS NOMINMAX=1 RUZINO_BUILD_MODULE=1
 )

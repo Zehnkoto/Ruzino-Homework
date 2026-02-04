@@ -4,6 +4,7 @@
 #include <pxr/usd/usdLux/sphereLight.h>
 #include <pxr/usd/usdSkel/skeletonQuery.h>
 
+#include "entt/entt.hpp"
 #include "pxr/usd/usdGeom/cube.h"
 #include "pxr/usd/usdGeom/cylinder.h"
 #include "pxr/usd/usdGeom/mesh.h"
@@ -16,6 +17,8 @@
 #include "pxr/usd/usdLux/rectLight.h"
 #include "pxr/usd/usdShade/material.h"
 #include "stage/api.h"
+#include "stage/ecs_components.hpp"
+#include "stage/ecs_systems.hpp"
 
 RUZINO_NAMESPACE_OPEN_SCOPE
 namespace animation {
@@ -47,15 +50,15 @@ class STAGE_API Stage {
     pxr::UsdShadeMaterial create_material(const pxr::SdfPath& path);
 
     pxr::UsdGeomSphere create_sphere(
-        const pxr::SdfPath& path = pxr::SdfPath::EmptyPath()) const;
+        const pxr::SdfPath& path = pxr::SdfPath::EmptyPath());
     pxr::UsdGeomCylinder create_cylinder(
-        const pxr::SdfPath& path = pxr::SdfPath::EmptyPath()) const;
+        const pxr::SdfPath& path = pxr::SdfPath::EmptyPath());
     pxr::UsdGeomCube create_cube(
-        const pxr::SdfPath& path = pxr::SdfPath::EmptyPath()) const;
+        const pxr::SdfPath& path = pxr::SdfPath::EmptyPath());
     pxr::UsdGeomXform create_xform(
-        const pxr::SdfPath& path = pxr::SdfPath::EmptyPath()) const;
+        const pxr::SdfPath& path = pxr::SdfPath::EmptyPath());
     pxr::UsdGeomMesh create_mesh(
-        const pxr::SdfPath& path = pxr::SdfPath::EmptyPath()) const;
+        const pxr::SdfPath& path = pxr::SdfPath::EmptyPath());
 
     pxr::UsdLuxRectLight create_rect_light(
         const pxr::SdfPath& path = pxr::SdfPath::EmptyPath()) const;
@@ -116,6 +119,59 @@ class STAGE_API Stage {
     // 设置特定prim的渲染时间
     void set_prim_render_time(const pxr::SdfPath& path, pxr::UsdTimeCode time);
 
+    // ========================================================================
+    // ECS Interface
+    // ========================================================================
+
+    // 获取 ECS registry
+    entt::registry& get_registry()
+    {
+        return registry_;
+    }
+    const entt::registry& get_registry() const
+    {
+        return registry_;
+    }
+
+    // 从 USD prim 创建 entity
+    entt::entity create_entity_from_prim(const pxr::UsdPrim& prim);
+
+    // 从 entity 获取 USD prim
+    pxr::UsdPrim get_prim_from_entity(entt::entity entity);
+
+    // 从 SdfPath 查找 entity
+    entt::entity find_entity_by_path(const pxr::SdfPath& path);
+
+    // 同步所有 entity 到 USD
+    void sync_entities_to_usd();
+
+    // 从 USD 加载所有 prim 到 ECS
+    void load_prims_to_ecs();
+
+    // 获取 systems
+    ecs::AnimationSystem* get_animation_system()
+    {
+        return animation_system_.get();
+    }
+    ecs::UsdSyncSystem* get_usd_sync_system()
+    {
+        return usd_sync_system_.get();
+    }
+    ecs::PhysicsSystem* get_physics_system()
+    {
+        return physics_system_.get();
+    }
+
+    // 获取 stage listener
+    class StageListener* get_stage_listener()
+    {
+        return stage_listener_.get();
+    }
+
+    // Debug: 获取和重置on_prim_changed计数器
+    static int get_on_prim_changed_counter();
+    static void reset_on_prim_changed_counter();
+
     bool save_on_destruct = true;
 
    private:
@@ -127,11 +183,47 @@ class STAGE_API Stage {
     template<typename T>
     T create_prim(const pxr::SdfPath& path, const std::string& baseName) const;
 
+    // 保留旧的 animatable_prims 以保持向后兼容（可以逐步迁移）
     std::unordered_map<
         pxr::SdfPath,
         animation::WithDynamicLogicPrim,
         pxr::SdfPath::Hash>
         animatable_prims;
+
+    // ========================================================================
+    // ECS Members
+    // ========================================================================
+
+    // ECS registry
+    entt::registry registry_;
+
+    // Entity -> SdfPath mapping
+    std::unordered_map<entt::entity, pxr::SdfPath> entity_to_path_;
+
+    // SdfPath -> Entity mapping
+    std::unordered_map<pxr::SdfPath, entt::entity, pxr::SdfPath::Hash>
+        path_to_entity_;
+
+    // ECS Systems
+    std::unique_ptr<ecs::AnimationSystem> animation_system_;
+    std::unique_ptr<ecs::UsdSyncSystem> usd_sync_system_;
+    std::unique_ptr<ecs::PhysicsSystem> physics_system_;
+    std::unique_ptr<ecs::SceneQuerySystem> scene_query_system_;
+
+    // Stage listener
+    std::unique_ptr<class StageListener> stage_listener_;
+
+    // 防止循环：sync写入USD -> notice -> on_prim_changed -> 标记dirty ->
+    // 下次sync又写
+    bool is_syncing_to_usd_ = false;
+
+    // ECS 回调函数 - 由 StageListener 调用
+    void on_prim_added(const pxr::UsdPrim& prim);
+    void on_prim_removed(const pxr::SdfPath& path);
+    void on_prim_changed(const pxr::SdfPath& path);
+
+    // 初始化 ECS 和 StageListener
+    void initialize_ecs_systems();
 };
 
 STAGE_API std::unique_ptr<Stage> create_global_stage(

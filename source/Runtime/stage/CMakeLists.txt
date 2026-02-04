@@ -5,14 +5,17 @@ RUZINO_ADD_LIB(
 		usd
 		usdImaging
 		usdShade
+		EnTT::EnTT
+		glm::glm
+		geometry
 	PYTHON_WRAP_DIR python
 	PRIVATE_LIBS 
-		geometry
 		spdlog::spdlog
 		nodes_system
 		MaterialXCore
 		MaterialXFormat
 		usdLux
+		stage_listener
 	COMPILE_DEFS
 		NOMINMAX=1
 		RUZINO_BUILD_MODULE=1
