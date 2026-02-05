@@ -58,37 +58,41 @@ int main()
         system_->node_tree_descriptor());
 
     system_->init(std::move(tree));
-    
+
     // Get the MaterialX node tree for the document viewer
     auto* mtlx_tree = static_cast<MaterialXNodeTree*>(system_->get_node_tree());
 
     Window window;
-    
+    window.register_function_after_frame([](Window* window) {
+        static int frame_count = 0;
+        frame_count++;
+        if (frame_count > 100) {
+            window->close();
+        }
+    });
+
     FileBasedNodeWidgetSettings widget_desc;
     widget_desc.system = system_;
     system_->set_node_tree_executor(create_node_tree_executor({}));
     widget_desc.json_path = "mtlx_test.json";
 
-    std::unique_ptr<IWidget> node_widget =
-        std::move(std::make_unique<MaterialXNodeTreeWidget>(
-            widget_desc, 
-            "test.mtlx",
-            ""));
+    std::unique_ptr<IWidget> node_widget = std::move(
+        std::make_unique<MaterialXNodeTreeWidget>(
+            widget_desc, "test.mtlx", ""));
 
     window.register_widget(std::move(node_widget));
-    
+
     // Add the MaterialX document viewer widget
     auto document_viewer = std::make_unique<MaterialXDocumentViewer>(
-        mtlx_tree,
-        "MaterialX Document");
-    
+        mtlx_tree, "MaterialX Document");
+
     auto* viewer_ptr = document_viewer.get();
     window.register_widget(std::move(document_viewer));
-    
+
     // Subscribe to node graph change events
-    window.events().subscribe("materialx_graph_changed", [viewer_ptr](const std::string&) {
-        viewer_ptr->RefreshDocument();
-    });
-    
+    window.events().subscribe(
+        "materialx_graph_changed",
+        [viewer_ptr](const std::string&) { viewer_ptr->RefreshDocument(); });
+
     window.run();
 }

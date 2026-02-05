@@ -262,6 +262,13 @@ TEST(ImageWidget, red_texture)
 TEST(TextEditor, basic_editor)
 {
     Window window;
+    window.register_function_after_frame([](Window* window) {
+        static int frame_count = 0;
+        frame_count++;
+        if (frame_count > 100) {
+            window->close();
+        }
+    });
     window.register_widget(std::make_unique<TextEditorWidget>("Code Editor"));
     window.run();
 }
@@ -269,6 +276,13 @@ TEST(TextEditor, basic_editor)
 TEST(TextEditor, advanced_features)
 {
     Window window;
+    window.register_function_after_frame([](Window* window) {
+        static int frame_count = 0;
+        frame_count++;
+        if (frame_count > 100) {
+            window->close();
+        }
+    });
 
     // Create a text editor widget
     auto editor_widget = std::make_unique<TextEditorWidget>("Advanced Editor");
@@ -305,6 +319,13 @@ int main() {
 TEST(TextEditor, xml_support)
 {
     Window window;
+    window.register_function_after_frame([](Window* window) {
+        static int frame_count = 0;
+        frame_count++;
+        if (frame_count > 100) {
+            window->close();
+        }
+    });
 
     auto xml_editor = std::make_unique<TextEditorWidget>("XML Editor");
 
