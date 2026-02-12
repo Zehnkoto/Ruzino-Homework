@@ -6,7 +6,10 @@
 #include <pxr/imaging/hd/driver.h>
 #include <spdlog/spdlog.h>
 
+#include <any>
+
 #include "GCore/geom_payload.hpp"
+#include "GUI/window.h"
 #include "RHI/Hgi/desc_conversion.hpp"
 #include "RHI/rhi.hpp"
 #include "free_camera.hpp"
@@ -22,7 +25,9 @@
 #include "pxr/pxr.h"
 #include "pxr/usd/usd/primRange.h"
 #include "pxr/usd/usd/stage.h"
+#include "pxr/usd/usdGeom/boundable.h"
 #include "pxr/usd/usdGeom/camera.h"
+#include "pxr/usd/usdGeom/xformable.h"
 #include "pxr/usdImaging/usdImagingGL/engine.h"
 
 RUZINO_NAMESPACE_OPEN_SCOPE
@@ -77,6 +82,9 @@ UsdviewEngine::UsdviewEngine(Stage* stage) : stage_(stage)
     auto plugins = renderer_->GetRendererPlugins();
 
     ChooseRenderer(plugins, engine_status.renderer_id);
+
+    // Set selection highlight color to bright orange
+    renderer_->SetSelectionColor(pxr::GfVec4f(1.0f, 0.7f, 0.0f, 1.0f));
 }
 
 void UsdviewEngine::ChooseRenderer(
@@ -86,6 +94,7 @@ void UsdviewEngine::ChooseRenderer(
     renderer_->SetRendererPlugin(available_renderers[i]);
     spdlog::info(
         "Switching to renderer {}", available_renderers[i].GetString().c_str());
+
     if (available_renderers[i].GetString() == "Hd_RUZINO_RendererPlugin") {
         renderer_ui_control =
             renderer_->GetRendererSetting(pxr::TfToken("RenderNodeSystem"))
@@ -102,6 +111,9 @@ void UsdviewEngine::ChooseRenderer(
     data_->nvrhi_texture = nullptr;
 
     this->engine_status.renderer_id = i;
+
+    // Set selection color for the new renderer
+    renderer_->SetSelectionColor(pxr::GfVec4f(1.0f, 0.7f, 0.0f, 1.0f));
 }
 
 void UsdviewEngine::DrawMenuBar()
@@ -238,6 +250,7 @@ void UsdviewEngine::OnFrame(float delta_time)
     _renderParams.enableLighting = true;
     _renderParams.enableSceneMaterials = true;
     _renderParams.showRender = true;
+    _renderParams.highlight = true;  // CRITICAL: Enable selection highlighting!
     if (timecode == 0)
         _renderParams.frame = UsdTimeCode(0);
     else {
@@ -373,6 +386,14 @@ void UsdviewEngine::OnFrame(float delta_time)
                 point[0],
                 point[1],
                 point[2]);
+
+            // Emit viewport pick event to notify UsdFileViewer
+            if (window) {
+                window->events().emit_any("viewport_prim_picked", path);
+            }
+
+            // Also update our own selection
+            on_prim_selected(path);
         }
     }
 
@@ -538,6 +559,9 @@ UsdviewEngine::~UsdviewEngine()
 
 bool UsdviewEngine::BuildUI()
 {
+    // Subscribe to selection events on first frame
+    subscribe_to_selection_events();
+
     auto delta_time = ImGui::GetIO().DeltaTime;
 
     if (size_changed) {
@@ -661,5 +685,62 @@ std::shared_ptr<PickEvent> UsdviewEngine::consume_pick_event()
     current_pick_event_ = nullptr;
     return event;
 }
+void UsdviewEngine::subscribe_to_selection_events()
+{
+    if (!selection_event_subscribed_ && window) {
+        selection_event_subscribed_ = true;
+        window->events().subscribe_any(
+            "prim_selected", [this](const std::any& event_data) {
+                try {
+                    const auto& path = std::any_cast<pxr::SdfPath>(event_data);
+                    on_prim_selected(path);
+                }
+                catch (const std::bad_any_cast&) {
+                    // Silently ignore invalid event data
+                }
+            });
+    }
+}
 
+void UsdviewEngine::on_prim_selected(const pxr::SdfPath& path)
+{
+    current_selected_path_ = path;
+
+    // Highlight the selected prim in the viewport
+    pxr::SdfPathVector selected_paths;
+    if (!path.IsEmpty()) {
+        selected_paths.push_back(path);
+    }
+    renderer_->SetSelected(selected_paths);
+
+    // Show bounding box for selected prim
+    pxr::UsdImagingGLRenderParams::BBoxVector bboxes;
+    if (!path.IsEmpty()) {
+        auto prim = stage_->get_usd_stage()->GetPrimAtPath(path);
+        if (prim && prim.IsA<pxr::UsdGeomBoundable>()) {
+            pxr::UsdGeomBoundable boundable(prim);
+            pxr::VtArray<pxr::GfVec3f> extent;
+            if (boundable.GetExtentAttr().Get(&extent) && extent.size() == 2) {
+                // Create bounding box from extent
+                pxr::GfRange3d range(
+                    pxr::GfVec3d(extent[0][0], extent[0][1], extent[0][2]),
+                    pxr::GfVec3d(extent[1][0], extent[1][1], extent[1][2]));
+
+                // Get world transform
+                pxr::UsdGeomXformable xformable(prim);
+                pxr::GfMatrix4d xform;
+                bool reset;
+                xformable.GetLocalTransformation(
+                    &xform, &reset, stage_->get_current_time());
+
+                bboxes.push_back(pxr::GfBBox3d(range, xform));
+            }
+        }
+    }
+
+    _renderParams.bboxes = bboxes;
+    _renderParams.bboxLineColor =
+        pxr::GfVec4f(1.0f, 0.7f, 0.0f, 1.0f);  // Orange
+    _renderParams.bboxLineDashSize = 3.0f;
+}
 RUZINO_NAMESPACE_CLOSE_SCOPE

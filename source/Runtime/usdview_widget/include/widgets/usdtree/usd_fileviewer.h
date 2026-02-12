@@ -42,7 +42,13 @@ class USDVIEW_WIDGET_API UsdFileViewer : public IWidget {
     void remove_prim_logic();
     void show_right_click_menu();
     void DrawChild(const pxr::UsdPrim& prim, bool is_root = false);
-    
+
+    // Helper to update selection and emit event
+    void set_selected_prim(const pxr::SdfPath& path);
+
+    // Subscribe to viewport picking events
+    void subscribe_to_viewport_events();
+
     // Material editing helpers
     bool is_material_prim(const pxr::UsdPrim& prim);
     bool is_geometry_prim(const pxr::UsdPrim& prim);
@@ -60,16 +66,17 @@ class USDVIEW_WIDGET_API UsdFileViewer : public IWidget {
     Stage* stage;
     bool is_selecting_file = false;
     pxr::SdfPath selecting_file_base;
-    
+
     // Cached transform values to avoid recomputing from matrix every frame
     pxr::SdfPath cached_transform_path;
     pxr::GfVec3d cached_euler_angles;
     pxr::GfVec3d cached_scale;
     bool has_cached_transform = false;
-    
+
     // Material editing support
     std::vector<pxr::SdfPath> opened_material_editors;
     std::vector<pxr::SdfPath> all_materials_cache;
     bool materials_cache_dirty = true;
+    bool viewport_event_subscribed = false;
 };
 RUZINO_NAMESPACE_CLOSE_SCOPE

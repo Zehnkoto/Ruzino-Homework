@@ -99,5 +99,11 @@ class USDVIEW_WIDGET_API UsdviewEngine final : public IWidget {
     float time_code_max = 10;
 
     std::shared_ptr<PickEvent> current_pick_event_;
+
+    // Selection highlight support
+    bool selection_event_subscribed_ = false;
+    void subscribe_to_selection_events();
+    void on_prim_selected(const pxr::SdfPath& path);
+    pxr::SdfPath current_selected_path_;  // Track current selection
 };
 RUZINO_NAMESPACE_CLOSE_SCOPE

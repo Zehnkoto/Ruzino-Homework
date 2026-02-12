@@ -1157,7 +1157,7 @@ void UsdFileViewer::EditValue()
                                 ImGuiCol_Text, ImVec4(0.4f, 0.7f, 1.0f, 1.0f));
                             if (ImGui::SmallButton(targetStr.c_str())) {
                                 // Navigate to the target prim
-                                selected = targets[i];
+                                set_selected_prim(targets[i]);
                             }
                             ImGui::PopStyleColor();
 
@@ -1334,10 +1334,10 @@ void UsdFileViewer::DrawChild(const pxr::UsdPrim& prim, bool is_root)
     bool open = ImGui::TreeNodeEx(prim.GetName().GetText(), flags);
 
     if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
-        selected = prim.GetPath();
+        set_selected_prim(prim.GetPath());
     }
     if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
-        selected = prim.GetPath();
+        set_selected_prim(prim.GetPath());
         ImGui::OpenPopup("Prim Operation");
     }
 
@@ -1345,7 +1345,7 @@ void UsdFileViewer::DrawChild(const pxr::UsdPrim& prim, bool is_root)
     ImGui::TextUnformatted(prim.GetTypeName().GetText());
 
     if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
-        selected = prim.GetPath();
+        set_selected_prim(prim.GetPath());
     }
 
     if (!is_leaf) {
@@ -1368,6 +1368,24 @@ void UsdFileViewer::DrawChild(const pxr::UsdPrim& prim, bool is_root)
 
 bool UsdFileViewer::BuildUI()
 {
+    // Subscribe to viewport pick events on first frame
+    if (!viewport_event_subscribed && window) {
+        viewport_event_subscribed = true;
+        window->events().subscribe_any(
+            "viewport_prim_picked", [this](const std::any& event_data) {
+                try {
+                    const auto& path = std::any_cast<pxr::SdfPath>(event_data);
+                    // Update selection without emitting event (avoid loop)
+                    if (selected != path) {
+                        selected = path;
+                    }
+                }
+                catch (const std::bad_any_cast&) {
+                    // Silently ignore invalid event data
+                }
+            });
+    }
+
     ImGui::Begin("Stage Viewer", nullptr, ImGuiWindowFlags_None);
     ShowFileTree();
     ImGui::End();
@@ -1383,10 +1401,29 @@ bool UsdFileViewer::BuildUI()
 
 UsdFileViewer::UsdFileViewer(Stage* stage) : stage(stage)
 {
+    subscribe_to_viewport_events();
 }
 
 UsdFileViewer::~UsdFileViewer()
 {
+}
+
+void UsdFileViewer::subscribe_to_viewport_events()
+{
+    // Will be called after window is set by the framework
+    // Subscribe in BuildUI on first frame instead
+}
+
+void UsdFileViewer::set_selected_prim(const pxr::SdfPath& path)
+{
+    if (selected != path) {
+        selected = path;
+        // Emit selection event for other widgets (e.g., UsdviewEngine) to
+        // listen
+        if (window) {
+            window->events().emit_any("prim_selected", selected);
+        }
+    }
 }
 
 bool UsdFileViewer::is_material_prim(const pxr::UsdPrim& prim)
