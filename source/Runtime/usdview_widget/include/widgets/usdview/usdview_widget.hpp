@@ -51,8 +51,7 @@ class USDVIEW_WIDGET_API UsdviewEngine final : public IWidget {
 
     enum class CamType { First, Third };
     struct Status {
-        CamType cam_type =
-            CamType::First;  // 0 for 1st personal, 1 for 3rd personal
+        CamType cam_type = CamType::Third;  // Default to 3rd person camera
         unsigned renderer_id = 0;
     } engine_status;
 
@@ -61,6 +60,7 @@ class USDVIEW_WIDGET_API UsdviewEngine final : public IWidget {
     bool is_hovered = false;
 
     bool playing = false;
+    bool left_mouse_pressed = false;
 
     std::unique_ptr<BaseCamera> free_camera_;
     std::unique_ptr<pxr::UsdImagingGLEngine> renderer_;
@@ -73,7 +73,6 @@ class USDVIEW_WIDGET_API UsdviewEngine final : public IWidget {
     const void* renderer_ui_control = nullptr;
     bool first_draw = true;
     pxr::TfHashMap<pxr::TfToken, pxr::VtValue, pxr::TfHash> settings;
-    bool right_mouse_pressed = false;
     nvrhi::TextureHandle persistent_texture;
     nvrhi::CommandListHandle command_list_;
 

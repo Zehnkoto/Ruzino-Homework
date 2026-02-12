@@ -76,15 +76,15 @@ class BaseCamera : public pxr::UsdGeomCamera {
     void BaseLookAt(
         pxr::GfVec3d cameraPos,
         pxr::GfVec3d cameraTarget,
-        pxr::GfVec3d cameraUp = pxr::GfVec3d{ 0.0, 1.0, 0.0 });
+        pxr::GfVec3d cameraUp = pxr::GfVec3d{ 0.0, 0.0, 1.0 });  // Z-up
     void UpdateWorldToView();
 
     pxr::GfMatrix4d m_MatWorldToView = pxr::GfMatrix4d(1.0);
 
     pxr::GfVec3d m_CameraPos = pxr::GfVec3d(0.0);
     pxr::GfVec3d m_CameraDir = pxr::GfVec3d(1.0, 0.0, 0.0);
-    pxr::GfVec3d m_CameraUp = pxr::GfVec3d(0.0, 1.0, 0.0);
-    pxr::GfVec3d m_CameraRight = pxr::GfVec3d(0.0, 0.0, 1.0);
+    pxr::GfVec3d m_CameraUp = pxr::GfVec3d(0.0, 0.0, 1.0);  // Z-up
+    pxr::GfVec3d m_CameraRight = pxr::GfVec3d(0.0, -1.0, 0.0);
 
     double m_MoveSpeed = 1;
     double m_RotateSpeed = .05;
@@ -107,11 +107,11 @@ class FirstPersonCamera : public BaseCamera {
     void LookAt(
         pxr::GfVec3d cameraPos,
         pxr::GfVec3d cameraTarget,
-        pxr::GfVec3d cameraUp = pxr::GfVec3d{ 0.0, 1.0, 0.0 });
+        pxr::GfVec3d cameraUp = pxr::GfVec3d{ 0.0, 0.0, 1.0 });  // Z-up
     void LookTo(
         pxr::GfVec3d cameraPos,
         pxr::GfVec3d cameraDir,
-        pxr::GfVec3d cameraUp = pxr::GfVec3d{ 0.0, 1.0, 0.0 });
+        pxr::GfVec3d cameraUp = pxr::GfVec3d{ 0.0, 0.0, 1.0 });  // Z-up
 
    private:
     std::pair<bool, pxr::GfRotation> AnimateRoll(

@@ -41,7 +41,8 @@ void BaseCamera::UpdateWorldToView()
     xform_op.Set(m_MatWorldToView.GetInverse());
 }
 
-BaseCamera::BaseCamera(const pxr::UsdGeomCamera& camera) : pxr::UsdGeomCamera(camera)
+BaseCamera::BaseCamera(const pxr::UsdGeomCamera& camera)
+    : pxr::UsdGeomCamera(camera)
 {
     pxr::UsdGeomXformOp transform_op = camera.GetTransformOp();
     if (transform_op) {
@@ -49,12 +50,12 @@ BaseCamera::BaseCamera(const pxr::UsdGeomCamera& camera) : pxr::UsdGeomCamera(ca
         transform_op.Get(&transform_mat);
 
         m_CameraPos = transform_mat.ExtractTranslation();
-        m_CameraDir =
-            -transform_mat.ExtractRotation().TransformDir(pxr::GfVec3d(0.0, 0.0, 1.0));
-        m_CameraUp =
-            transform_mat.ExtractRotation().TransformDir(pxr::GfVec3d(0.0, 1.0, 0.0));
-        m_CameraRight =
-            transform_mat.ExtractRotation().TransformDir(pxr::GfVec3d(1.0, 0.0, 0.0));
+        m_CameraDir = -transform_mat.ExtractRotation().TransformDir(
+            pxr::GfVec3d(0.0, 0.0, 1.0));
+        m_CameraUp = transform_mat.ExtractRotation().TransformDir(
+            pxr::GfVec3d(0.0, 1.0, 0.0));
+        m_CameraRight = transform_mat.ExtractRotation().TransformDir(
+            pxr::GfVec3d(1.0, 0.0, 0.0));
         m_MatWorldToView = transform_mat.GetInverse();
     }
     GetPrim().GetAttribute(pxr::TfToken("move_speed")).Get(&m_MoveSpeed);
@@ -81,7 +82,11 @@ FirstPersonCamera::FirstPersonCamera(const pxr::UsdGeomCamera& camera)
 {
 }
 
-void FirstPersonCamera::KeyboardUpdate(int key, int scancode, int action, int mods)
+void FirstPersonCamera::KeyboardUpdate(
+    int key,
+    int scancode,
+    int action,
+    int mods)
 {
     if (keyboardMap.find(key) == keyboardMap.end()) {
         return;
@@ -132,7 +137,8 @@ void FirstPersonCamera::LookTo(
 {
     BaseLookAt(cameraPos, cameraPos + cameraDir, cameraUp);
 }
-std::pair<bool, pxr::GfVec3d> FirstPersonCamera::AnimateTranslation(double deltaT)
+std::pair<bool, pxr::GfVec3d> FirstPersonCamera::AnimateTranslation(
+    double deltaT)
 {
     bool cameraDirty = false;
     double moveStep = deltaT * m_MoveSpeed;
@@ -194,9 +200,10 @@ std::pair<bool, pxr::GfRotation> FirstPersonCamera::AnimateRoll(
     pxr::GfRotation cameraRotation = initialRotation;
     if (keyboardState[KeyboardControls::RollLeft] ||
         keyboardState[KeyboardControls::RollRight]) {
-        double roll =
-            double(keyboardState[KeyboardControls::RollLeft]) * -m_RotateSpeed * 2.0 +
-            double(keyboardState[KeyboardControls::RollRight]) * m_RotateSpeed * 2.0;
+        double roll = double(keyboardState[KeyboardControls::RollLeft]) *
+                          -m_RotateSpeed * 2.0 +
+                      double(keyboardState[KeyboardControls::RollRight]) *
+                          m_RotateSpeed * 2.0;
 
         cameraRotation = pxr::GfRotation(m_CameraDir, roll) * cameraRotation;
         cameraDirty = true;
@@ -222,7 +229,8 @@ void FirstPersonCamera::Animate(double deltaT)
 
         cameraRotation =
             pxr::GfRotation(pxr::GfVec3d(0.0, 0.0, 1.0), -yaw) * cameraRotation;
-        cameraRotation = pxr::GfRotation(m_CameraRight, -pitch) * cameraRotation;
+        cameraRotation =
+            pxr::GfRotation(m_CameraRight, -pitch) * cameraRotation;
 
         cameraDirty = true;
     }
@@ -253,8 +261,10 @@ void FirstPersonCamera::AnimateSmooth(double deltaT)
             mousePosPrev = mousePos;
         }
 
-        mousePosDamp[0] = pxr::GfLerp(dampenWeight, mousePos[0], mousePosPrev[0]);
-        mousePosDamp[1] = pxr::GfLerp(dampenWeight, mousePos[1], mousePosPrev[1]);
+        mousePosDamp[0] =
+            pxr::GfLerp(dampenWeight, mousePos[0], mousePosPrev[0]);
+        mousePosDamp[1] =
+            pxr::GfLerp(dampenWeight, mousePos[1], mousePosPrev[1]);
 
         // track mouse delta
         mouseMove = mousePosDamp - mousePosPrev;
@@ -276,7 +286,8 @@ void FirstPersonCamera::AnimateSmooth(double deltaT)
 
         cameraRotation =
             pxr::GfRotation(pxr::GfVec3d(0.0, 1.0, 0.0), -yaw) * cameraRotation;
-        cameraRotation = pxr::GfRotation(m_CameraRight, -pitch) * cameraRotation;
+        cameraRotation =
+            pxr::GfRotation(m_CameraRight, -pitch) * cameraRotation;
 
         cameraDirty = true;
     }
@@ -299,14 +310,19 @@ void FirstPersonCamera::AnimateSmooth(double deltaT)
 void FirstPersonCamera::MouseScrollUpdate(double xoffset, double yoffset)
 {
     GetPrim().GetAttribute(pxr::TfToken("move_speed")).Get(&m_MoveSpeed);
-    m_MoveSpeed = std::clamp(m_MoveSpeed * (yoffset > 0 ? 1.05 : 1.0 / 1.05), 0.1, 500.0);
+    m_MoveSpeed =
+        std::clamp(m_MoveSpeed * (yoffset > 0 ? 1.05 : 1.0 / 1.05), 0.1, 500.0);
     using namespace pxr;
     GetPrim()
         .CreateAttribute(TfToken("move_speed"), SdfValueTypeNames->Double)
         .Set(m_MoveSpeed);
 }
 
-void ThirdPersonCamera::KeyboardUpdate(int key, int scancode, int action, int mods)
+void ThirdPersonCamera::KeyboardUpdate(
+    int key,
+    int scancode,
+    int action,
+    int mods)
 {
     if (keyboardMap.find(key) == keyboardMap.end()) {
         return;
@@ -329,13 +345,19 @@ void ThirdPersonCamera::MousePosUpdate(double xpos, double ypos)
 void ThirdPersonCamera::MouseButtonUpdate(int button, int action, int mods)
 {
     const bool pressed = (action == GLFW_PRESS);
+    const bool shift_pressed = (mods & GLFW_MOD_SHIFT) != 0;
 
     switch (button) {
-        case GLFW_MOUSE_BUTTON_LEFT:
-            mouseButtonState[MouseButtons::Left] = pressed;
-            break;
         case GLFW_MOUSE_BUTTON_MIDDLE:
-            mouseButtonState[MouseButtons::Middle] = pressed;
+            // Shift + Middle: pan, Middle alone: orbit
+            if (shift_pressed) {
+                mouseButtonState[MouseButtons::Middle] = pressed;
+                mouseButtonState[MouseButtons::Left] = false;  // Clear orbit
+            }
+            else {
+                mouseButtonState[MouseButtons::Left] = pressed;  // Orbit
+                mouseButtonState[MouseButtons::Middle] = false;  // Clear pan
+            }
             break;
         case GLFW_MOUSE_BUTTON_RIGHT:
             mouseButtonState[MouseButtons::Right] = pressed;
@@ -394,7 +416,7 @@ void ThirdPersonCamera::AnimateOrbit(double deltaT)
 {
     if (mouseButtonState[MouseButtons::Left]) {
         pxr::GfVec2d mouseMove = m_MousePos - m_MousePosPrev;
-        double rotateSpeed = m_RotateSpeed;
+        double rotateSpeed = m_RotateSpeed * 0.2;
 
         m_Yaw -= rotateSpeed * mouseMove[0];
         m_Pitch += rotateSpeed * mouseMove[1];
@@ -425,37 +447,16 @@ void ThirdPersonCamera::AnimateTranslation(const pxr::GfMatrix3d& viewMatrix)
         return;
 
     if (mouseButtonState[MouseButtons::Middle]) {
-        pxr::GfVec4d oldClipPos(0.0, 0.0, m_Distance, 1.0);
-        oldClipPos = oldClipPos * m_ProjectionMatrix;
-        oldClipPos /= oldClipPos[3];
-        oldClipPos[0] = 2.0 * (m_MousePosPrev[0]) / m_ViewportSize[0] - 1.0;
-        oldClipPos[1] = 1.0 - 2.0 * (m_MousePosPrev[1]) / m_ViewportSize[1];
-        pxr::GfVec4d newClipPos = oldClipPos;
-        newClipPos[0] = 2.0 * (m_MousePos[0]) / m_ViewportSize[0] - 1.0;
-        newClipPos[1] = 1.0 - 2.0 * (m_MousePos[1]) / m_ViewportSize[1];
+        pxr::GfVec2d mouseDelta(
+            m_MousePos[0] - m_MousePosPrev[0],
+            m_MousePos[1] - m_MousePosPrev[1]);
 
-        pxr::GfVec4d oldViewPos = oldClipPos * m_InverseProjectionMatrix;
-        oldViewPos /= oldViewPos[3];
-        pxr::GfVec4d newViewPos = newClipPos * m_InverseProjectionMatrix;
-        newViewPos /= newViewPos[3];
+        // Scale factor based on distance
+        double pixelToWorld = m_Distance * 0.002;
 
-        pxr::GfVec2d viewMotion(
-            oldViewPos[0] - newViewPos[0], oldViewPos[1] - newViewPos[1]);
-
-        m_TargetPos -= viewMotion[0] * viewMatrix.GetRow(0);
-
-        if (keyboardState[KeyboardControls::HorizontalPan]) {
-            pxr::GfVec3d horizontalForward =
-                pxr::GfVec3d(viewMatrix.GetRow(2)[0], 0.0, viewMatrix.GetRow(2)[2]);
-            double horizontalLength = horizontalForward.GetLength();
-            if (horizontalLength == 0.0)
-                horizontalForward =
-                    pxr::GfVec3d(viewMatrix.GetRow(1)[0], 0.0, viewMatrix.GetRow(1)[2]);
-            horizontalForward.Normalize();
-            m_TargetPos += viewMotion[1] * horizontalForward * 1.5;
-        }
-        else
-            m_TargetPos += viewMotion[1] * viewMatrix.GetRow(1);
+        // Pan the target position inversely to mouse movement
+        m_TargetPos -= mouseDelta[0] * pixelToWorld * m_CameraRight;
+        m_TargetPos += mouseDelta[1] * pixelToWorld * m_CameraUp;
     }
 }
 
@@ -463,29 +464,52 @@ void ThirdPersonCamera::Animate(double deltaT)
 {
     AnimateOrbit(deltaT);
 
-    pxr::GfQuatd orbit = pxr::GfQuatd::GetIdentity();
-    orbit.SetReal(cos(m_Pitch / 2.0) * cos(m_Yaw / 2.0));
-    orbit.SetImaginary(pxr::GfVec3d(
-        sin(m_Pitch / 2.0) * cos(m_Yaw / 2.0),
-        cos(m_Pitch / 2.0) * sin(m_Yaw / 2.0),
-        sin(m_Pitch / 2.0) * sin(m_Yaw / 2.0)));
+    // Z-up spherical coordinates: offset from target to camera
+    // pitch = 90° => camera above, pitch = -90° => camera below
+    double x = m_Distance * cos(m_Pitch) * cos(m_Yaw);
+    double y = m_Distance * cos(m_Pitch) * sin(m_Yaw);
+    double z = m_Distance * sin(m_Pitch);
+    pxr::GfVec3d offset(x, y, z);
 
-    const pxr::GfMatrix3d targetRotation = pxr::GfMatrix3d().SetRotate(orbit);
-    AnimateTranslation(targetRotation);
+    m_CameraPos = m_TargetPos + offset;
+    m_CameraDir = -offset.GetNormalized();
 
-    const pxr::GfVec3d vectorToCamera = -m_Distance * targetRotation.GetRow(2);
+    // Build right and up vectors in Z-up world space
+    pxr::GfVec3d world_up(0, 0, 1);
 
-    const pxr::GfVec3d camPos = m_TargetPos + vectorToCamera;
+    // Avoid gimbal lock when looking straight up/down
+    if (std::abs(m_Pitch) > 0.99 * M_PI / 2.0) {
+        world_up = pxr::GfVec3d(-sin(m_Yaw), cos(m_Yaw), 0);
+    }
 
-    m_CameraPos = camPos;
-    m_CameraRight = -targetRotation.GetRow(0);
-    m_CameraUp = targetRotation.GetRow(1);
-    m_CameraDir = targetRotation.GetRow(2);
+    m_CameraRight = pxr::GfCross(m_CameraDir, world_up).GetNormalized();
+    m_CameraUp = pxr::GfCross(m_CameraRight, m_CameraDir).GetNormalized();
+
+    // Apply pan translation
+    AnimateTranslation(pxr::GfMatrix3d(1.0));
+
+    // Recalculate position after target may have moved
+    x = m_Distance * cos(m_Pitch) * cos(m_Yaw);
+    y = m_Distance * cos(m_Pitch) * sin(m_Yaw);
+    z = m_Distance * sin(m_Pitch);
+    offset = pxr::GfVec3d(x, y, z);
+    m_CameraPos = m_TargetPos + offset;
+    m_CameraDir = -offset.GetNormalized();
+
+    // Recalculate right and up
+    world_up = pxr::GfVec3d(0, 0, 1);
+    if (std::abs(m_Pitch) > 0.99 * M_PI / 2.0) {
+        world_up = pxr::GfVec3d(-sin(m_Yaw), cos(m_Yaw), 0);
+    }
+    m_CameraRight = pxr::GfCross(m_CameraDir, world_up).GetNormalized();
+    m_CameraUp = pxr::GfCross(m_CameraRight, m_CameraDir).GetNormalized();
+
     UpdateWorldToView();
-
     m_MousePosPrev = m_MousePos;
 }
-void ThirdPersonCamera::LookAt(pxr::GfVec3d cameraPos, pxr::GfVec3d cameraTarget)
+void ThirdPersonCamera::LookAt(
+    pxr::GfVec3d cameraPos,
+    pxr::GfVec3d cameraTarget)
 {
     pxr::GfVec3d cameraDir = cameraTarget - cameraPos;
 
@@ -521,8 +545,14 @@ void ThirdPersonCamera::CartesianToSpherical(
     double& length)
 {
     length = cartesian.GetLength();
-    elevation = std::asin(cartesian[1] / length);
-    azimuth = std::atan2(cartesian[2], cartesian[0]);
+    if (length < 1e-6) {
+        azimuth = 0.0;
+        elevation = 0.0;
+        return;
+    }
+    // Z-up coordinate system
+    elevation = std::asin(cartesian[2] / length);
+    azimuth = std::atan2(cartesian[1], cartesian[0]);
 }
 
 RUZINO_NAMESPACE_CLOSE_SCOPE

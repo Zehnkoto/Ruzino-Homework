@@ -57,7 +57,7 @@ UsdviewEngine::UsdviewEngine(Stage* stage) : stage_(stage)
     renderer_ = std::make_unique<pxr::UsdImagingGLEngine>(params);
 
     renderer_->SetEnablePresentation(false);
-    free_camera_ = std::make_unique<FirstPersonCamera>();
+    free_camera_ = std::make_unique<ThirdPersonCamera>();
 
     auto prim = pxr::UsdGeomCamera::Get(
         stage_->get_usd_stage(), pxr::SdfPath("/FreeCamera"));
@@ -73,11 +73,10 @@ UsdviewEngine::UsdviewEngine(Stage* stage) : stage_(stage)
         free_camera_->CreateClippingRangeAttr(
             pxr::VtValue(pxr::GfVec2f{ 1.f, 2000.f }));
 
-        static_cast<FirstPersonCamera*>(free_camera_.get())
-            ->LookAt(
-                pxr::GfVec3d{ -3, -3, 3 },
-                pxr::GfVec3d{ 0, 0, 0 },
-                pxr::GfVec3d{ 0, 0, 1 });
+        // Initialize third person camera to look at origin
+        auto* third_camera =
+            static_cast<ThirdPersonCamera*>(free_camera_.get());
+        third_camera->LookAt(pxr::GfVec3d{ 5, 5, 5 }, pxr::GfVec3d{ 0, 0, 0 });
     }
     auto plugins = renderer_->GetRendererPlugins();
 
@@ -247,6 +246,13 @@ void UsdviewEngine::OnFrame(float delta_time)
 
     renderer_->SetCameraState(viewMatrix, projectionMatrix);
 
+    // Update third person camera's view information (for proper panning)
+    if (engine_status.cam_type == CamType::Third) {
+        auto* third_camera =
+            static_cast<ThirdPersonCamera*>(free_camera_.get());
+        third_camera->SetView(frustum);
+    }
+
     _renderParams.enableLighting = true;
     _renderParams.enableSceneMaterials = true;
     _renderParams.showRender = true;
@@ -327,7 +333,10 @@ void UsdviewEngine::OnFrame(float delta_time)
     is_active = ImGui::IsWindowFocused();
     is_hovered = ImGui::IsItemHovered();
 
-    if (right_mouse_pressed) {
+    // Left click picking
+    if (left_mouse_pressed && is_hovered) {
+        left_mouse_pressed = false;  // Reset flag
+
         auto mouse_pos_rel = ImGui::GetMousePos() - ImGui::GetItemRectMin();
 
         spdlog::info(
@@ -395,6 +404,14 @@ void UsdviewEngine::OnFrame(float delta_time)
             // Also update our own selection
             on_prim_selected(path);
         }
+        else {
+            // Clicked on nothing (infinity), clear selection
+            on_prim_selected(pxr::SdfPath());
+            if (window) {
+                window->events().emit_any(
+                    "viewport_prim_picked", pxr::SdfPath());
+            }
+        }
     }
 
     ImGui::GetIO().WantCaptureMouse = true;
@@ -426,41 +443,6 @@ void UsdviewEngine::time_controller()
 
     // TODO:  1.加个显示当前仿真进度的进度条 (current_time)
 }
-
-// std::unique_ptr<Ruzino::PickEvent> UsdviewEngine::get_pick_event()
-//{
-//     return std::move(pick_event);
-// }
-//
-// bool UsdviewEngine::CameraCallback(float delta_time)
-//{
-//    ImGuiIO& io = ImGui::GetIO();
-//    if (is_active_) {
-//        free_camera_->KeyboardUpdate();
-//    }
-//
-//    if (is_hovered_) {
-//        for (int i = 0; i < 5; ++i) {
-//            if (io.MouseClicked[i]) {
-//                free_camera_->MouseButtonUpdate(i);
-//            }
-//        }
-//        float fovAdjustment = io.MouseWheel * 5.0f;
-//        if (fovAdjustment != 0) {
-//            free_camera_->MouseScrollUpdate(fovAdjustment);
-//        }
-//    }
-//    for (int i = 0; i < 5; ++i) {
-//        if (io.MouseReleased[i]) {
-//            free_camera_->MouseButtonUpdate(i);
-//        }
-//    }
-//    free_camera_->MousePosUpdate(io.MousePos.x, io.MousePos.y);
-//
-//    free_camera_->Animate(delta_time);
-//
-//    return false;
-//}
 
 bool UsdviewEngine::JoystickButtonUpdate(int button, bool pressed)
 {
@@ -498,26 +480,37 @@ bool UsdviewEngine::MouseScrollUpdate(double xoffset, double yoffset)
 
 bool UsdviewEngine::MouseButtonUpdate(int button, int action, int mods)
 {
-    if (action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT) {
-        if (is_hovered) {
-            free_camera_->MouseButtonUpdate(button, action, mods);
+    ImGuiIO& io = ImGui::GetIO();
+    bool shift_pressed = io.KeyShift;
+
+    // Left button: picking/selection only
+    if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS &&
+        is_hovered) {
+        // Trigger picking
+        left_mouse_pressed = true;
+        return false;
+    }
+    if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE) {
+        left_mouse_pressed = false;
+        return false;
+    }
+
+    // Right button: clear selection
+    if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS &&
+        is_hovered) {
+        // Clear selection
+        on_prim_selected(pxr::SdfPath());  // Empty path clears selection
+        if (window) {
+            window->events().emit_any("viewport_prim_picked", pxr::SdfPath());
         }
         return false;
     }
-    if (action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_RIGHT) {
-        if (is_hovered) {
-            right_mouse_pressed = true;
-            return false;
-        }
-    }
-    if (action == GLFW_RELEASE && button == GLFW_MOUSE_BUTTON_RIGHT) {
-        if (right_mouse_pressed) {
-            right_mouse_pressed = false;
-            return false;
-        }
-    }
 
-    free_camera_->MouseButtonUpdate(button, action, mods);
+    // Middle button: camera control (orbit or pan based on Shift)
+    if (button == GLFW_MOUSE_BUTTON_MIDDLE && is_hovered) {
+        free_camera_->MouseButtonUpdate(button, action, mods);
+        return false;
+    }
 
     return false;
 }
