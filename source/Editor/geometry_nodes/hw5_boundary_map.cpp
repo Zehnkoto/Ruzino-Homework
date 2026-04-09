@@ -1,8 +1,14 @@
 #include <Eigen/Sparse>
+#include <cmath>
+#include <vector>
 
 #include "GCore/Components/MeshComponent.h"
 #include "GCore/util_openmesh_bind.h"
 #include "geom_node_base.h"
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 /*
 ** @brief HW4_TutteParameterization
@@ -53,7 +59,6 @@ NODE_EXECUTION_FUNCTION(hw5_circle_boundary_mapping)
     if (!input.get_component<MeshComponent>()) {
         throw std::runtime_error("Boundary Mapping: Need Geometry Input.");
     }
-    throw std::runtime_error("Not implemented");
 
     /* ----------------------------- Preprocess -------------------------------
     ** Create a halfedge structure (using OpenMesh) for the input mesh. The
@@ -94,6 +99,56 @@ NODE_EXECUTION_FUNCTION(hw5_circle_boundary_mapping)
      ** texture mapping.
      */
 
+    // 1. Find a starting boundary halfedge
+    OpenMesh::SmartHalfedgeHandle start_he;
+    bool found_boundary = false;
+    for (auto he : halfedge_mesh->halfedges()) {
+        if (he.is_boundary()) {
+            start_he = he;
+            found_boundary = true;
+            break;
+        }
+    }
+
+    if (!found_boundary) {
+        throw std::runtime_error("Circle Mapping: The mesh has no boundary!");
+        return false;
+    }
+
+    // 2. Traverse the boundary loop and calculate total length
+    std::vector<OpenMesh::SmartVertexHandle> bnd_vertices;
+    std::vector<double> edge_lengths;
+    double total_length = 0.0;
+
+    auto he = start_he;
+    do {
+        bnd_vertices.push_back(he.from());
+
+        auto p1 = halfedge_mesh->point(he.from());
+        auto p2 = halfedge_mesh->point(he.to());
+        double len = (p1 - p2).norm();
+
+        edge_lengths.push_back(len);
+        total_length += len;
+
+        he = he.next();  // For boundary halfedge, next() goes along the
+                         // boundary loop
+    } while (he != start_he);
+
+    // 3. Map boundary vertices to a unit circle [0,1]x[0,1] based on arc length
+    double current_length = 0.0;
+    for (size_t i = 0; i < bnd_vertices.size(); ++i) {
+        double theta = 2.0 * M_PI * (current_length / total_length);
+
+        // Map to [0,1]x[0,1] range: Center at (0.5, 0.5), radius = 0.5
+        float x = 0.5f + 0.5f * std::cos(theta);
+        float y = 0.5f + 0.5f * std::sin(theta);
+
+        halfedge_mesh->set_point(bnd_vertices[i], OpenMesh::Vec3f(x, y, 0.0f));
+
+        current_length += edge_lengths[i];
+    }
+
     /* ----------------------------- Postprocess ------------------------------
     ** Convert the result mesh from the halfedge structure back to Geometry
     *format as the node's
@@ -129,7 +184,6 @@ NODE_EXECUTION_FUNCTION(hw5_square_boundary_mapping)
     if (!input.get_component<MeshComponent>()) {
         throw std::runtime_error("Input does not contain a mesh");
     }
-    throw std::runtime_error("Not implemented");
 
     /* ----------------------------- Preprocess -------------------------------
     ** Create a halfedge structure (using OpenMesh) for the input mesh.
@@ -153,6 +207,87 @@ NODE_EXECUTION_FUNCTION(hw5_square_boundary_mapping)
      *[0,1]x[0,1] for
      ** texture mapping.
      */
+
+    // 1. Find a starting boundary halfedge
+    OpenMesh::SmartHalfedgeHandle start_he;
+    bool found_boundary = false;
+    for (auto he : halfedge_mesh->halfedges()) {
+        if (he.is_boundary()) {
+            start_he = he;
+            found_boundary = true;
+            break;
+        }
+    }
+
+    if (!found_boundary) {
+        throw std::runtime_error("Square Mapping: The mesh has no boundary!");
+        return false;
+    }
+
+    // 2. Traverse the boundary loop and calculate segment lengths
+    std::vector<OpenMesh::SmartVertexHandle> bnd_vertices;
+    std::vector<double> edge_lengths;
+    double total_length = 0.0;
+
+    auto he = start_he;
+    do {
+        bnd_vertices.push_back(he.from());
+        auto p1 = halfedge_mesh->point(he.from());
+        auto p2 = halfedge_mesh->point(he.to());
+        double len = (p1 - p2).norm();
+        edge_lengths.push_back(len);
+        total_length += len;
+        he = he.next();
+    } while (he != start_he);
+
+    // 3. Compute accumulated length to find the 4 corners of the square
+    std::vector<double> accum_length(bnd_vertices.size() + 1, 0.0);
+    for (size_t i = 0; i < bnd_vertices.size(); ++i) {
+        accum_length[i + 1] = accum_length[i] + edge_lengths[i];
+    }
+
+    // Target lengths for the 4 corners: 0, L/4, L/2, 3L/4
+    int c[4] = { 0, 0, 0, 0 };
+    double target[4] = {
+        0.0, total_length * 0.25, total_length * 0.5, total_length * 0.75
+    };
+
+    for (int k = 1; k < 4; ++k) {
+        double min_diff = 1e9;  // arbitrarily large number
+        for (size_t i = 0; i < bnd_vertices.size(); ++i) {
+            double diff = std::abs(accum_length[i] - target[k]);
+            if (diff < min_diff) {
+                min_diff = diff;
+                c[k] = i;
+            }
+        }
+    }
+
+    // 4. Map the segments to the 4 edges of the square in [0,1]x[0,1]
+    OpenMesh::Vec3f corners2D[4] = {
+        OpenMesh::Vec3f(0.0f, 0.0f, 0.0f),  // Bottom-Left
+        OpenMesh::Vec3f(1.0f, 0.0f, 0.0f),  // Bottom-Right
+        OpenMesh::Vec3f(1.0f, 1.0f, 0.0f),  // Top-Right
+        OpenMesh::Vec3f(0.0f, 1.0f, 0.0f)   // Top-Left
+    };
+
+    for (int k = 0; k < 4; ++k) {
+        int start_idx = c[k];
+        int end_idx = (k == 3) ? bnd_vertices.size() : c[k + 1];
+        double segment_len = accum_length[end_idx] - accum_length[start_idx];
+
+        for (int i = start_idx; i < end_idx; ++i) {
+            double t =
+                (segment_len > 1e-8)
+                    ? (accum_length[i] - accum_length[start_idx]) / segment_len
+                    : 0.0;
+
+            // Linear interpolation between two corners
+            OpenMesh::Vec3f pos =
+                corners2D[k] * (1.0f - t) + corners2D[(k + 1) % 4] * t;
+            halfedge_mesh->set_point(bnd_vertices[i], pos);
+        }
+    }
 
     /* ----------------------------- Postprocess ------------------------------
     ** Convert the result mesh from the halfedge structure back to Geometry

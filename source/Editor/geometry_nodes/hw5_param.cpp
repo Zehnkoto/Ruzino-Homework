@@ -1,10 +1,10 @@
 #include <time.h>
 
 #include <Eigen/Sparse>
+#include <Eigen/SparseLU>  // 注意：求解非对称稀疏矩阵需要引入此头文件
 #include <cmath>
 
-//#include "GCore/Components/MeshOperand.h"
-#include "GCore/util_openmesh_bind.h"
+// #include "GCore/Components/MeshOperand.h"
 #include <pxr/usd/usdGeom/mesh.h>
 
 #include <Eigen/Core>
@@ -20,7 +20,6 @@
 #include "GCore/util_openmesh_bind.h"
 #include "geom_node_base.h"
 #include "nodes/core/def/node_def.hpp"
-#include "geom_node_base.h"
 
 /*
 ** @brief HW4_TutteParameterization
@@ -120,6 +119,74 @@ NODE_EXECUTION_FUNCTION(hw5_param)
     ** representation and numerical methods used.
     **
     */
+    // 获取顶点总数，初始化 Eigen 稀疏矩阵 A 和右端项矩阵 B
+    int n_vertices = halfedge_mesh->n_vertices();
+    Eigen::SparseMatrix<double> A(n_vertices, n_vertices);
+    Eigen::MatrixXd B = Eigen::MatrixXd::Zero(n_vertices, 3);
+
+    // 使用 Triplet 列表来高效构建稀疏矩阵
+    std::vector<Eigen::Triplet<double>> triplets;
+    // 预分配空间，假设每个点平均度数为 6，加上主对角线 1 个
+    triplets.reserve(n_vertices * 7);
+
+    // 遍历所有顶点，构建线性方程组
+    for (const auto& v_handle : halfedge_mesh->vertices()) {
+        int i = v_handle.idx();
+
+        // 如果是边界点
+        if (halfedge_mesh->is_boundary(v_handle)) {
+            triplets.push_back(Eigen::Triplet<double>(i, i, 1.0));
+
+            // 右端项为其原始三维空间坐标
+            auto pt = halfedge_mesh->point(v_handle);
+            B(i, 0) = pt[0];
+            B(i, 1) = pt[1];
+            B(i, 2) = pt[2];
+        }
+        // 如果是内部点
+        else {
+            double degree = 0.0;
+            // 遍历 1-邻域的半边
+            for (const auto& he_handle : v_handle.outgoing_halfedges()) {
+                int j = he_handle.to().idx();  // 邻居顶点的索引
+                triplets.push_back(Eigen::Triplet<double>(i, j, -1.0));
+                degree += 1.0;
+            }
+            // 主对角线为度数 d_i
+            triplets.push_back(Eigen::Triplet<double>(i, i, degree));
+
+            // 右端项 B 矩阵对应行在初始化时已经是 0，无需操作
+        }
+    }
+
+    // 从 Triplet 构建稀疏矩阵 A
+    A.setFromTriplets(triplets.begin(), triplets.end());
+
+    // 求解稀疏线性方程组 AX = B
+    Eigen::SparseLU<Eigen::SparseMatrix<double>> solver;
+    solver.compute(A);
+
+    if (solver.info() != Eigen::Success) {
+        throw std::runtime_error(
+            "Minimal Surface: Failed to factorize the coefficient matrix.");
+        return false;
+    }
+
+    // 求解得到所有顶点的新坐标
+    Eigen::MatrixXd X = solver.solve(B);
+
+    if (solver.info() != Eigen::Success) {
+        throw std::runtime_error(
+            "Minimal Surface: Failed to solve the linear system.");
+        return false;
+    }
+
+    // 将求解出的新坐标更新回 Mesh 结构中
+    for (auto v_handle : halfedge_mesh->vertices()) {
+        int i = v_handle.idx();
+        halfedge_mesh->set_point(
+            v_handle, OpenMesh::Vec3f(X(i, 0), X(i, 1), X(i, 2)));
+    }
 
     /* ----------------------------- Postprocess ------------------------------
     ** Convert the minimal surface mesh from the halfedge structure back to
