@@ -1,15 +1,12 @@
-#include <time.h>
-
-#include <Eigen/Sparse>
-#include <Eigen/SparseLU>  // 注意：求解非对称稀疏矩阵需要引入此头文件
-#include <cmath>
-
-// #include "GCore/Components/MeshOperand.h"
 #include <pxr/usd/usdGeom/mesh.h>
+#include <time.h>
 
 #include <Eigen/Core>
 #include <Eigen/Eigen>
+#include <Eigen/Sparse>
+#include <Eigen/SparseLU>
 #include <cfloat>
+#include <cmath>
 #include <cstdlib>
 #include <unordered_set>
 #include <vector>
@@ -20,6 +17,10 @@
 #include "GCore/util_openmesh_bind.h"
 #include "geom_node_base.h"
 #include "nodes/core/def/node_def.hpp"
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 /*
 ** @brief HW4_TutteParameterization
@@ -41,25 +42,12 @@ NODE_DECLARATION_FUNCTION(hw5_param)
     // Input-1: Original 3D mesh with boundary
     b.add_input<Geometry>("Input");
 
-    /*
-    ** NOTE: You can add more inputs or outputs if necessary. For example, in
-    *some cases,
-    ** additional information (e.g. other mesh geometry, other parameters) is
-    *required to perform
-    ** the computation.
-    **
-    ** Be sure that the input/outputs do not share the same name. You can add
-    *one geometry as
-    **
-    **                b.add_input<Geometry>("Input");
-    **
-    ** Or maybe you need a value buffer like:
-    **
-    **                b.add_input<float1Buffer>("Weights");
-    */
+    // Input-2: 原始三维网格，用于计算 Cotangent 和 Floater 权重的几何信息
+    b.add_input<Geometry>("Original Mesh");
 
-    // Output-1: Minimal surface with fixed boundary
-    b.add_output<Geometry>("Output");
+    b.add_output<Geometry>("Uniform");
+    b.add_output<Geometry>("Cotangent");
+    b.add_output<Geometry>("Floater");
 }
 
 NODE_EXECUTION_FUNCTION(hw5_param)
@@ -67,135 +55,255 @@ NODE_EXECUTION_FUNCTION(hw5_param)
     // Get the input from params
     auto input = params.get_input<Geometry>("Input");
 
-    // (TO BE UPDATED) Avoid processing the node when there is no input
     if (!input.get_component<MeshComponent>()) {
         throw std::runtime_error("Minimal Surface: Need Geometry Input.");
         return false;
     }
 
-    /* ----------------------------- Preprocess -------------------------------
-    ** Create a halfedge structure (using OpenMesh) for the input mesh. The
-    ** half-edge data structure is a widely used data structure in geometric
-    ** processing, offering convenient operations for traversing and modifying
-    ** mesh elements.
-    */
-    auto halfedge_mesh = operand_to_openmesh(&input);
-
-    /* ---------------- [HW4_TODO] TASK 1: Minimal Surface --------------------
-    ** In this task, you are required to generate a 'minimal surface' mesh with
-    ** the boundary of the input mesh as its boundary.
-    **
-    ** Specifically, the positions of the boundary vertices of the input mesh
-    ** should be fixed. By solving a global Laplace equation on the mesh,
-    ** recalculate the coordinates of the vertices inside the mesh to achieve
-    ** the minimal surface configuration.
-    **
-    ** (Recall the Poisson equation with Dirichlet Boundary Condition in HW3)
-    */
-
-    /*
-    ** Algorithm Pseudocode for Minimal Surface Calculation
-    ** ------------------------------------------------------------------------
-    ** 1. Initialize mesh with input boundary conditions.
-    **    - For each boundary vertex, fix its position.
-    **    - For internal vertices, initialize with initial guess if necessary.
-    **
-    ** 2. Construct Laplacian matrix for the mesh.
-    **    - Compute weights for each edge based on the chosen weighting scheme
-    **      (e.g., uniform weights for simplicity).
-    **    - Assemble the global Laplacian matrix.
-    **
-    ** 3. Solve the Laplace equation for interior vertices.
-    **    - Apply Dirichlet boundary conditions for boundary vertices.
-    **    - Solve the linear system (Laplacian * X = 0) to find new positions
-    **      for internal vertices.
-    **
-    ** 4. Update mesh geometry with new vertex positions.
-    **    - Ensure the mesh respects the minimal surface configuration.
-    **
-    ** Note: This pseudocode outlines the general steps for calculating a
-    ** minimal surface mesh given fixed boundary conditions using the Laplace
-    ** equation. The specific implementation details may vary based on the mesh
-    ** representation and numerical methods used.
-    **
-    */
-    // 获取顶点总数，初始化 Eigen 稀疏矩阵 A 和右端项矩阵 B
-    int n_vertices = halfedge_mesh->n_vertices();
-    Eigen::SparseMatrix<double> A(n_vertices, n_vertices);
-    Eigen::MatrixXd B = Eigen::MatrixXd::Zero(n_vertices, 3);
-
-    // 使用 Triplet 列表来高效构建稀疏矩阵
-    std::vector<Eigen::Triplet<double>> triplets;
-    // 预分配空间，假设每个点平均度数为 6，加上主对角线 1 个
-    triplets.reserve(n_vertices * 7);
-
-    // 遍历所有顶点，构建线性方程组
-    for (const auto& v_handle : halfedge_mesh->vertices()) {
-        int i = v_handle.idx();
-
-        // 如果是边界点
-        if (halfedge_mesh->is_boundary(v_handle)) {
-            triplets.push_back(Eigen::Triplet<double>(i, i, 1.0));
-
-            // 右端项为其原始三维空间坐标
-            auto pt = halfedge_mesh->point(v_handle);
-            B(i, 0) = pt[0];
-            B(i, 1) = pt[1];
-            B(i, 2) = pt[2];
+    std::shared_ptr<Ruzino::PolyMesh> ref_mesh = nullptr;
+    if (params.has_input("Original Mesh")) {
+        auto ref_input = params.get_input<Geometry>("Original Mesh");
+        if (ref_input.get_component<MeshComponent>()) {
+            ref_mesh = operand_to_openmesh(&ref_input);
         }
-        // 如果是内部点
-        else {
-            double degree = 0.0;
-            // 遍历 1-邻域的半边
-            for (const auto& he_handle : v_handle.outgoing_halfedges()) {
-                int j = he_handle.to().idx();  // 邻居顶点的索引
-                triplets.push_back(Eigen::Triplet<double>(i, j, -1.0));
-                degree += 1.0;
+    }
+
+    // 辅助函数：计算余切值 cot = cos/sin = dot(u,v) / norm(cross(u,v))
+    auto get_cotan = [](const OpenMesh::Vec3f& center,
+                        const OpenMesh::Vec3f& p1,
+                        const OpenMesh::Vec3f& p2) {
+        OpenMesh::Vec3f u = p1 - center;
+        OpenMesh::Vec3f v = p2 - center;
+        double dot_prod = (u | v);          // OpenMesh dot product
+        double cross_len = (u % v).norm();  // OpenMesh cross product length
+        if (cross_len < 1e-6)
+            return 0.0;
+        return dot_prod / cross_len;
+    };
+
+    const char* output_names[3] = { "Uniform", "Cotangent", "Floater" };
+
+    // 循环 3 次，一次性算出 3 种权重，送到 3 个输出端口
+    for (int weight_type = 0; weight_type < 3; ++weight_type) {
+        int actual_type = weight_type;
+        // 如果选择了高级权重但没有连入 Original Mesh，自动退化为Uniform
+        if ((actual_type == 1 || actual_type == 2) && ref_mesh == nullptr) {
+            actual_type = 0;
+        }
+
+        // 每次循环都需要从 Input 获取一个干净的全新网格拷贝
+        auto halfedge_mesh = operand_to_openmesh(&input);
+
+        int n_vertices = halfedge_mesh->n_vertices();
+        Eigen::SparseMatrix<double> A(n_vertices, n_vertices);
+        Eigen::MatrixXd B = Eigen::MatrixXd::Zero(n_vertices, 3);
+        std::vector<Eigen::Triplet<double>> triplets;
+        triplets.reserve(n_vertices * 7);
+
+        for (const auto& v_handle : halfedge_mesh->vertices()) {
+            int i = v_handle.idx();
+
+            // 边界点始终固定为当前坐标 (Dirichlet 边界条件)
+            if (halfedge_mesh->is_boundary(v_handle)) {
+                triplets.push_back(Eigen::Triplet<double>(i, i, 1.0));
+                auto pt = halfedge_mesh->point(v_handle);
+                B(i, 0) = pt[0];
+                B(i, 1) = pt[1];
+                B(i, 2) = pt[2];
             }
-            // 主对角线为度数 d_i
-            triplets.push_back(Eigen::Triplet<double>(i, i, degree));
+            // 内部点
+            else {
+                if (actual_type == 0) {
+                    // 1. Uniform Weights
+                    double degree = 0.0;
+                    for (const auto& he_handle :
+                         v_handle.outgoing_halfedges()) {
+                        int j = he_handle.to().idx();
+                        triplets.push_back(Eigen::Triplet<double>(i, j, -1.0));
+                        degree += 1.0;
+                    }
+                    triplets.push_back(Eigen::Triplet<double>(i, i, degree));
+                }
+                else if (actual_type == 1) {
+                    // 2. Cotangent Weights
+                    double weight_sum = 0.0;
+                    for (const auto& he_handle :
+                         v_handle.outgoing_halfedges()) {
+                        int j = he_handle.to().idx();
+                        double w = 0.0;
 
-            // 右端项 B 矩阵对应行在初始化时已经是 0，无需操作
+                        // 去 Original
+                        // Mesh中寻找对应的半边以获取真实的三维几何信息
+                        auto ref_he =
+                            ref_mesh->halfedge_handle(he_handle.idx());
+
+                        if (!ref_mesh->is_boundary(ref_he)) {
+                            auto he_next =
+                                ref_mesh->next_halfedge_handle(ref_he);
+                            auto p_alpha = ref_mesh->point(
+                                ref_mesh->to_vertex_handle(he_next));
+                            auto p_i = ref_mesh->point(
+                                ref_mesh->from_vertex_handle(ref_he));
+                            auto p_j = ref_mesh->point(
+                                ref_mesh->to_vertex_handle(ref_he));
+                            w += get_cotan(p_alpha, p_i, p_j);
+                        }
+
+                        auto ref_he_opp =
+                            ref_mesh->opposite_halfedge_handle(ref_he);
+                        if (!ref_mesh->is_boundary(ref_he_opp)) {
+                            auto he_opp_next =
+                                ref_mesh->next_halfedge_handle(ref_he_opp);
+                            auto p_beta = ref_mesh->point(
+                                ref_mesh->to_vertex_handle(he_opp_next));
+                            auto p_i = ref_mesh->point(
+                                ref_mesh->to_vertex_handle(ref_he_opp));
+                            auto p_j = ref_mesh->point(
+                                ref_mesh->from_vertex_handle(ref_he_opp));
+                            w += get_cotan(p_beta, p_i, p_j);
+                        }
+
+                        if (w < 1e-4)
+                            w = 1e-4;  // 防止负权重导致系统不稳定
+
+                        triplets.push_back(Eigen::Triplet<double>(i, j, -w));
+                        weight_sum += w;
+                    }
+                    triplets.push_back(
+                        Eigen::Triplet<double>(i, i, weight_sum));
+                }
+                else if (actual_type == 2) {
+                    // 3. Floater's Shape-Preserving Weights
+                    std::vector<OpenMesh::SmartHalfedgeHandle> out_hes;
+                    for (auto he : v_handle.outgoing_halfedges()) {
+                        out_hes.push_back(he);
+                    }
+                    int d = out_hes.size();
+                    std::vector<double> r(d);
+                    std::vector<double> alpha(d);
+                    double theta = 0.0;
+
+                    auto ref_v = ref_mesh->vertex_handle(v_handle.idx());
+                    auto p_i = ref_mesh->point(ref_v);
+
+                    // 提取原网格中的距离和角度信息
+                    for (int k = 0; k < d; ++k) {
+                        auto he = out_hes[k];
+                        auto ref_he = ref_mesh->halfedge_handle(he.idx());
+                        auto p_k =
+                            ref_mesh->point(ref_mesh->to_vertex_handle(ref_he));
+                        r[k] = (p_k - p_i).norm();
+
+                        int k_next = (k + 1) % d;
+                        auto he_next = out_hes[k_next];
+                        auto ref_he_next =
+                            ref_mesh->halfedge_handle(he_next.idx());
+                        auto p_k_next = ref_mesh->point(
+                            ref_mesh->to_vertex_handle(ref_he_next));
+
+                        OpenMesh::Vec3f u = p_k - p_i;
+                        OpenMesh::Vec3f v = p_k_next - p_i;
+                        double dot = u | v;
+                        double cross = (u % v).norm();
+                        alpha[k] = std::atan2(cross, dot);
+                        theta += alpha[k];
+                    }
+
+                    // 映射到 2D 局部极坐标平面
+                    std::vector<double> phi(d + 1, 0.0);
+                    for (int k = 0; k < d; ++k) {
+                        phi[k + 1] = phi[k] + 2.0 * M_PI * (alpha[k] / theta);
+                    }
+
+                    struct Point2D {
+                        double x, y;
+                    };
+                    std::vector<Point2D> p2d(d);
+                    for (int k = 0; k < d; ++k) {
+                        p2d[k].x = r[k] * std::cos(phi[k]);
+                        p2d[k].y = r[k] * std::sin(phi[k]);
+                    }
+
+                    // 计算原点在三个顶点构成的三角形中的重心坐标分量
+                    auto area2D = [](Point2D p1, Point2D p2) {
+                        return 0.5 * (p1.x * p2.y - p2.x * p1.y);
+                    };
+
+                    std::vector<double> lambda(d, 0.0);
+                    for (int l = 0; l < d; ++l) {
+                        // 反向射线的角度
+                        double psi = std::fmod(phi[l] + M_PI, 2.0 * M_PI);
+                        if (psi < 0)
+                            psi += 2.0 * M_PI;
+
+                        // 寻找反向射线穿过的线段 [p_m, p_{m+1}]
+                        int m = 0;
+                        for (int k = 0; k < d; ++k) {
+                            if (psi >= phi[k] && psi < phi[k + 1]) {
+                                m = k;
+                                break;
+                            }
+                        }
+                        int next = (m + 1) % d;
+
+                        // 利用面积法计算重心坐标
+                        double a1 = area2D(p2d[m], p2d[next]);
+                        double a2 = area2D(p2d[next], p2d[l]);
+                        double a3 = area2D(p2d[l], p2d[m]);
+                        double sum_a = a1 + a2 + a3;
+
+                        lambda[l] += (a1 / sum_a) / d;
+                        lambda[m] += (a2 / sum_a) / d;
+                        lambda[next] += (a3 / sum_a) / d;
+                    }
+
+                    //  填充稀疏矩阵
+                    for (int k = 0; k < d; ++k) {
+                        int j = out_hes[k].to().idx();
+                        triplets.push_back(
+                            Eigen::Triplet<double>(i, j, -lambda[k]));
+                    }
+                    triplets.push_back(Eigen::Triplet<double>(i, i, 1.0));
+                }
+            }
         }
+
+        A.setFromTriplets(triplets.begin(), triplets.end());
+
+        // 求解稀疏线性方程组
+        Eigen::SparseLU<Eigen::SparseMatrix<double>> solver;
+        solver.compute(A);
+
+        if (solver.info() != Eigen::Success) {
+            throw std::runtime_error(
+                "Minimal Surface: Failed to factorize the coefficient matrix.");
+            return false;
+        }
+
+        Eigen::MatrixXd X = solver.solve(B);
+
+        if (solver.info() != Eigen::Success) {
+            throw std::runtime_error(
+                "Minimal Surface: Failed to solve the linear system.");
+            return false;
+        }
+
+        // 将求解出的新坐标更新回 Mesh
+        for (auto v_handle : halfedge_mesh->vertices()) {
+            int i = v_handle.idx();
+            halfedge_mesh->set_point(
+                v_handle, OpenMesh::Vec3f(X(i, 0), X(i, 1), X(i, 2)));
+        }
+
+        /* ----------------------------- Postprocess
+         * ------------------------------
+         */
+        auto geometry = openmesh_to_operand(halfedge_mesh.get());
+
+        //  根据当前的类型，把跑完的网格推送到对应的输出端口
+        params.set_output(output_names[weight_type], std::move(*geometry));
     }
 
-    // 从 Triplet 构建稀疏矩阵 A
-    A.setFromTriplets(triplets.begin(), triplets.end());
-
-    // 求解稀疏线性方程组 AX = B
-    Eigen::SparseLU<Eigen::SparseMatrix<double>> solver;
-    solver.compute(A);
-
-    if (solver.info() != Eigen::Success) {
-        throw std::runtime_error(
-            "Minimal Surface: Failed to factorize the coefficient matrix.");
-        return false;
-    }
-
-    // 求解得到所有顶点的新坐标
-    Eigen::MatrixXd X = solver.solve(B);
-
-    if (solver.info() != Eigen::Success) {
-        throw std::runtime_error(
-            "Minimal Surface: Failed to solve the linear system.");
-        return false;
-    }
-
-    // 将求解出的新坐标更新回 Mesh 结构中
-    for (auto v_handle : halfedge_mesh->vertices()) {
-        int i = v_handle.idx();
-        halfedge_mesh->set_point(
-            v_handle, OpenMesh::Vec3f(X(i, 0), X(i, 1), X(i, 2)));
-    }
-
-    /* ----------------------------- Postprocess ------------------------------
-    ** Convert the minimal surface mesh from the halfedge structure back to
-    ** Geometry format as the node's output.
-    */
-    auto geometry = openmesh_to_operand(halfedge_mesh.get());
-
-    // Set the output of the nodes
-    params.set_output("Output", std::move(*geometry));
     return true;
 }
 
