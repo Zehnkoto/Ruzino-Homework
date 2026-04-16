@@ -23,6 +23,9 @@ NODE_DECLARATION_FUNCTION(hw6_arap)
 {
     b.add_input<Geometry>("Input");
     b.add_input<Geometry>("InputUV");
+
+    b.add_input<int>("Iterations").default_val(20).min(1).max(50);
+
     b.add_output<std::vector<glm::vec2>>("OutputUV");
 }
 
@@ -163,7 +166,9 @@ NODE_EXECUTION_FUNCTION(hw6_arap)
     Eigen::VectorXd b_y(n_vertices);
     std::vector<Eigen::Matrix2d> L(n_faces);
 
-    const int num_iterations = 20;
+    int num_iterations = params.get_input<int>("Iterations");
+    num_iterations = std::max(1, num_iterations);
+
     for (int iter = 0; iter < num_iterations; ++iter) {
         for (int f = 0; f < n_faces; ++f) {
             Eigen::Matrix2d S = Eigen::Matrix2d::Zero();
