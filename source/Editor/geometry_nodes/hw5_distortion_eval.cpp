@@ -74,6 +74,10 @@ NODE_EXECUTION_FUNCTION(hw6_distortion_eval)
     std::vector<int> vert_face_count(n_vertices, 0);
     int flipped_triangles = 0;
 
+    double total_3d_area = 0.0;
+    double global_angle_err = 0.0;
+    double global_area_err = 0.0;
+
     for (auto f_handle : angle_mesh->faces()) {
         std::vector<OpenMesh::VertexHandle> f_v;
         for (auto fv_it = angle_mesh->cfv_iter(f_handle); fv_it.is_valid();
@@ -96,6 +100,8 @@ NODE_EXECUTION_FUNCTION(hw6_distortion_eval)
         double len_e1 = e1.norm();
         if (len_e1 < 1e-8)
             continue;
+
+        double face_area_3d = 0.5 * (e1 % e2).norm();
 
         OpenMesh::Vec3f X = e1 / len_e1;
         OpenMesh::Vec3f N = (e1 % e2).normalized();
@@ -134,6 +140,12 @@ NODE_EXECUTION_FUNCTION(hw6_distortion_eval)
             err_angle = 0.5 * (s1 / s2 + s2 / s1);
             double area = s1 * s2;
             err_area = 0.5 * (area + 1.0 / area);
+
+            double paper_angle_err = (s1 / s2 + s2 / s1);
+            double paper_area_err = (area + 1.0 / area);
+            total_3d_area += face_area_3d;
+            global_angle_err += face_area_3d * paper_angle_err;
+            global_area_err += face_area_3d * paper_area_err;
         }
         else {
             err_angle = -1000.0;
@@ -154,6 +166,17 @@ NODE_EXECUTION_FUNCTION(hw6_distortion_eval)
             }
             vert_face_count[v_idx]++;
         }
+    }
+
+    if (total_3d_area > 1e-8) {
+        global_angle_err /= total_3d_area;
+        global_area_err /= total_3d_area;
+        std::cout << "\n==================================================\n";
+        std::cout << "[Distortion Metrics - Follows ARAP Paper Eq.]\n";
+        std::cout << " -> Angle Distortion (D_angle) : " << global_angle_err << "  (Perfect = 2.0)\n";
+        std::cout << " -> Area Distortion  (D_area)  : " << global_area_err << "  (Perfect = 2.0)\n";
+        std::cout << " -> Flipped Triangles          : " << flipped_triangles << "\n";
+        std::cout << "==================================================\n\n";
     }
 
     for (auto v_handle : angle_mesh->vertices()) {
@@ -179,9 +202,6 @@ NODE_EXECUTION_FUNCTION(hw6_distortion_eval)
             area_mesh->set_point(v_handle, flat_pt);
         }
     }
-
-    std::cout << "[Distortion Eval] Flipped Triangles: " << flipped_triangles
-              << std::endl;
 
     auto geom_angle = openmesh_to_operand(angle_mesh.get());
     auto geom_area = openmesh_to_operand(area_mesh.get());
