@@ -6,7 +6,7 @@
 #include <Eigen/SparseLU>
 #include <algorithm>
 #include <array>
-#include <chrono>  
+#include <chrono>
 #include <cmath>
 #include <fstream>
 #include <iostream>
@@ -31,6 +31,13 @@ NODE_DECLARATION_FUNCTION(hw6_arap)
     b.add_input<float>("Hybrid Lambda").default_val(1.0f).min(0.0f).max(50.0f);
 
     b.add_input<bool>("Use OpenMP").default_val(true);
+
+    b.add_input<bool>("Use Soft Constraint").default_val(false);
+    b.add_input<float>("Soft Weight").default_val(5.0f).min(0.1f).max(100.0f);
+    b.add_input<float>("Pin2 Pull Factor")
+        .default_val(1.0f)
+        .min(1.0f)
+        .max(10.0f);
 
     b.add_output<std::vector<glm::vec2>>("ARAP");
     b.add_output<std::vector<glm::vec2>>("ASAP");
@@ -184,16 +191,24 @@ NODE_EXECUTION_FUNCTION(hw6_arap)
     for (int i = 0; i < n_vertices; ++i)
         base_init_u[i] *= init_scale;
 
+    float pull_factor = params.get_input<float>("Pin2 Pull Factor");
+    if (pin2 != -1) {
+        base_init_u[pin2].x() *= pull_factor;
+        base_init_u[pin2].y() *= pull_factor;
+    }
+
     int num_iterations = std::max(1, params.get_input<int>("Iterations"));
     float lambda = params.get_input<float>("Hybrid Lambda");
-
     bool use_omp = params.get_input<bool>("Use OpenMP");
+
+    bool use_soft_constraint = params.get_input<bool>("Use Soft Constraint");
+    double w_soft = static_cast<double>(params.get_input<float>("Soft Weight"));
 
     const char* output_names[3] = { "ARAP", "ASAP", "Hybrid" };
     const char* mesh_names[3] = { "ARAP Mesh", "ASAP Mesh", "Hybrid Mesh" };
 
     for (int method = 0; method < 3; ++method) {
-        bool fix_two_points = (method != 0);
+        bool fix_two_points = true;
 
         Eigen::SparseMatrix<double> A(n_vertices, n_vertices);
         std::vector<Eigen::Triplet<double>> triplets;
@@ -205,8 +220,12 @@ NODE_EXECUTION_FUNCTION(hw6_arap)
                 int v1 = face_vidx[f][(i + 1) % 3];
                 double w = cot_weights[f][(i + 2) % 3];
 
-                bool v0_pinned = (v0 == pin1) || (fix_two_points && v0 == pin2);
-                bool v1_pinned = (v1 == pin1) || (fix_two_points && v1 == pin2);
+                bool v0_pinned =
+                    !use_soft_constraint &&
+                    ((v0 == pin1) || (fix_two_points && v0 == pin2));
+                bool v1_pinned =
+                    !use_soft_constraint &&
+                    ((v1 == pin1) || (fix_two_points && v1 == pin2));
 
                 if (!v0_pinned) {
                     triplets.push_back(Eigen::Triplet<double>(v0, v1, -w));
@@ -221,10 +240,17 @@ NODE_EXECUTION_FUNCTION(hw6_arap)
 
         for (int i = 0; i < n_vertices; ++i) {
             bool pinned = (i == pin1) || (fix_two_points && i == pin2);
-            if (pinned)
+
+            if (!use_soft_constraint && pinned) {
                 triplets.push_back(Eigen::Triplet<double>(i, i, 1.0));
-            else
-                triplets.push_back(Eigen::Triplet<double>(i, i, diag_sum[i]));
+            }
+            else {
+                double diag_val = diag_sum[i];
+                if (use_soft_constraint && pinned) {
+                    diag_val += w_soft;
+                }
+                triplets.push_back(Eigen::Triplet<double>(i, i, diag_val));
+            }
         }
 
         A.setFromTriplets(triplets.begin(), triplets.end());
@@ -262,6 +288,7 @@ NODE_EXECUTION_FUNCTION(hw6_arap)
                 Eigen::JacobiSVD<Eigen::Matrix2d> svd(
                     S, Eigen::ComputeFullU | Eigen::ComputeFullV);
                 Eigen::Matrix2d R = svd.matrixU() * svd.matrixV().transpose();
+
                 if (R.determinant() < 0) {
                     Eigen::Matrix2d U = svd.matrixU();
                     U.col(1) *= -1.0;
@@ -317,6 +344,7 @@ NODE_EXECUTION_FUNCTION(hw6_arap)
 
             b_x.setZero();
             b_y.setZero();
+
             for (int f = 0; f < n_faces; ++f) {
                 for (int i = 0; i < 3; ++i) {
                     int j = (i + 1) % 3;
@@ -329,9 +357,11 @@ NODE_EXECUTION_FUNCTION(hw6_arap)
                     Eigen::Vector2d rhs_term = w * L[f] * dx;
 
                     bool v0_pinned =
-                        (v0 == pin1) || (fix_two_points && v0 == pin2);
+                        !use_soft_constraint &&
+                        ((v0 == pin1) || (fix_two_points && v0 == pin2));
                     bool v1_pinned =
-                        (v1 == pin1) || (fix_two_points && v1 == pin2);
+                        !use_soft_constraint &&
+                        ((v1 == pin1) || (fix_two_points && v1 == pin2));
 
                     if (!v0_pinned) {
                         b_x[v0] += rhs_term.x();
@@ -344,11 +374,21 @@ NODE_EXECUTION_FUNCTION(hw6_arap)
                 }
             }
 
-            b_x[pin1] = base_init_u[pin1].x();
-            b_y[pin1] = base_init_u[pin1].y();
-            if (fix_two_points) {
-                b_x[pin2] = base_init_u[pin2].x();
-                b_y[pin2] = base_init_u[pin2].y();
+            if (!use_soft_constraint) {
+                b_x[pin1] = base_init_u[pin1].x();
+                b_y[pin1] = base_init_u[pin1].y();
+                if (fix_two_points) {
+                    b_x[pin2] = base_init_u[pin2].x();
+                    b_y[pin2] = base_init_u[pin2].y();
+                }
+            }
+            else {
+                b_x[pin1] += w_soft * base_init_u[pin1].x();
+                b_y[pin1] += w_soft * base_init_u[pin1].y();
+                if (fix_two_points) {
+                    b_x[pin2] += w_soft * base_init_u[pin2].x();
+                    b_y[pin2] += w_soft * base_init_u[pin2].y();
+                }
             }
 
             Eigen::VectorXd u_x = solver.solve(b_x);
@@ -392,6 +432,11 @@ NODE_EXECUTION_FUNCTION(hw6_arap)
                   << " (Iterations: " << num_iterations << ")\n"
                   << "   -> OpenMP Mode  : "
                   << (use_omp ? "ON (Multi-Threaded)" : "OFF (Single-Threaded)")
+                  << "\n"
+                  << "   -> Constraint   : "
+                  << (use_soft_constraint
+                          ? ("SOFT (W=" + std::to_string(w_soft) + ")")
+                          : "HARD")
                   << "\n"
                   << "   -> Local Phase  : " << total_local_time_ms << " ms\n"
                   << "   -> Global Phase : " << total_global_time_ms << " ms\n";
