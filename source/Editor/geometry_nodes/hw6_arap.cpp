@@ -6,10 +6,11 @@
 #include <Eigen/SparseLU>
 #include <algorithm>
 #include <array>
+#include <chrono>  
 #include <cmath>
-#include <fstream>  
+#include <fstream>
 #include <iostream>
-#include <string>  
+#include <string>
 #include <vector>
 
 #include "GCore/Components.h"
@@ -28,6 +29,8 @@ NODE_DECLARATION_FUNCTION(hw6_arap)
 
     b.add_input<int>("Iterations").default_val(20).min(1).max(50);
     b.add_input<float>("Hybrid Lambda").default_val(1.0f).min(0.0f).max(50.0f);
+
+    b.add_input<bool>("Use OpenMP").default_val(true);
 
     b.add_output<std::vector<glm::vec2>>("ARAP");
     b.add_output<std::vector<glm::vec2>>("ASAP");
@@ -184,6 +187,8 @@ NODE_EXECUTION_FUNCTION(hw6_arap)
     int num_iterations = std::max(1, params.get_input<int>("Iterations"));
     float lambda = params.get_input<float>("Hybrid Lambda");
 
+    bool use_omp = params.get_input<bool>("Use OpenMP");
+
     const char* output_names[3] = { "ARAP", "ASAP", "Hybrid" };
     const char* mesh_names[3] = { "ARAP Mesh", "ASAP Mesh", "Hybrid Mesh" };
 
@@ -235,7 +240,13 @@ NODE_EXECUTION_FUNCTION(hw6_arap)
         std::vector<double> history_angle_err;
         std::vector<double> history_area_err;
 
+        double total_local_time_ms = 0.0;
+        double total_global_time_ms = 0.0;
+
         for (int iter = 0; iter < num_iterations; ++iter) {
+            auto t_local_start = std::chrono::high_resolution_clock::now();
+
+#pragma omp parallel for if (use_omp)
             for (int f = 0; f < n_faces; ++f) {
                 Eigen::Matrix2d S = Eigen::Matrix2d::Zero();
                 for (int i = 0; i < 3; ++i) {
@@ -297,6 +308,13 @@ NODE_EXECUTION_FUNCTION(hw6_arap)
                 L[f] = s * R;
             }
 
+            auto t_local_end = std::chrono::high_resolution_clock::now();
+            total_local_time_ms += std::chrono::duration<double, std::milli>(
+                                       t_local_end - t_local_start)
+                                       .count();
+
+            auto t_global_start = std::chrono::high_resolution_clock::now();
+
             b_x.setZero();
             b_y.setZero();
             for (int f = 0; f < n_faces; ++f) {
@@ -340,6 +358,11 @@ NODE_EXECUTION_FUNCTION(hw6_arap)
                 u[i] = Eigen::Vector2d(u_x[i], u_y[i]);
             }
 
+            auto t_global_end = std::chrono::high_resolution_clock::now();
+            total_global_time_ms += std::chrono::duration<double, std::milli>(
+                                        t_global_end - t_global_start)
+                                        .count();
+
             double current_angle_err = 0.0;
             double current_area_err = 0.0;
             for (int f = 0; f < n_faces; ++f) {
@@ -365,18 +388,24 @@ NODE_EXECUTION_FUNCTION(hw6_arap)
             history_area_err.push_back(current_area_err / total_3d_area);
         }
 
+        std::cout << "\n[Performance] " << output_names[method]
+                  << " (Iterations: " << num_iterations << ")\n"
+                  << "   -> OpenMP Mode  : "
+                  << (use_omp ? "ON (Multi-Threaded)" : "OFF (Single-Threaded)")
+                  << "\n"
+                  << "   -> Local Phase  : " << total_local_time_ms << " ms\n"
+                  << "   -> Global Phase : " << total_global_time_ms << " ms\n";
+
         std::string filename =
             std::string(output_names[method]) + "_Convergence_Log.csv";
         std::ofstream file(filename);
         if (file.is_open()) {
-            file << "Iteration,Angle_Distortion,Area_Distortion\n";  
+            file << "Iteration,Angle_Distortion,Area_Distortion\n";
             for (size_t i = 0; i < history_angle_err.size(); ++i) {
                 file << (i + 1) << "," << history_angle_err[i] << ","
                      << history_area_err[i] << "\n";
             }
             file.close();
-            std::cout << "[SUCCESS] Exported " << output_names[method]
-                      << " curve data to: " << filename << "\n";
         }
 
         std::vector<glm::vec2> uv_result(n_vertices);
