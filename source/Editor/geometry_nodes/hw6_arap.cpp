@@ -7,7 +7,9 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <fstream>  
 #include <iostream>
+#include <string>  
 #include <vector>
 
 #include "GCore/Components.h"
@@ -61,6 +63,9 @@ NODE_EXECUTION_FUNCTION(hw6_arap)
     std::vector<std::array<int, 3>> face_vidx(n_faces);
     std::vector<double> local_K(n_faces, 0.0);
 
+    std::vector<double> face_area_3d(n_faces, 0.0);
+    double total_3d_area = 0.0;
+
     for (auto f_it = halfedge_mesh->faces_begin();
          f_it != halfedge_mesh->faces_end();
          ++f_it) {
@@ -82,6 +87,12 @@ NODE_EXECUTION_FUNCTION(hw6_arap)
             v[1][0] - v[0][0], v[1][1] - v[0][1], v[1][2] - v[0][2]);
 
         double l0 = e0.norm(), l1 = e1.norm(), l2 = e2.norm();
+
+        OpenMesh::Vec3d om_e1 = v[1] - v[0];
+        OpenMesh::Vec3d om_e2 = v[2] - v[0];
+        double area3d = 0.5 * (om_e1 % om_e2).norm();
+        face_area_3d[f_idx] = area3d;
+        total_3d_area += area3d;
 
         auto calc_cot_by_len = [](double a, double b, double c) {
             double denom = 2.0 * b * c;
@@ -169,6 +180,7 @@ NODE_EXECUTION_FUNCTION(hw6_arap)
     double init_scale = (dist_2D > 1e-8) ? (dist_3D / dist_2D) : 1.0;
     for (int i = 0; i < n_vertices; ++i)
         base_init_u[i] *= init_scale;
+
     int num_iterations = std::max(1, params.get_input<int>("Iterations"));
     float lambda = params.get_input<float>("Hybrid Lambda");
 
@@ -220,6 +232,9 @@ NODE_EXECUTION_FUNCTION(hw6_arap)
         Eigen::VectorXd b_x(n_vertices), b_y(n_vertices);
         std::vector<Eigen::Matrix2d> L(n_faces);
 
+        std::vector<double> history_angle_err;
+        std::vector<double> history_area_err;
+
         for (int iter = 0; iter < num_iterations; ++iter) {
             for (int f = 0; f < n_faces; ++f) {
                 Eigen::Matrix2d S = Eigen::Matrix2d::Zero();
@@ -255,19 +270,27 @@ NODE_EXECUTION_FUNCTION(hw6_arap)
                             s = C23 / (C1 + 1e-8);
                         }
                         else {
-                            s = 1.0;
-                            for (int n_it = 0; n_it < 10; ++n_it) {
-                                double f_val = 2.0 * lambda * s * s * s +
-                                               (C1 - 2.0 * lambda) * s - C23;
-                                double df_val =
-                                    6.0 * lambda * s * s + C1 - 2.0 * lambda;
-                                if (std::abs(df_val) < 1e-8)
-                                    break;
-                                double ds = f_val / df_val;
-                                s -= ds;
-                                if (std::abs(ds) < 1e-6)
-                                    break;
+                            double p = (C1 - 2.0 * lambda) / (2.0 * lambda);
+                            double q = -C23 / (2.0 * lambda);
+                            double delta = (q / 2.0) * (q / 2.0) +
+                                           (p / 3.0) * (p / 3.0) * (p / 3.0);
+
+                            if (delta > 0.0) {
+                                double sqrt_delta = std::sqrt(delta);
+                                s = std::cbrt(-q / 2.0 + sqrt_delta) +
+                                    std::cbrt(-q / 2.0 - sqrt_delta);
                             }
+                            else {
+                                double r = std::sqrt(
+                                    -(p / 3.0) * (p / 3.0) * (p / 3.0));
+                                double theta = std::acos(std::max(
+                                    -1.0,
+                                    std::min(1.0, -q / 2.0 / (r + 1e-12))));
+                                s = 2.0 * std::sqrt(-p / 3.0) *
+                                    std::cos(theta / 3.0);
+                            }
+                            if (s < 1e-4)
+                                s = 1e-4;
                         }
                     }
                 }
@@ -316,6 +339,44 @@ NODE_EXECUTION_FUNCTION(hw6_arap)
             for (int i = 0; i < n_vertices; ++i) {
                 u[i] = Eigen::Vector2d(u_x[i], u_y[i]);
             }
+
+            double current_angle_err = 0.0;
+            double current_area_err = 0.0;
+            for (int f = 0; f < n_faces; ++f) {
+                Eigen::Matrix2d V, Q;
+                V.col(0) = u[face_vidx[f][1]] - u[face_vidx[f][0]];
+                V.col(1) = u[face_vidx[f][2]] - u[face_vidx[f][0]];
+                Q.col(0) = local_x[f][1] - local_x[f][0];
+                Q.col(1) = local_x[f][2] - local_x[f][0];
+
+                Eigen::Matrix2d J = V * Q.inverse();
+                Eigen::JacobiSVD<Eigen::Matrix2d> svd_J(
+                    J, Eigen::ComputeFullU | Eigen::ComputeFullV);
+                double s1 = svd_J.singularValues()(0);
+                double s2 = svd_J.singularValues()(1);
+
+                if (s1 > 1e-8 && s2 > 1e-8) {
+                    current_angle_err += face_area_3d[f] * (s1 / s2 + s2 / s1);
+                    current_area_err +=
+                        face_area_3d[f] * (s1 * s2 + 1.0 / (s1 * s2));
+                }
+            }
+            history_angle_err.push_back(current_angle_err / total_3d_area);
+            history_area_err.push_back(current_area_err / total_3d_area);
+        }
+
+        std::string filename =
+            std::string(output_names[method]) + "_Convergence_Log.csv";
+        std::ofstream file(filename);
+        if (file.is_open()) {
+            file << "Iteration,Angle_Distortion,Area_Distortion\n";  
+            for (size_t i = 0; i < history_angle_err.size(); ++i) {
+                file << (i + 1) << "," << history_angle_err[i] << ","
+                     << history_area_err[i] << "\n";
+            }
+            file.close();
+            std::cout << "[SUCCESS] Exported " << output_names[method]
+                      << " curve data to: " << filename << "\n";
         }
 
         std::vector<glm::vec2> uv_result(n_vertices);
@@ -323,17 +384,13 @@ NODE_EXECUTION_FUNCTION(hw6_arap)
             uv_result[i] = glm::vec2(
                 static_cast<float>(u[i].x()), static_cast<float>(u[i].y()));
         }
-
         params.set_output(output_names[method], uv_result);
 
         auto flat_mesh = operand_to_openmesh(&input);
         for (int i = 0; i < n_vertices; ++i) {
             flat_mesh->set_point(
                 flat_mesh->vertex_handle(i),
-                OpenMesh::Vec3f(
-                    static_cast<float>(u[i].x()),
-                    static_cast<float>(u[i].y()),
-                    0.0f));
+                OpenMesh::Vec3f(u[i].x(), u[i].y(), 0.0f));
         }
         auto flat_geom = openmesh_to_operand(flat_mesh.get());
         params.set_output(mesh_names[method], std::move(*flat_geom));
