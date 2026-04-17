@@ -30,6 +30,10 @@ NODE_DECLARATION_FUNCTION(hw6_arap)
     b.add_output<std::vector<glm::vec2>>("ARAP");
     b.add_output<std::vector<glm::vec2>>("ASAP");
     b.add_output<std::vector<glm::vec2>>("Hybrid");
+
+    b.add_output<Geometry>("ARAP Mesh");
+    b.add_output<Geometry>("ASAP Mesh");
+    b.add_output<Geometry>("Hybrid Mesh");
 }
 
 NODE_EXECUTION_FUNCTION(hw6_arap)
@@ -167,11 +171,12 @@ NODE_EXECUTION_FUNCTION(hw6_arap)
         base_init_u[i] *= init_scale;
     int num_iterations = std::max(1, params.get_input<int>("Iterations"));
     float lambda = params.get_input<float>("Hybrid Lambda");
+
     const char* output_names[3] = { "ARAP", "ASAP", "Hybrid" };
+    const char* mesh_names[3] = { "ARAP Mesh", "ASAP Mesh", "Hybrid Mesh" };
 
     for (int method = 0; method < 3; ++method) {
-        bool fix_two_points =
-            (method != 0);  
+        bool fix_two_points = (method != 0);
 
         Eigen::SparseMatrix<double> A(n_vertices, n_vertices);
         std::vector<Eigen::Triplet<double>> triplets;
@@ -320,6 +325,18 @@ NODE_EXECUTION_FUNCTION(hw6_arap)
         }
 
         params.set_output(output_names[method], uv_result);
+
+        auto flat_mesh = operand_to_openmesh(&input);
+        for (int i = 0; i < n_vertices; ++i) {
+            flat_mesh->set_point(
+                flat_mesh->vertex_handle(i),
+                OpenMesh::Vec3f(
+                    static_cast<float>(u[i].x()),
+                    static_cast<float>(u[i].y()),
+                    0.0f));
+        }
+        auto flat_geom = openmesh_to_operand(flat_mesh.get());
+        params.set_output(mesh_names[method], std::move(*flat_geom));
     }
 
     return true;
