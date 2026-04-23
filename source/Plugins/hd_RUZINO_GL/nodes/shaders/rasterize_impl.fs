@@ -49,4 +49,11 @@ void main() {
     }
     tangent = normalize(tangent - dot(tangent, normal) * normal);
     vec3 bitangent = normalize(cross(tangent,normal));
+
+    
+    vec3 mappedNormal = normalmap_value * 2.0 - 1.0;
+    
+    mat3 TBN = mat3(tangent, bitangent, normal);
+    
+    normal = normalize(TBN * mappedNormal);
 }

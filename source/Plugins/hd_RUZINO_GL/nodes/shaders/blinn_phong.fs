@@ -14,7 +14,7 @@ struct Light {
 };
 
 layout(binding = 0) buffer lightsBuffer {
-Light lights[4];
+    Light lights[4];
 };
 
 uniform vec2 iResolution;
@@ -33,29 +33,60 @@ uniform int light_count;
 layout(location = 0) out vec4 Color;
 
 void main() {
-vec2 uv = gl_FragCoord.xy / iResolution;
+    vec2 uv = gl_FragCoord.xy / iResolution;
 
-vec3 pos = texture2D(position,uv).xyz;
-vec3 normal = texture2D(normalMapSampler,uv).xyz;
+    vec3 pos = texture2D(position,uv).xyz;
+    vec3 normal = texture2D(normalMapSampler,uv).xyz;
+    vec3 albedo = texture2D(diffuseColorSampler, uv).xyz;
 
-vec4 metalnessRoughness = texture2D(metallicRoughnessSampler,uv);
-float metal = metalnessRoughness.x;
-float roughness = metalnessRoughness.y;
+    vec4 metalnessRoughness = texture2D(metallicRoughnessSampler,uv);
+    float metal = metalnessRoughness.x;
+    float roughness = metalnessRoughness.y;
 
-for(int i = 0; i < light_count; i ++) {
+    vec3 finalColor = 0.05 * albedo;
 
-float shadow_map_value = texture(shadow_maps, vec3(uv, lights[i].shadow_map_id)).x;
-Color = vec4(0,0,0,1);
-// Visualization of shadow map
-Color += vec4(shadow_map_value, 0, 0, 1);
+    for(int i = 0; i < light_count; i ++) {
 
-// HW6_TODO: first comment the line above ("Color +=..."). That's for quick Visualization.
-// You should first do the Blinn Phong shading here. You can use roughness to modify alpha. Or you can pass in an alpha value through the uniform above.
+        float shadow_map_value = texture(shadow_maps, vec3(uv, lights[i].shadow_map_id)).x;
+        // Color = vec4(0,0,0,1);
+        // Visualization of shadow map
+        // Color += vec4(shadow_map_value, 0, 0, 1);
 
-// After finishing Blinn Phong shading, you can do shadow mapping with the help of the provided shadow_map_value. You will need to refer to the node, node_render_shadow_mapping.cpp, for the light matrices definition. Then you need to fill the mat4 light_projection; mat4 light_view; with similar approach that we fill position and color.
-// For shadow mapping, as is discussed in the course, you should compare the value "position depth from the light's view" against the "blocking object's depth.", then you can decide whether it's shadowed.
+        // HW6_TODO: first comment the line above ("Color +=..."). That's for quick Visualization.
+        // You should first do the Blinn Phong shading here. You can use roughness to modify alpha. Or you can pass in an alpha value through the uniform above.
 
-// PCSS is also applied here.
-}
+        vec3 lightDir = normalize(lights[i].position - pos);
+        vec3 viewDir = normalize(camPos - pos);
+        vec3 halfDir = normalize(lightDir + viewDir);
 
+        float diff = max(dot(normal, lightDir), 0.0);
+        vec3 diffuse = lights[i].color * diff * albedo;
+
+        float shininess = max((1.0 - roughness) * 128.0, 1.0); 
+        float spec = pow(max(dot(normal, halfDir), 0.0), shininess);
+        vec3 specular = lights[i].color * spec;
+
+        // After finishing Blinn Phong shading, you can do shadow mapping with the help of the provided shadow_map_value. You will need to refer to the node, node_render_shadow_mapping.cpp, for the light matrices definition. Then you need to fill the mat4 light_projection; mat4 light_view; with similar approach that we fill position and color.
+        // For shadow mapping, as is discussed in the course, you should compare the value "position depth from the light's view" against the "blocking object's depth.", then you can decide whether it's shadowed.
+
+        
+        vec4 posLightSpace = lights[i].light_projection * lights[i].light_view * vec4(pos, 1.0);
+        vec3 projCoords = posLightSpace.xyz / posLightSpace.w;
+        projCoords = projCoords * 0.5 + 0.5;
+
+        float shadow = 0.0;
+        if(projCoords.z <= 1.0 && projCoords.x >= 0.0 && projCoords.x <= 1.0 && projCoords.y >= 0.0 && projCoords.y <= 1.0) {
+            float closestDepth = texture(shadow_maps, vec3(projCoords.xy, lights[i].shadow_map_id)).x;
+            float bias = max(0.05 * (1.0 - dot(normal, lightDir)), 0.005);
+            
+            if(projCoords.z - bias > closestDepth) {
+            }
+        }
+
+        finalColor += (1.0 - shadow) * (diffuse + specular);
+
+    }
+    
+    
+    Color = vec4(finalColor, 1.0);
 }
