@@ -17,10 +17,6 @@
 RUZINO_NAMESPACE_OPEN_SCOPE
 using namespace pxr;
 
-// Here for the cource purpose, we support a very limited set of forms of the
-// material. Specifically, we support only UsdPreviewSurface, and each input can
-// be either value, or a texture connected to a primvar reader.
-
 HdMaterialNode2 Hd_RUZINO_Material::get_input_connection(
     HdMaterialNetwork2 surfaceNetwork,
     std::map<TfToken, std::vector<HdMaterialConnection2>>::value_type&
@@ -180,7 +176,6 @@ void Hd_RUZINO_Material::Sync(
 
             surfaceNetwork = HdConvertToHdMaterialNetwork2(hdNetworkMap);
 
-            // Here we only support single output material.
             assert(surfaceNetwork.terminals.size() == 1);
 
             auto terminal =
@@ -220,7 +215,6 @@ std::string Hd_RUZINO_Material::requireTexcoordName()
 void Hd_RUZINO_Material::Finalize(HdRenderParam* renderParam)
 {
     static_cast<Hd_RUZINO_RenderParam*>(renderParam)->AcquireSceneForEdit();
-
     HdMaterial::Finalize(renderParam);
 }
 
@@ -231,26 +225,136 @@ Color Hd_RUZINO_Material::Sample(
     GfVec2f texcoord,
     const std::function<float()>& uniform_float)
 {
+    auto record = SampleMaterialRecord(texcoord);
+    auto roughness = std::clamp(record.roughness, 0.04f, 1.0f);
+    auto ior = record.ior;
+    auto metallic = record.metallic;
+    GfVec3f diffuseColor = record.diffuseColor;
+
+    float DielectricSpecular = pow((1.0f - ior) / (1.0f + ior), 2.0f);
+    GfVec3f diffuseAlbedo =
+        (1.0f - metallic) * diffuseColor * (1.0f - DielectricSpecular);
+    GfVec3f F0 = GfVec3f(DielectricSpecular) * (1.0f - metallic) +
+                 metallic * diffuseColor;
+    GfVec3f F =
+        F0 + (GfVec3f(1.0f) - F0) * pow(1.0f - std::max(0.0f, wo[2]), 5.0f);
+
+    float diffuseMax = std::max(
+        std::max(diffuseAlbedo[0], diffuseAlbedo[1]), diffuseAlbedo[2]);
+    float specularMax = std::max(std::max(F[0], F[1]), F[2]);
+    float sample_diffuse_bar = diffuseMax / (diffuseMax + specularMax + 1e-6f);
+
     auto sample2D = GfVec2f{ uniform_float(), uniform_float() };
 
-    wi = CosineWeightedDirection(sample2D, pdf);
+    if (uniform_float() < sample_diffuse_bar) {
+        float r = sqrt(sample2D[0]);
+        float theta = 2.0f * M_PI * sample2D[1];
+        wi = GfVec3f(
+            r * cos(theta),
+            r * sin(theta),
+            sqrt(std::max(0.0f, 1.0f - sample2D[0])));
+    }
+    else {
+        float alpha = roughness * roughness;
+        float alpha2 = alpha * alpha;
+        float phi = 2.0f * M_PI * sample2D[0];
+        float cosTheta = sqrt(std::max(
+            0.0f,
+            (1.0f - sample2D[1]) / (1.0f + (alpha2 - 1.0f) * sample2D[1])));
+        float sinTheta = sqrt(std::max(0.0f, 1.0f - cosTheta * cosTheta));
+
+        GfVec3f H(sinTheta * cos(phi), sinTheta * sin(phi), cosTheta);
+        wi = 2.0f * GfDot(wo, H) * H - wo;
+    }
+
+    if (wi[2] <= 0.0f || wo[2] <= 0.0f) {
+        pdf = 0.0f;
+        return Color(0.0f);
+    }
+
+    pdf = Pdf(wi, wo, texcoord);
     return Eval(wi, wo, texcoord);
 }
 
 Color Hd_RUZINO_Material::Eval(GfVec3f wi, GfVec3f wo, GfVec2f texcoord)
 {
-    auto record = SampleMaterialRecord(texcoord);
+    if (wi[2] <= 0.0f || wo[2] <= 0.0f)
+        return Color(0.0f);
 
+    auto record = SampleMaterialRecord(texcoord);
+    auto roughness = std::clamp(record.roughness, 0.04f, 1.0f);
+    auto ior = record.ior;
+    auto metallic = record.metallic;
     GfVec3f diffuseColor = record.diffuseColor;
 
-    GfVec3f result = diffuseColor / M_PI;
+    float alpha = roughness * roughness;
+    float alpha2 = alpha * alpha;
 
-    return result;
+    GfVec3f H = (wo + wi).GetNormalized();
+    float NdotH = std::max(0.0f, H[2]);
+    float VdotH = std::max(0.0f, GfDot(wo, H));
+
+    float denom = (NdotH * NdotH * (alpha2 - 1.0f) + 1.0f);
+    float D = alpha2 / (M_PI * denom * denom);
+
+    float DielectricSpecular = pow((1.0f - ior) / (1.0f + ior), 2.0f);
+    GfVec3f diffuseAlbedo =
+        (1.0f - metallic) * diffuseColor * (1.0f - DielectricSpecular);
+    GfVec3f F0 = GfVec3f(DielectricSpecular) * (1.0f - metallic) +
+                 metallic * diffuseColor;
+    GfVec3f F = F0 + (GfVec3f(1.0f) - F0) * pow(1.0f - VdotH, 5.0f);
+
+    auto smith_g1 = [&](const GfVec3f& v) {
+        float NdotV = std::max(0.0f, v[2]);
+        return 2.0f * NdotV /
+               (NdotV + sqrt(alpha2 + (1.0f - alpha2) * NdotV * NdotV));
+    };
+    float G = smith_g1(wi) * smith_g1(wo);
+
+    Color specular = F * (D * G / (4.0f * wi[2] * wo[2]));
+    Color diffuse = diffuseAlbedo / M_PI;
+
+    return specular + diffuse;
 }
 
 float Hd_RUZINO_Material::Pdf(GfVec3f wi, GfVec3f wo, GfVec2f texcoord)
 {
-    return 0;
+    if (wi[2] <= 0.0f || wo[2] <= 0.0f)
+        return 0.0f;
+
+    auto record = SampleMaterialRecord(texcoord);
+    auto roughness = std::clamp(record.roughness, 0.04f, 1.0f);
+    auto ior = record.ior;
+    auto metallic = record.metallic;
+    GfVec3f diffuseColor = record.diffuseColor;
+
+    float DielectricSpecular = pow((1.0f - ior) / (1.0f + ior), 2.0f);
+    GfVec3f diffuseAlbedo =
+        (1.0f - metallic) * diffuseColor * (1.0f - DielectricSpecular);
+    GfVec3f F0 = GfVec3f(DielectricSpecular) * (1.0f - metallic) +
+                 metallic * diffuseColor;
+    GfVec3f F =
+        F0 + (GfVec3f(1.0f) - F0) * pow(1.0f - std::max(0.0f, wo[2]), 5.0f);
+
+    float diffuseMax = std::max(
+        std::max(diffuseAlbedo[0], diffuseAlbedo[1]), diffuseAlbedo[2]);
+    float specularMax = std::max(std::max(F[0], F[1]), F[2]);
+    float sample_diffuse_bar = diffuseMax / (diffuseMax + specularMax + 1e-6f);
+
+    GfVec3f H = (wo + wi).GetNormalized();
+    float NdotH = std::max(0.0f, H[2]);
+    float VdotH = std::max(0.0f, GfDot(wo, H));
+
+    float alpha = roughness * roughness;
+    float alpha2 = alpha * alpha;
+    float denom = (NdotH * NdotH * (alpha2 - 1.0f) + 1.0f);
+    float D = alpha2 / (M_PI * denom * denom);
+
+    float ggxPdf = D * NdotH;
+    float specPdf = ggxPdf / (4.0f * VdotH + 1e-6f);
+    float diffPdf = wi[2] / M_PI;
+
+    return sample_diffuse_bar * diffPdf + (1.0f - sample_diffuse_bar) * specPdf;
 }
 
 RUZINO_NAMESPACE_CLOSE_SCOPE
