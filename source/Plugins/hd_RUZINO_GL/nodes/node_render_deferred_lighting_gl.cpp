@@ -3,12 +3,14 @@
 #include "../camera.h"
 #include "../light.h"
 #include "nodes/core/def/node_def.hpp"
+#include "pxr/base/gf/frustum.h"  
 #include "pxr/base/gf/matrix4f.h"
 #include "pxr/imaging/glf/simpleLight.h"
 #include "pxr/imaging/hd/tokens.h"
 #include "render_node_base.h"
 #include "rich_type_buffer.hpp"
 #include "utils/draw_fullscreen.h"
+
 NODE_DEF_OPEN_SCOPE
 
 NODE_DECLARATION_FUNCTION(deferred_lighting)
@@ -127,8 +129,24 @@ NODE_EXECUTION_FUNCTION(deferred_lighting)
                 auto radius =
                     lights[i]->Get(HdLightTokens->radius).Get<float>();
 
+                GfMatrix4f light_view;
+                light_view.SetLookAt(
+                    position3,
+                    GfVec3f(0.0f, 0.0f, 0.0f),
+                    GfVec3f(0.0f, 0.0f, 1.0f));
+
+                GfFrustum frustum;
+                frustum.SetPerspective(90.f, 0.1f, 1.0f, 25.f);
+                GfMatrix4f light_projection(frustum.ComputeProjectionMatrix());
+
                 light_vector.emplace_back(
-                    GfMatrix4f(), GfMatrix4f(), position3, 0.f, diffuse3, i);
+                    light_projection,
+                    light_view,
+                    position3,
+                    radius,
+                    diffuse3,
+                    i);
+                // ==============================
             }
 
             // You can add directional light here, and also the corresponding

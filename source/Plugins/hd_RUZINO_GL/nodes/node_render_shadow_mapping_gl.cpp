@@ -76,7 +76,7 @@ NODE_EXECUTION_FUNCTION(shadow_mapping)
 
                 light_view_mat = GfMatrix4f().SetLookAt(
                     light_position, GfVec3f(0, 0, 0), GfVec3f(0, 0, 1));
-                frustum.SetPerspective(120.f, 1.0, 1, 25.f);
+                frustum.SetPerspective(90.f, 0.1f, 1.0f, 25.f);
                 light_projection_mat =
                     GfMatrix4f(frustum.ComputeProjectionMatrix());
 
