@@ -1,5 +1,3 @@
-
-
 #include "../geometries/mesh.h"
 #include "../light.h"
 #include "nodes/core/def/node_def.hpp"
@@ -9,6 +7,7 @@
 #include "render_node_base.h"
 #include "rich_type_buffer.hpp"
 #include "utils/draw_fullscreen.h"
+
 NODE_DEF_OPEN_SCOPE
 NODE_DECLARATION_FUNCTION(shadow_mapping)
 {
@@ -76,7 +75,10 @@ NODE_EXECUTION_FUNCTION(shadow_mapping)
 
                 light_view_mat = GfMatrix4f().SetLookAt(
                     light_position, GfVec3f(0, 0, 0), GfVec3f(0, 0, 1));
+
+                // --- Frustum Optimization ---
                 frustum.SetPerspective(90.f, 0.1f, 1.0f, 25.f);
+
                 light_projection_mat =
                     GfMatrix4f(frustum.ComputeProjectionMatrix());
 
@@ -121,7 +123,17 @@ NODE_EXECUTION_FUNCTION(shadow_mapping)
 
                 shader_handle->shader.setMat4("model", mesh->transform);
 
+                // --- Bind materials and UVs for shadow displacement ---
+                auto material = materials[mesh->GetMaterialId()];
+                material->RefreshGLBuffer();
+                material->BindTextures(
+                    shader_handle->shader);  // Passes displacementMapSampler
+
+                auto texcoordName = material->requireTexcoordName();
                 mesh->RefreshGLBuffer();
+                mesh->RefreshTexcoordGLBuffer(
+                    texcoordName);  // Passes the UV data
+                // -----------------------------------------------------------
 
                 glBindVertexArray(mesh->VAO);
                 glDrawElements(
