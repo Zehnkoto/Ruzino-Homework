@@ -93,20 +93,29 @@ void main() {
     float metal = metalnessRoughness.x;
     float roughness = metalnessRoughness.y;
 
-    vec3 finalColor = 0.05 * albedo;
+    vec3 finalColor = 0.15 * albedo;
 
     for(int i = 0; i < light_count; i ++) {
 
-        vec3 lightDir = normalize(lights[i].position - pos);
+        // --- FIX 1: Calculate distance and direction for attenuation ---
+        vec3 lightVector = lights[i].position - pos;
+        float dist = length(lightVector);
+        vec3 lightDir = normalize(lightVector);
         vec3 viewDir = normalize(camPos - pos);
         vec3 halfDir = normalize(lightDir + viewDir);
 
+        // Apply inverse square law attenuation 
+        // Adjust the '50.0' numerator to control light intensity based on scene scale
+        float attenuation = 25.0 / (dist * dist + 1.0);
+
         float diff = max(dot(normal, lightDir), 0.0);
-        vec3 diffuse = lights[i].color * diff * albedo;
+        // Multiply by attenuation
+        vec3 diffuse = lights[i].color * diff * albedo * attenuation;
 
         float shininess = max((1.0 - roughness) * 128.0, 1.0); 
         float spec = pow(max(dot(normal, halfDir), 0.0), shininess);
-        vec3 specular = lights[i].color * spec;
+        // Multiply by attenuation
+        vec3 specular = lights[i].color * spec * attenuation;
 
         vec4 posLightSpace = lights[i].light_projection * lights[i].light_view * vec4(pos, 1.0);
         vec3 projCoords = posLightSpace.xyz / posLightSpace.w;
@@ -125,6 +134,10 @@ void main() {
 
         finalColor += (1.0 - shadow) * (diffuse + specular);
     }
+    
+    // --- FIX 2: Gamma Correction (Tone Mapping) ---
+    // Convert linear color to sRGB space for accurate monitor display
+     finalColor = pow(finalColor, vec3(1.0 / 2.2));
     
     Color = vec4(finalColor, 1.0);
 }

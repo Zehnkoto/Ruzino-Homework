@@ -1,19 +1,19 @@
-
-
+#include "../camera.h"
 #include "../light.h"
 #include "nodes/core/def/node_def.hpp"
+#include "pxr/base/gf/matrix4f.h"
 #include "pxr/imaging/hd/tokens.h"
 #include "render_node_base.h"
 #include "rich_type_buffer.hpp"
 #include "utils/draw_fullscreen.h"
+
 NODE_DEF_OPEN_SCOPE
 NODE_DECLARATION_FUNCTION(ssao)
 {
     b.add_input<GLTextureHandle>("Color");
     b.add_input<GLTextureHandle>("Position");
+    b.add_input<GLTextureHandle>("Normal");
     b.add_input<GLTextureHandle>("Depth");
-
-    // HW6: For HBAO you might need normal texture.
 
     b.add_input<std::string>("Shader").default_val("shaders/ssao.fs");
     b.add_output<GLTextureHandle>("Color");
@@ -22,11 +22,12 @@ NODE_DECLARATION_FUNCTION(ssao)
 NODE_EXECUTION_FUNCTION(ssao)
 {
     auto color = params.get_input<GLTextureHandle>("Color");
+    auto position_texture = params.get_input<GLTextureHandle>("Position");
+    auto normal_texture = params.get_input<GLTextureHandle>("Normal");
 
     auto size = color->desc.size;
 
     unsigned int VBO, VAO;
-
     CreateFullScreenVAO(VAO, VBO);
 
     GLTextureDesc texture_desc;
@@ -60,13 +61,25 @@ NODE_EXECUTION_FUNCTION(ssao)
     shader->shader.use();
     shader->shader.setVec2("iResolution", size);
 
-    // HW6: Bind the textures like other passes here.
+    // Bind all necessary textures for the Shader
+    shader->shader.setInt("colorSampler", 0);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, color->texture_id);
+
+    shader->shader.setInt("positionSampler", 1);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, position_texture->texture_id);
+
+    shader->shader.setInt("normalSampler", 2);
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, normal_texture->texture_id);
 
     glBindVertexArray(VAO);
     glDrawArrays(GL_TRIANGLES, 0, 6);
 
     DestroyFullScreenVAO(VAO, VBO);
     resource_allocator.destroy(shader);
+    glDeleteFramebuffers(1, &framebuffer);
 
     params.set_output("Color", color_texture);
     return true;
