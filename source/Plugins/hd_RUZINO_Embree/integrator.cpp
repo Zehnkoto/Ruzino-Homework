@@ -33,7 +33,6 @@ static unsigned channel(VtValue val)
     TF_CODING_ERROR("val must can cast to those types");
     return 0;
 }
-/// Fill in an RTCRay structure from the given parameters.
 static void _PopulateRay(
     RTCRay* ray,
     const GfVec3d& origin,
@@ -55,18 +54,13 @@ static void _PopulateRay(
     ray->mask = -1;
 }
 
-/// Fill in an RTCRayHit structure from the given parameters.
-// note this containts a Ray and a RayHit
 static void _PopulateRayHit(
     RTCRayHit* rayHit,
     const GfVec3d& origin,
     const GfVec3d& dir,
     float nearest)
 {
-    // Fill in defaults for the ray
     _PopulateRay(&rayHit->ray, origin, dir, nearest);
-
-    // Fill in defaults for the hit
     rayHit->hit.primID = RTC_INVALID_GEOMETRY_ID;
     rayHit->hit.geomID = RTC_INVALID_GEOMETRY_ID;
 }
@@ -84,10 +78,7 @@ Color Integrator::SampleLights(
         return Color{ 0 };
     }
 
-    // Currently, we uniformly choose one light to calculate contribution.
-    // However, a more appropriate approach is to sample according to power.
     float select_light_pdf = 1.0f / float(N);
-
     auto light_id = size_t(std::floor(uniform_float() * N));
     auto light = (*render_param->lights)[light_id];
 
@@ -122,7 +113,6 @@ Color Integrator::IntersectDomeLight(const GfRay& ray)
             return light->Intersect(ray, depth);
         }
     }
-
     return Color{ 0.0 };
 }
 
@@ -133,7 +123,6 @@ bool Integrator::Intersect(const GfRay& ray, SurfaceInteraction& si)
     _PopulateRayHit(&rayHit, ray.GetStartPoint(), ray.GetDirection(), 0.0f);
     {
         rtcIntersect1(rtc_scene, &rayHit);
-
         rayHit.hit.Ng_x = -rayHit.hit.Ng_x;
         rayHit.hit.Ng_y = -rayHit.hit.Ng_y;
         rayHit.hit.Ng_z = -rayHit.hit.Ng_z;
@@ -160,13 +149,11 @@ bool Integrator::Intersect(const GfRay& ray, SurfaceInteraction& si)
         -GfVec3f(rayHit.hit.Ng_x, rayHit.hit.Ng_y, rayHit.hit.Ng_z);
 
     GfVec3f shadingNormal;
-    // Transform the normal from object space to world space.
     auto it = prototypeContext->primvarMap.find(HdTokens->normals);
     if (it != prototypeContext->primvarMap.end()) {
         it->second->Sample(
             rayHit.hit.primID, rayHit.hit.u, rayHit.hit.v, &shadingNormal);
     }
-
     else {
         shadingNormal = geometricNormal;
     }
@@ -182,7 +169,6 @@ bool Integrator::Intersect(const GfRay& ray, SurfaceInteraction& si)
     si.material = (*render_param->materials)[materialId];
 
     auto texcoord_name = si.material->requireTexcoordName();
-    // Transform the normal from object space to world space.
     it = prototypeContext->primvarMap.find(texcoord_name);
     GfVec2f texcoord;
     if (it != prototypeContext->primvarMap.end()) {
@@ -212,7 +198,7 @@ bool Integrator::VisibilityTest(const GfRay& ray)
 
     rtcOccluded1(rtc_scene, &test_ray);
 
-    if (test_ray.tfar > 0) {  // Then this is visible
+    if (test_ray.tfar > 0) {
         return true;
     }
     return false;
@@ -233,7 +219,6 @@ bool Integrator::VisibilityTest(const GfVec3f& begin, const GfVec3f& end)
     rtcOccluded1(rtc_scene, &test_ray);
 
     if (test_ray.tfar > 0)
-        // Hit at nothing, so visible.
         return true;
     return false;
 }
@@ -247,23 +232,29 @@ Color Integrator::EstimateDirectLight(
     SurfaceInteraction& si,
     const std::function<float()>& uniform_float)
 {
-    // Sample the lights.
     GfVec3f wi;
     float sample_light_pdf;
     GfVec3f sampled_light_pos;
     auto sample_light_luminance = SampleLights(
         si.position, wi, sampled_light_pos, sample_light_pdf, uniform_float);
+
+    if (sample_light_pdf <= 1e-6f) {
+        return GfVec3f(0.0f);
+    }
+
     auto brdfVal = si.Eval(wi);
     GfVec3f contribution_by_sample_lights{ 0 };
 
-    if (this->VisibilityTest(
-            si.position + 0.0001f * si.geometricNormal, sampled_light_pos)) {
-        contribution_by_sample_lights =
-            GfCompMult(sample_light_luminance, brdfVal) *
-            abs(GfDot(si.shadingNormal, wi)) / sample_light_pdf;
+    float cos_wi = GfDot(si.shadingNormal, wi);
+    if (cos_wi > 0.0f) {
+        if (this->VisibilityTest(
+                si.position + 0.0001f * si.geometricNormal,
+                sampled_light_pos)) {
+            contribution_by_sample_lights =
+                GfCompMult(sample_light_luminance, brdfVal) * cos_wi /
+                sample_light_pdf;
+        }
     }
-
-    // HW7_TODO: Sample BRDF (optional)
 
     return contribution_by_sample_lights;
 }
@@ -342,37 +333,27 @@ void SamplingIntegrator::_RenderTiles(
     const unsigned int numTilesX =
         (camera_->_dataWindow.GetWidth() + tileSize - 1) / tileSize;
 
-    // Initialize the RNG for this tile (each tile creates one as
-    // a lazy way to do thread-local RNGs).
     size_t seed = std::chrono::system_clock::now().time_since_epoch().count();
-    // Custom hash combine implementation
     seed ^= tileStart + 0x9e3779b9 + (seed << 6) + (seed >> 2);
     std::default_random_engine random(seed);
 
-    // Create a uniform distribution for jitter calculations.
     std::uniform_real_distribution<float> uniform_dist(0.0f, 1.0f);
     std::function<float()> uniform_float = [&uniform_dist, &random]() {
         return uniform_dist(random);
     };
 
-    // _RenderTiles gets a range of tiles; iterate through them.
     for (unsigned int tile = tileStart; tile < tileEnd; ++tile) {
-        // Cancellation point.
         if (renderThread && renderThread->IsStopRequested()) {
             break;
         }
 
-        // Compute the pixel location of tile boundaries.
         const unsigned int tileY = tile / numTilesX;
         const unsigned int tileX = tile - tileY * numTilesX;
-        // (Above is equivalent to: tileX = tile % numTilesX)
         const unsigned int x0 = tileX * tileSize + minX;
         const unsigned int y0 = tileY * tileSize + minY;
-        // Clamp to data window, in case tileSize doesn't
-        // neatly divide its with and height.
         const unsigned int x1 = std::min(x0 + tileSize, maxX);
         const unsigned int y1 = std::min(y0 + tileSize, maxY);
-        // Loop over pixels casting rays.
+
         for (unsigned int y = y0; y < y1; ++y) {
             for (unsigned int x = x0; x < x1; ++x) {
                 VtValue color;
