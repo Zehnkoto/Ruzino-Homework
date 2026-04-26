@@ -103,16 +103,16 @@ void Hd_RUZINO_Material::TryLoadParameter(
 GLuint Hd_RUZINO_Material::createTextureFromHioImage(
     const InputDescriptor& descriptor)
 {
-    // Step 4: Create an OpenGL texture object
+    // Create an OpenGL texture object
     GLuint texture;
     glGenTextures(1, &texture);
 
-    // Step 5: Bind the texture object and specify its parameters
+    // Bind the texture object and specify its parameters
     glBindTexture(GL_TEXTURE_2D, texture);
 
     auto image = descriptor.image;
     if (image) {
-        // Step 1: Get image information
+        // Get image information
         int width = image->GetWidth();
         int height = image->GetHeight();
         HioFormat format = image->GetFormat();
@@ -126,7 +126,7 @@ GLuint Hd_RUZINO_Material::createTextureFromHioImage(
             return 0;
         }
 
-        // Step 3: Read the image data
+        // Read the image data
         if (!image->Read(storageSpec)) {
             free(storageSpec.data);
             return 0;

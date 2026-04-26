@@ -193,16 +193,16 @@ VtValue Hd_RUZINO_Light::Get(const TfToken& token) const
 GLuint Hd_RUZINO_Dome_Light::createTextureFromHioImage(
     const InputDescriptor& env_texture)
 {
-    // Step 4: Create an OpenGL texture object
+    // Create an OpenGL texture object
     GLuint texture;
     glGenTextures(1, &texture);
 
-    // Step 5: Bind the texture object and specify its parameters
+    // Bind the texture object and specify its parameters
     glBindTexture(GL_TEXTURE_2D, texture);
 
     auto image = env_texture.image;
     if (image) {
-        // Step 1: Get image information
+        // Get image information
         int width = image->GetWidth();
         int height = image->GetHeight();
         HioFormat format = image->GetFormat();
@@ -216,7 +216,7 @@ GLuint Hd_RUZINO_Dome_Light::createTextureFromHioImage(
             return 0;
         }
 
-        // Step 3: Read the image data
+        // Read the image data
         if (!image->Read(storageSpec)) {
             free(storageSpec.data);
             return 0;

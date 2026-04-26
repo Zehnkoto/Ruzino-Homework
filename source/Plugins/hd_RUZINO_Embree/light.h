@@ -32,6 +32,11 @@ class Hd_RUZINO_Light : public HdLight {
         const std::function<float()>& uniform_float) = 0;
     virtual Color Intersect(const GfRay& ray, float& depth) = 0;
 
+    virtual float Pdf(const GfVec3f& pos, const GfVec3f& dir)
+    {
+        return 0.0f;
+    }
+
     bool IsDomeLight();
 
     void Finalize(HdRenderParam* renderParam) override;
@@ -59,6 +64,9 @@ class Hd_RUZINO_Sphere_Light : public Hd_RUZINO_Light {
         float& sample_light_pdf,
         const std::function<float()>& uniform_float) override;
     Color Intersect(const GfRay& ray, float& depth) override;
+
+    float Pdf(const GfVec3f& pos, const GfVec3f& dir) override;
+
     void Sync(
         HdSceneDelegate* sceneDelegate,
         HdRenderParam* renderParam,
@@ -84,6 +92,9 @@ class Hd_RUZINO_Dome_Light : public Hd_RUZINO_Light {
         float& sample_light_pdf,
         const std::function<float()>& uniform_float) override;
     Color Intersect(const GfRay& ray, float& depth) override;
+
+    float Pdf(const GfVec3f& pos, const GfVec3f& dir) override;
+
     void _PrepareDomeLight(SdfPath const& id, HdSceneDelegate* scene_delegate);
     void Sync(
         HdSceneDelegate* sceneDelegate,
@@ -118,6 +129,8 @@ class Hd_RUZINO_Distant_Light : public Hd_RUZINO_Light {
         const std::function<float()>& uniform_float) override;
     Color Intersect(const GfRay& ray, float& depth) override;
 
+    float Pdf(const GfVec3f& pos, const GfVec3f& dir) override;
+
    private:
     float angle;
     GfVec3f direction;
@@ -138,6 +151,9 @@ class Hd_RUZINO_Rect_Light : public Hd_RUZINO_Light {
         float& sample_light_pdf,
         const std::function<float()>& uniform_float) override;
     Color Intersect(const GfRay& ray, float& depth) override;
+
+    float Pdf(const GfVec3f& pos, const GfVec3f& dir) override;
+
     void Sync(
         HdSceneDelegate* sceneDelegate,
         HdRenderParam* renderParam,

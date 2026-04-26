@@ -232,31 +232,74 @@ Color Integrator::EstimateDirectLight(
     SurfaceInteraction& si,
     const std::function<float()>& uniform_float)
 {
-    GfVec3f wi;
-    float sample_light_pdf;
+    GfVec3f L_dir{ 0.0f };
+    int N_lights = render_param->lights->size();
+    if (N_lights == 0)
+        return L_dir;
+
+    GfVec3f wi_light;
+    float pdf_light_sample;
     GfVec3f sampled_light_pos;
-    auto sample_light_luminance = SampleLights(
-        si.position, wi, sampled_light_pos, sample_light_pdf, uniform_float);
+    auto L_light = SampleLights(
+        si.position,
+        wi_light,
+        sampled_light_pos,
+        pdf_light_sample,
+        uniform_float);
 
-    if (sample_light_pdf <= 1e-6f) {
-        return GfVec3f(0.0f);
-    }
+    if (pdf_light_sample > 1e-6f) {
+        float cos_wi = GfDot(si.shadingNormal, wi_light);
+        if (cos_wi > 0.0f) {
+            if (this->VisibilityTest(
+                    si.position + 0.0001f * si.geometricNormal,
+                    sampled_light_pos)) {
+                GfVec3f local_wi = si.WorldToTangent(wi_light);
+                GfVec3f local_wo = si.WorldToTangent(si.wo);
 
-    auto brdfVal = si.Eval(wi);
-    GfVec3f contribution_by_sample_lights{ 0 };
+                auto f_r = si.material->Eval(local_wi, local_wo, si.texcoord);
+                float pdf_brdf =
+                    si.material->Pdf(local_wi, local_wo, si.texcoord);
 
-    float cos_wi = GfDot(si.shadingNormal, wi);
-    if (cos_wi > 0.0f) {
-        if (this->VisibilityTest(
-                si.position + 0.0001f * si.geometricNormal,
-                sampled_light_pos)) {
-            contribution_by_sample_lights =
-                GfCompMult(sample_light_luminance, brdfVal) * cos_wi /
-                sample_light_pdf;
+                float w_light = PowerHeuristic(pdf_light_sample, pdf_brdf);
+                L_dir += GfCompMult(L_light, f_r) * cos_wi / pdf_light_sample *
+                         w_light;
+            }
         }
     }
 
-    return contribution_by_sample_lights;
+    GfVec3f wi_brdf;
+    float pdf_brdf_sample;
+    auto f_r_brdf = si.Sample(wi_brdf, pdf_brdf_sample, uniform_float);
+
+    if (pdf_brdf_sample > 1e-6f) {
+        float cos_wi = GfDot(si.shadingNormal, wi_brdf);
+        if (cos_wi > 0.0f) {
+            GfRay ray_brdf(si.position + si.geometricNormal * 0.001f, wi_brdf);
+            GfVec3f lightHitPos;
+            Color L_hit = IntersectLights(ray_brdf, lightHitPos);
+
+            if (L_hit != Color(0.0f) &&
+                VisibilityTest(
+                    si.position + 0.0001f * si.geometricNormal, lightHitPos)) {
+                float pdf_light = 0.0f;
+
+                for (auto light : *(render_param->lights)) {
+                    float depth;
+                    if (light->Intersect(ray_brdf, depth) != Color(0.0f)) {
+                        pdf_light =
+                            light->Pdf(si.position, wi_brdf) / float(N_lights);
+                        break;
+                    }
+                }
+
+                float w_brdf = PowerHeuristic(pdf_brdf_sample, pdf_light);
+                L_dir += GfCompMult(L_hit, f_r_brdf) * cos_wi /
+                         pdf_brdf_sample * w_brdf;
+            }
+        }
+    }
+
+    return L_dir;
 }
 
 void SamplingIntegrator::_writeBuffer(unsigned x, unsigned y, VtValue color)

@@ -331,7 +331,6 @@ Color Hd_RUZINO_Distant_Light::Intersect(const GfRay& ray, float& depth)
     return Color(0);
 }
 
-// Implement Rect Light Sampling
 Color Hd_RUZINO_Rect_Light::Sample(
     const GfVec3f& pos,
     GfVec3f& dir,
@@ -345,7 +344,6 @@ Color Hd_RUZINO_Rect_Light::Sample(
     GfVec3f edge1 = corner2 - corner0;
     GfVec3f edge2 = corner1 - corner0;
 
-    // Uniformly sample a point on the rectangle
     sampled_light_pos = corner0 + u * edge1 + v * edge2;
 
     GfVec3f distanceVec = sampled_light_pos - pos;
@@ -356,26 +354,22 @@ Color Hd_RUZINO_Rect_Light::Sample(
 
     float cosVal = GfDot(-dir, normal);
 
-    // Backface culling: Rect light emits only towards its normal
     if (cosVal <= 0.0f) {
         sample_light_pdf = 0.0f;
         return Color(0.0f);
     }
 
-    // Convert area PDF to solid angle PDF
     sample_light_pdf = distanceSq / (area * cosVal);
 
     return irradiance / M_PI;
 }
 
-// implement the intersect function for rectangle light
 Color Hd_RUZINO_Rect_Light::Intersect(const GfRay& ray, float& depth)
 {
     depth = std::numeric_limits<float>::infinity();
 
     float ndotd = GfDot(ray.GetDirection(), normal);
 
-    // Check if the ray hits the backface of the light or is parallel
     if (ndotd >= -1e-6f) {
         return Color(0.0f);
     }
@@ -383,7 +377,6 @@ Color Hd_RUZINO_Rect_Light::Intersect(const GfRay& ray, float& depth)
     GfPlane plane(normal, corner0);
     double dist;
 
-    // Find intersection with the infinite plane
     if (!ray.Intersect(plane, &dist) || dist <= 0.0) {
         return Color(0.0f);
     }
@@ -394,8 +387,6 @@ Color Hd_RUZINO_Rect_Light::Intersect(const GfRay& ray, float& depth)
     GfVec3f edge2 = corner1 - corner0;
     GfVec3f v = p - corner0;
 
-    // Project the hit point onto the rectangle's edges to check if it's inside
-    // bounds
     float d1 = GfDot(v, edge1) / edge1.GetLengthSq();
     float d2 = GfDot(v, edge2) / edge2.GetLengthSq();
 
@@ -422,7 +413,6 @@ void Hd_RUZINO_Rect_Light::Sync(
     height = sceneDelegate->GetLightParamValue(id, HdLightTokens->height)
                  .Get<float>();
 
-    // Using GfVec3d for matrix transformation to ensure accuracy before casting
     corner0 = GfVec3f(
         transform.TransformAffine(GfVec3d(-0.5 * width, -0.5 * height, 0)));
     corner1 = GfVec3f(
@@ -438,11 +428,9 @@ void Hd_RUZINO_Rect_Light::Sync(
                 .Get<GfVec3f>() *
             diffuse;
 
-    // calculate irradiance and cache geometric properties
     GfVec3f edge1 = corner2 - corner0;
     GfVec3f edge2 = corner1 - corner0;
 
-    // Force light emitting towards local -Z according to USD spec
     normal = GfVec3f(transform.TransformDir(GfVec3d(0, 0, -1))).GetNormalized();
     area = GfCross(edge1, edge2).GetLength();
 
@@ -452,6 +440,55 @@ void Hd_RUZINO_Rect_Light::Sync(
     else {
         irradiance = GfVec3f(0.0f);
     }
+}
+
+float Hd_RUZINO_Rect_Light::Pdf(const GfVec3f& pos, const GfVec3f& dir)
+{
+    float depth;
+    GfRay ray(pos, dir);
+
+    if (Intersect(ray, depth) == Color(0.0f)) {
+        return 0.0f;
+    }
+
+    float distanceSq = depth * depth;
+    float cosVal = std::max(0.0f, GfDot(-dir, normal));
+    if (cosVal <= 0.0f)
+        return 0.0f;
+
+    return distanceSq / (area * cosVal);
+}
+
+float Hd_RUZINO_Sphere_Light::Pdf(const GfVec3f& pos, const GfVec3f& dir)
+{
+    float depth;
+    GfRay ray(pos, dir);
+    if (Intersect(ray, depth) == Color(0.0f))
+        return 0.0f;
+
+    float distance = (position - pos).GetLength();
+    if (distance <= radius)
+        return 0.0f;
+
+    float cosThetaMax =
+        sqrt(std::max(0.0f, 1.0f - (radius * radius) / (distance * distance)));
+    float solidAngle = 2.0f * M_PI * (1.0f - cosThetaMax);
+    return 1.0f / solidAngle;
+}
+
+float Hd_RUZINO_Dome_Light::Pdf(const GfVec3f& pos, const GfVec3f& dir)
+{
+    return 1.0f / (4.0f * M_PI);
+}
+
+float Hd_RUZINO_Distant_Light::Pdf(const GfVec3f& pos, const GfVec3f& dir)
+{
+    float cos_theta = GfDot(dir.GetNormalized(), -direction);
+    if (cos_theta > cos(angle)) {
+        float theta = acos(std::clamp(cos_theta, -1.0f, 1.0f));
+        return 1.0f / (sin(theta) * 2.0f * M_PI * angle + 1e-6f);
+    }
+    return 0.0f;
 }
 
 RUZINO_NAMESPACE_CLOSE_SCOPE
