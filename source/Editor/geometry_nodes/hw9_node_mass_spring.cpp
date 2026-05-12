@@ -43,9 +43,9 @@ NODE_DECLARATION_FUNCTION(hw9_mass_spring)
         .max(2.0);
     b.add_input<float>("sphere radius").default_val(0.4).min(0.0).max(5.0);
     ;
-    b.add_input<float>("sphere center x").default_val(0.0);
-    b.add_input<float>("sphere center y").default_val(0.0);
-    b.add_input<float>("sphere center z").default_val(0.0);
+    b.add_input<float>("sphere center x").default_val(0.0).min(-10.0).max(10.0);
+    b.add_input<float>("sphere center y").default_val(0.0).min(-10.0).max(10.0);
+    b.add_input<float>("sphere center z").default_val(0.0).min(-10.0).max(10.0);
     // -----------------------------------------------------------------------------------------------------------
 
     // Useful switches (0 or 1). You can add more if you like.

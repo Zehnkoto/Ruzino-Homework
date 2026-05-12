@@ -49,17 +49,64 @@ void MassSpring::step()
         TIC(step)
 
         // (HW TODO)
-        // auto H_elastic = computeHessianSparse(stiffness);  // size = [nx3,
-        // nx3]
+        auto H_elastic = computeHessianSparse(stiffness);  // size = [nx3, nx3]
 
-        // compute Y
+        // compute Y and assemble the full Hessian H_g
+        // H_g = M / h^2 + H_elastic
+        Eigen::SparseMatrix<double> H_g(n_vertices * 3, n_vertices * 3);
+        std::vector<Eigen::Triplet<double>> triplets_M;
+        double m_h2 = mass_per_vertex / (h * h);
+        for (int i = 0; i < n_vertices * 3; i++) {
+            triplets_M.emplace_back(i, i, m_h2);
+        }
+        Eigen::SparseMatrix<double> M_h2(n_vertices * 3, n_vertices * 3);
+        M_h2.setFromTriplets(triplets_M.begin(), triplets_M.end());
+
+        H_g = M_h2 + H_elastic;
+
+        // Compute grad_g
+        // grad_g = -M/h * vel - M * acc_ext + grad_E
+        Eigen::MatrixXd grad_E = computeGrad(stiffness);
+        Eigen::MatrixXd grad_g_mat = Eigen::MatrixXd::Zero(X.rows(), X.cols());
+        for (int i = 0; i < n_vertices; i++) {
+            grad_g_mat.row(i) = -(mass_per_vertex / h) * vel.row(i) -
+                                mass_per_vertex * acceleration_ext.transpose() +
+                                grad_E.row(i);
+        }
+        Eigen::VectorXd grad_g_flatten = flatten(grad_g_mat);
+
+        // Enforce Dirichlet boundary conditions by modifying the linear system
+        for (int i = 0; i < n_vertices; i++) {
+            if (dirichlet_bc_mask[i]) {
+                for (int j = 0; j < 3; j++) {
+                    int idx = 3 * i + j;
+                    // Set the target gradient to 0 for fixed points
+                    grad_g_flatten(idx) = 0.0;
+
+                    // Use a massive penalty value (1e11) to strictly enforce
+                    // delta_X = 0 This prevents numerical pollution to adjacent
+                    // vertices.
+                    H_g.coeffRef(idx, idx) += 1e11;
+                }
+            }
+        }
 
         // Solve Newton's search direction with linear solver
+        Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> solver;
+        solver.compute(H_g);
+        Eigen::VectorXd delta_X_flatten = solver.solve(-grad_g_flatten);
 
         // update X and vel
-        // **Delete the following two lines**
-        vel = 0.03f * Eigen::MatrixXd::Ones(X.rows(), X.cols());
-        X += vel * h;
+        Eigen::MatrixXd delta_X = unflatten(delta_X_flatten);
+        for (int i = 0; i < n_vertices; i++) {
+            if (dirichlet_bc_mask[i]) {
+                vel.row(i).setZero();
+            }
+            else {
+                X.row(i) += delta_X.row(i);
+                vel.row(i) = delta_X.row(i) / h;  // V = (X_new - X_old) / h
+            }
+        }
 
         TOC(step)
     }
@@ -78,7 +125,23 @@ void MassSpring::step()
 
         // (HW TODO): Implement semi-implicit Euler time integration
 
-        // Update X and vel
+        // Update velocity first
+        vel += h * acceleration;
+
+        // Apply damping
+        if (enable_damping) {
+            vel *= damping;
+        }
+
+        // Update X and vel with boundary conditions
+        for (int i = 0; i < n_vertices; i++) {
+            if (dirichlet_bc_mask[i]) {
+                vel.row(i).setZero();  // Fix points have zero velocity
+            }
+            else {
+                X.row(i) += h * vel.row(i);  // Update positions
+            }
+        }
     }
     else {
         std::cerr << "Unknown time integrator!" << std::endl;
@@ -112,7 +175,18 @@ Eigen::MatrixXd MassSpring::computeGrad(double stiffness)
     for (const auto& e : E) {
         // --------------------------------------------------
         // (HW TODO): Implement the gradient computation
+        Eigen::Vector3d diff = X.row(e.first) - X.row(e.second);
+        double length = diff.norm();
 
+        // Avoid division by zero
+        if (length > 1e-6) {
+            Eigen::Vector3d force_dir = diff / length;
+            Eigen::Vector3d grad_e =
+                stiffness * (length - E_rest_length[i]) * force_dir;
+
+            g.row(e.first) += grad_e.transpose();
+            g.row(e.second) -= grad_e.transpose();
+        }
         // --------------------------------------------------
         i++;
     }
@@ -123,21 +197,55 @@ Eigen::SparseMatrix<double> MassSpring::computeHessianSparse(double stiffness)
 {
     unsigned n_vertices = X.rows();
     Eigen::SparseMatrix<double> H(n_vertices * 3, n_vertices * 3);
+    std::vector<Eigen::Triplet<double>> triplets;  // Store non-zero entries
 
     unsigned i = 0;
     auto k = stiffness;
-    const auto I = Eigen::MatrixXd::Identity(3, 3);
+    const auto I =
+        Eigen::Matrix3d::Identity();  // Using Matrix3d instead of MatrixXd
     for (const auto& e : E) {
         // --------------------------------------------------
         // (HW TODO): Implement the sparse version Hessian computation
         // Remember to consider fixed points
         // You can also consider positive definiteness here
 
+        Eigen::Vector3d diff = X.row(e.first) - X.row(e.second);
+        double len = diff.norm();
+        double l = E_rest_length[i];
+
+        Eigen::Matrix3d H_block = Eigen::Matrix3d::Zero();
+        if (len > 1e-6) {
+            Eigen::Vector3d dir = diff / len;
+            Eigen::Matrix3d dir_dirT = dir * dir.transpose();
+
+            if (len >= l) {
+                // Exact Hessian when the spring is stretched
+                H_block = k * dir_dirT + k * (1.0 - l / len) * (I - dir_dirT);
+            }
+            else {
+                // Approximate Hessian when compressed to ensure Positive
+                // Definiteness
+                H_block = k * dir_dirT;
+            }
+        }
+
+        // Add 3x3 block to the full 3Nx3N Hessian
+        int v1 = e.first;
+        int v2 = e.second;
+        for (int r = 0; r < 3; ++r) {
+            for (int c = 0; c < 3; ++c) {
+                triplets.emplace_back(3 * v1 + r, 3 * v1 + c, H_block(r, c));
+                triplets.emplace_back(3 * v2 + r, 3 * v2 + c, H_block(r, c));
+                triplets.emplace_back(3 * v1 + r, 3 * v2 + c, -H_block(r, c));
+                triplets.emplace_back(3 * v2 + r, 3 * v1 + c, -H_block(r, c));
+            }
+        }
         // --------------------------------------------------
 
         i++;
     }
 
+    H.setFromTriplets(triplets.begin(), triplets.end());
     H.makeCompressed();
     return H;
 }
