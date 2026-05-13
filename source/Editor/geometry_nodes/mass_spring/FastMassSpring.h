@@ -1,4 +1,5 @@
 #pragma once
+#include <Eigen/Sparse>
 #include <memory>
 
 #include "MassSpring.h"
@@ -17,9 +18,13 @@ class FastMassSpring : public MassSpring {
         const float stiffness,
         const float h);
     void step() override;
-    unsigned max_iter = 100;  // (HW Optional) add UI for this parameter
+    unsigned max_iter =
+        10;  // (HW Optional) add UI for this parameter. 10 is recommended by
+             // the paper for real-time simulation.
 
    protected:
     // Custom variables, like prefactorized A
+    Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>>
+        solver;  // Pre-factorized Cholesky solver
 };
 }  // namespace USTC_CG::mass_spring
