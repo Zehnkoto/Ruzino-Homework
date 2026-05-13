@@ -41,7 +41,8 @@ void MassSpring::step()
     //----------------------------------------------------
     // (HW Optional) Bonus part: Sphere collision
     Eigen::MatrixXd acceleration_collision =
-        getSphereCollisionForce(sphere_center.cast<double>(), sphere_radius);
+        getSphereCollisionForce(sphere_center.cast<double>(), sphere_radius) /
+        mass_per_vertex;
     //----------------------------------------------------
 
     if (time_integrator == IMPLICIT_EULER) {
@@ -65,12 +66,19 @@ void MassSpring::step()
         H_g = M_h2 + H_elastic;
 
         // Compute grad_g
-        // grad_g = -M/h * vel - M * acc_ext + grad_E
+        // Add collision acceleration to the external acceleration for implicit
+        // integration
+        Eigen::Vector3d total_acc = acceleration_ext;
+
         Eigen::MatrixXd grad_E = computeGrad(stiffness);
         Eigen::MatrixXd grad_g_mat = Eigen::MatrixXd::Zero(X.rows(), X.cols());
         for (int i = 0; i < n_vertices; i++) {
+            // Include collision acceleration specific to each vertex
+            Eigen::Vector3d vertex_acc =
+                total_acc + acceleration_collision.row(i).transpose();
+
             grad_g_mat.row(i) = -(mass_per_vertex / h) * vel.row(i) -
-                                mass_per_vertex * acceleration_ext.transpose() +
+                                mass_per_vertex * vertex_acc.transpose() +
                                 grad_E.row(i);
         }
         Eigen::VectorXd grad_g_flatten = flatten(grad_g_mat);
@@ -275,6 +283,22 @@ Eigen::MatrixXd MassSpring::getSphereCollisionForce(
     Eigen::MatrixXd force = Eigen::MatrixXd::Zero(X.rows(), X.cols());
     for (int i = 0; i < X.rows(); i++) {
         // (HW Optional) Implement penalty-based force here
+        Eigen::Vector3d x_i = X.row(i);
+        Eigen::Vector3d dir = x_i - center;
+        double dist = dir.norm();
+
+        // Define the threshold radius for penalty force
+        double threshold = collision_scale_factor * radius;
+
+        // If the vertex penetrates the threshold boundary
+        if (dist < threshold && dist > 1e-6) {
+            Eigen::Vector3d n =
+                dir / dist;  // Outward normal from sphere center
+            // Penalty force magnitude
+            double magnitude = collision_penalty_k * (threshold - dist);
+            // Apply the force in the direction of the normal
+            force.row(i) = (magnitude * n).transpose();
+        }
     }
     return force;
 }
