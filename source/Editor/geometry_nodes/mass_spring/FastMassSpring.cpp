@@ -1,10 +1,14 @@
 #include "FastMassSpring.h"
 
+#include <chrono>
+#include <cmath>
+#include <fstream>
 #include <iostream>
 
 #include "utils.h"  // Assuming flatten/unflatten are defined here
 
 namespace USTC_CG::mass_spring {
+
 FastMassSpring::FastMassSpring(
     const Eigen::MatrixXd& X,
     const EdgeSet& E,
@@ -67,15 +71,31 @@ FastMassSpring::FastMassSpring(
 
     A.makeCompressed();
 
+    auto t_start = std::chrono::high_resolution_clock::now();
+
     // 4. Pre-factorize A matrix (This is the core of the speedup)
     solver.compute(A);
+
+    auto t_end = std::chrono::high_resolution_clock::now();
+    double precompute_ms =
+        std::chrono::duration_cast<std::chrono::microseconds>(t_end - t_start)
+            .count() /
+        1000.0;
+
     if (solver.info() != Eigen::Success) {
         std::cerr << "FastMassSpring: A matrix pre-factorization failed!"
                   << std::endl;
     }
     else {
-        std::cout << "FastMassSpring: A matrix pre-factorization succeeded!"
-                  << std::endl;
+        std::cout << "FastMassSpring: A matrix pre-factorization succeeded! "
+                  << "Time taken: " << precompute_ms << " ms." << std::endl;
+
+        // Use "./" prefix to explicitly output the CSV file to the current
+        // working directory
+        std::ofstream init_log("./liu13_init_perf_log.csv", std::ios::app);
+        init_log << "Vertices,Stiffness,PrefactorizeTime_ms\n";
+        init_log << n_vertices << "," << stiffness << "," << precompute_ms
+                 << "\n";
     }
 }
 
@@ -83,6 +103,27 @@ void FastMassSpring::step()
 {
     // (HW Optional) Necessary preparation
     TIC(step)
+
+    // Use "./" prefix to explicitly output the CSV files to the current working
+    // directory
+    static std::ofstream perf_log(
+        "./liu13_performance_log.csv", std::ios::out | std::ios::trunc);
+    static std::ofstream conv_log(
+        "./liu13_convergence_log.csv", std::ios::out | std::ios::trunc);
+    static std::ofstream energy_log(
+        "./liu13_energy_log.csv", std::ios::out | std::ios::trunc);
+    static int frame_count = 0;
+    static bool is_first_frame = true;
+
+    if (is_first_frame) {
+        perf_log << "Frame,TotalStepTime_ms,AvgIterTime_ms\n";
+        conv_log << "Frame,Iteration,Error\n";
+        energy_log
+            << "Frame,KineticEnergy,ElasticEnergy,GravityEnergy,TotalEnergy\n";
+        is_first_frame = false;
+    }
+
+    auto step_start_time = std::chrono::high_resolution_clock::now();
 
     unsigned n_vertices = X.rows();
     double mass_per_vertex = mass / n_vertices;
@@ -108,9 +149,12 @@ void FastMassSpring::step()
     // Initialize the current guess for the new positions
     Eigen::MatrixXd X_new = X;
 
+    double total_iter_time_ms = 0.0;
+
     for (unsigned iter = 0; iter < max_iter; iter++) {
-        // (HW Optional)
-        // local_step and global_step alternating solving
+        auto iter_start_time = std::chrono::high_resolution_clock::now();
+
+        Eigen::MatrixXd X_guess_before = X_new;
 
         // --- Local Step: Compute spring directions (d_i) and assemble Jd ---
         Eigen::MatrixXd Jd_mat = Eigen::MatrixXd::Zero(n_vertices, 3);
@@ -153,6 +197,21 @@ void FastMassSpring::step()
         // Extremely fast solve using the pre-factorized Cholesky solver
         Eigen::VectorXd X_new_flatten = solver.solve(b);
         X_new = unflatten(X_new_flatten);
+
+        auto iter_end_time = std::chrono::high_resolution_clock::now();
+        total_iter_time_ms +=
+            std::chrono::duration_cast<std::chrono::microseconds>(
+                iter_end_time - iter_start_time)
+                .count() /
+            1000.0;
+
+        double iter_error = 0.0;
+        for (int v = 0; v < n_vertices; v++) {
+            iter_error += (X_new.row(v) - X_guess_before.row(v)).norm();
+        }
+        iter_error /= n_vertices;
+
+        conv_log << frame_count << "," << iter << "," << iter_error << "\n";
     }
 
     // Update the final velocities and positions
@@ -166,6 +225,31 @@ void FastMassSpring::step()
             X.row(i) = X_new.row(i);
         }
     }
+
+    double kinetic_energy = 0.5 * mass_per_vertex * vel.squaredNorm();
+
+    double elastic_energy = computeEnergy(stiffness);
+
+    double gravity_energy = 0.0;
+    for (int i = 0; i < n_vertices; i++) {
+        gravity_energy -= mass_per_vertex * gravity.dot(X.row(i));
+    }
+
+    double total_energy = kinetic_energy + elastic_energy + gravity_energy;
+
+    energy_log << frame_count << "," << kinetic_energy << "," << elastic_energy
+               << "," << gravity_energy << "," << total_energy << "\n";
+
+    auto step_end_time = std::chrono::high_resolution_clock::now();
+    double step_ms = std::chrono::duration_cast<std::chrono::microseconds>(
+                         step_end_time - step_start_time)
+                         .count() /
+                     1000.0;
+    double avg_iter_ms = total_iter_time_ms / max_iter;
+
+    perf_log << frame_count << "," << step_ms << "," << avg_iter_ms << "\n";
+
+    frame_count++;
 
     TOC(step)
 }
