@@ -42,7 +42,7 @@ NODE_DECLARATION_FUNCTION(hw9_mass_spring)
         .min(1.0)
         .max(2.0);
     b.add_input<float>("sphere radius").default_val(0.4).min(0.0).max(5.0);
-    ;
+
     b.add_input<float>("sphere center x").default_val(0.0).min(-10.0).max(10.0);
     b.add_input<float>("sphere center y").default_val(0.0).min(-10.0).max(10.0);
     b.add_input<float>("sphere center z").default_val(0.0).min(-10.0).max(10.0);
@@ -60,6 +60,8 @@ NODE_DECLARATION_FUNCTION(hw9_mass_spring)
     // Optional switches
     b.add_input<int>("enable Liu13").default_val(0).min(0).max(1);
     b.add_input<int>("enable sphere collision").default_val(0).min(0).max(1);
+
+    b.add_input<int>("enable volume mesh").default_val(0).min(0).max(1);
 
     // Output
     b.add_output<Geometry>("Output Mesh");
@@ -89,9 +91,54 @@ NODE_EXECUTION_FUNCTION(hw9_mass_spring)
             if (mass_spring != nullptr)
                 mass_spring.reset();
 
-            auto edges = get_edges(usd_faces_to_eigen(
-                mesh->get_face_vertex_counts(),
-                mesh->get_face_vertex_indices()));
+            bool enable_volume =
+                params.get_input<int>("enable volume mesh") == 1;
+            EdgeSet edges;
+
+            if (enable_volume) {
+                auto counts = mesh->get_face_vertex_counts();
+                auto indices = mesh->get_face_vertex_indices();
+
+                Eigen::MatrixXi tet_faces(counts.size() * 4, 3);
+                int face_idx = 0;
+                int idx_offset = 0;
+
+                for (size_t i = 0; i < counts.size(); ++i) {
+                    if (counts[i] == 4) {
+                        int v0 = indices[idx_offset + 0];
+                        int v1 = indices[idx_offset + 1];
+                        int v2 = indices[idx_offset + 2];
+                        int v3 = indices[idx_offset + 3];
+
+                        tet_faces.row(face_idx++) = Eigen::Vector3i(v0, v1, v2);
+                        tet_faces.row(face_idx++) = Eigen::Vector3i(v0, v1, v3);
+                        tet_faces.row(face_idx++) = Eigen::Vector3i(v0, v2, v3);
+                        tet_faces.row(face_idx++) = Eigen::Vector3i(v1, v2, v3);
+                        idx_offset += 4;
+                    }
+                    else if (counts[i] == 3) {
+                        tet_faces.row(face_idx++) = Eigen::Vector3i(
+                            indices[idx_offset],
+                            indices[idx_offset + 1],
+                            indices[idx_offset + 2]);
+                        idx_offset += 3;
+                    }
+                    else {
+                        idx_offset += counts[i];  
+                    }
+                }
+                tet_faces.conservativeResize(face_idx, 3);  
+
+                edges = get_edges(tet_faces);
+                std::cout << "Mass Spring: Volume Mesh Enabled! Extracted "
+                          << edges.size() << " springs." << std::endl;
+            }
+            else {
+                edges = get_edges(usd_faces_to_eigen(
+                    mesh->get_face_vertex_counts(),
+                    mesh->get_face_vertex_indices()));
+            }
+
             auto vertices = usd_vertices_to_eigen(mesh->get_vertices());
             const float k = params.get_input<float>("stiffness");
             const float h = params.get_input<float>("h");
